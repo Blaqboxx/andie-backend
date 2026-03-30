@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>ANDIE Dashboard</title>
+</head>
+<body>
+  <h1>🧠 ANDIE Dashboard</h1>
+
+  <h2>Node Metrics</h2>
+  <div id="metrics"></div>
+
+  <script>
+  async function loadMetrics() {
+    const res = await fetch("http://127.0.0.1:8000/metrics");
+    const data = await res.json();
+    const container = document.getElementById("metrics");
+    container.innerHTML = "";
+    for (const node in data) {
+      const m = data[node];
+      let status = "🟢 Healthy";
+      if (m.fail > m.success) status = "🔴 Unstable";
+      else if (m.fail > 0) status = "🟡 Degraded";
+      container.innerHTML += `
+        <div style="border:1px solid #ccc; margin:10px; padding:10px;">
+          <h3>${node}</h3>
+          <p>Status: ${status}</p>
+          <p>Latency: ${m.latency}</p>
+          <p>Success: ${m.success}</p>
+          <p>Fail: ${m.fail}</p>
+        </div>
+      `;
+    }
+  }
+  setInterval(loadMetrics, 2000);
+  loadMetrics();
+  </script>
+</body>
+</html>
