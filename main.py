@@ -19,7 +19,7 @@ client = Groq(api_key=GROQ_API_KEY)
 
 # Request model (IMPORTANT)
 class AgentRequest(BaseModel):
-    task: str
+    input: str
 
 # Memory system
 @app.post("/agents/run")
@@ -29,7 +29,7 @@ def run_agent(request: AgentRequest):
 
         memory.append({
             "role": "user",
-            "content": request.task
+            "content": request.input
         })
 
         response = client.chat.completions.create(
@@ -66,7 +66,19 @@ def home():
 @app.post("/agents/run")
 def run_agent(request: AgentRequest):
     try:
-        task = request.task
+
+        # Support both 'task' and 'input' keys
+        task = getattr(request, 'task', None)
+        if not task:
+            task = getattr(request, 'input', None)
+        # If frontend sends simple input, convert it to structured task
+        if isinstance(task, str):
+            task = {
+                "type": "conversation",
+                "payload": {
+                    "message": task
+                }
+            }
 
         # Store user input
         conversation_history.append({
