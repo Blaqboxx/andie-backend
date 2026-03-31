@@ -1,8 +1,10 @@
 
+
 import random
 import requests
 import time
 import math
+from core.global_sentinel import analyze_nodes
 
 class NodeScheduler:
     def __init__(self, nodes):
@@ -29,7 +31,8 @@ class NodeScheduler:
         return True
 
     def get_healthy_nodes(self):
-        return [n for n in self.nodes if self.check_node(n) and self.is_node_available(n)]
+        sentinel_data = analyze_nodes()
+        return [n for n in self.nodes if self.check_node(n) and self.is_node_available(n) and sentinel_data.get(n, {}).get("status") != "blocked"]
 
     def _score(self, node):
         m = self.metrics.get(node, {"success": 1, "fail": 0, "latency": 100})

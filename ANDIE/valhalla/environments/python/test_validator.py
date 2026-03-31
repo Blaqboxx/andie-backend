@@ -1,4 +1,4 @@
-from valhalla.policy.validator import validate_code
+from ...policy.validator import validate_code
 
 safe_code = "print('hello world')"
 bad_code = "import os"
