@@ -1,0 +1,1036 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ANDIE // Neural Ops Console</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@300;400;500;600;700&family=Orbitron:wght@400;700;900&display=swap');
+
+  :root {
+    --phosphor: #00e0ff;
+    --phosphor-dim: #0090ff;
+    --phosphor-fade: rgba(0,224,255,0.10);
+    --phosphor-glow: rgba(0,224,255,0.45);
+    --phosphor-trace: rgba(0,224,255,0.07);
+    --bg-deep: #01010a;
+    --bg-panel: #0a0a18;
+    --bg-card: #111122;
+    --scanline: rgba(0,224,255,0.04);
+    --warn: #ffcc00;
+    --danger: #ff3b30;
+    --cyan: #00e0ff;
+    --border: rgba(0,224,255,0.18);
+  }
+
+
+  html, body {
+    height: 100vh;
+    min-height: 100vh;
+    max-height: 100vh;
+    width: 100vw;
+    min-width: 100vw;
+    max-width: 100vw;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    position: relative;
+    background: var(--bg-deep);
+    color: var(--phosphor);
+    font-family: 'Share Tech Mono', monospace;
+    text-shadow: 0 0 8px var(--phosphor-glow), 0 0 2px var(--phosphor);
+  }
+
+  .console, .panel-left, .panel-center, .panel-right {
+    min-height: 0;
+  }
+
+  .chat-panel {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+  }
+
+  .chat-messages {
+    flex: 1 1 0%;
+    min-height: 0;
+    max-height: 100%;
+    overflow-y: auto;
+  }
+
+  /* CRT scanlines overlay */
+  body::before {
+    content:'';
+    position: fixed;
+    inset: 0;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      var(--scanline) 2px,
+      var(--scanline) 4px
+    );
+    pointer-events: none;
+    z-index: 9999;
+    animation: scanroll 8s linear infinite;
+  }
+
+  /* Phosphor vignette */
+  body::after {
+    content:'';
+    position: fixed;
+    inset: 0;
+    background: radial-gradient(ellipse at center, transparent 50%, rgba(0,0,0,0.85) 100%);
+    pointer-events: none;
+    z-index: 9998;
+  }
+
+  @keyframes scanroll {
+    0% { background-position: 0 0; }
+    100% { background-position: 0 80px; }
+  }
+
+  /* ── LAYOUT ── */
+  .console {
+    display: grid;
+    grid-template-rows: 48px 1fr 44px;
+    grid-template-columns: 260px 1fr 280px;
+    height: 100vh;
+    gap: 1px;
+    background: var(--border);
+  }
+
+  /* ── HEADER ── */
+  .header {
+    grid-column: 1 / -1;
+    background: var(--bg-panel);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 16px;
+    border-bottom: 1px solid var(--border);
+    position: relative;
+    overflow: hidden;
+  }
+
+  .header::after {
+    content:'';
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--phosphor), transparent);
+    animation: sweep 3s ease-in-out infinite;
+  }
+
+  @keyframes sweep {
+    0%,100% { opacity:0.3; }
+    50% { opacity:1; }
+  }
+
+  .logo {
+    font-family: 'Orbitron', monospace;
+    font-weight: 900;
+    font-size: 18px;
+    letter-spacing: 0.3em;
+    text-shadow: 0 0 24px var(--phosphor-glow), 0 0 8px var(--phosphor);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    color: var(--phosphor);
+  }
+
+  .logo-badge {
+    width: 8px; height: 8px;
+    background: var(--phosphor);
+    border-radius: 50%;
+    box-shadow: 0 0 10px var(--phosphor), 0 0 20px var(--phosphor);
+    animation: pulse-dot 1.5s ease-in-out infinite;
+  }
+
+  @keyframes pulse-dot {
+    0%,100% { transform: scale(1); opacity:1; }
+    50% { transform: scale(1.4); opacity:0.6; }
+  }
+
+  .header-status {
+    display: flex;
+    gap: 24px;
+    align-items: center;
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    color: var(--phosphor-dim);
+  }
+
+  .status-item { display: flex; align-items: center; gap: 6px; }
+  .status-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--phosphor);
+    box-shadow: 0 0 6px var(--phosphor);
+    animation: pulse-dot 2s ease-in-out infinite;
+  }
+  .status-dot.warn { background: var(--warn); box-shadow: 0 0 6px var(--warn); }
+  .status-dot.off { background: #333; box-shadow: none; animation: none; }
+
+  .sys-time {
+    font-family: 'Orbitron', monospace;
+    font-size: 11px;
+    color: var(--phosphor);
+    letter-spacing: 0.15em;
+  }
+
+  /* ── LEFT PANEL: AGENTS ── */
+  .panel-left {
+    background: var(--bg-panel);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .panel-title {
+    font-family: 'Rajdhani', sans-serif;
+    font-weight: 700;
+    font-size: 10px;
+    letter-spacing: 0.3em;
+    color: var(--phosphor-dim);
+    padding: 10px 14px 8px;
+    border-bottom: 1px solid var(--border);
+    text-transform: uppercase;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .agent-list { padding: 8px; display: flex; flex-direction: column; gap: 6px; }
+
+  .agent-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 10px 12px;
+    cursor: pointer;
+    transition: all 0.2s;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .agent-card::before {
+    content:'';
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 3px;
+    background: var(--phosphor);
+    opacity: 0;
+    transition: opacity 0.2s;
+  }
+
+  .agent-card:hover { border-color: var(--phosphor-dim); background: rgba(0,255,65,0.04); }
+  .agent-card:hover::before { opacity: 0.5; }
+  .agent-card.active { border-color: var(--phosphor); background: var(--phosphor-fade); box-shadow: 0 0 16px var(--phosphor-glow); }
+  .agent-card.active::before { opacity: 1; }
+  .agent-card.idle .agent-status-badge { background: var(--phosphor-dim); opacity: 0.4; }
+  .agent-card.processing .agent-status-badge {
+    background: var(--warn);
+    box-shadow: 0 0 8px var(--warn);
+    animation: pulse-dot 0.8s ease-in-out infinite;
+  }
+
+  .agent-name {
+    font-family: 'Orbitron', monospace;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.15em;
+    margin-bottom: 4px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .agent-status-badge {
+    width: 5px; height: 5px;
+    border-radius: 50%;
+    background: var(--phosphor);
+    box-shadow: 0 0 6px var(--phosphor);
+    flex-shrink: 0;
+  }
+
+  .agent-role {
+    font-size: 9px;
+    color: var(--phosphor-dim);
+    letter-spacing: 0.1em;
+    margin-bottom: 6px;
+    opacity: 0.7;
+  }
+
+  .agent-bar-wrap { height: 2px; background: rgba(0,255,65,0.1); border-radius: 1px; }
+  .agent-bar {
+    height: 100%;
+    background: var(--phosphor);
+    border-radius: 1px;
+    box-shadow: 0 0 6px var(--phosphor);
+    transition: width 1s ease;
+  }
+
+  .agent-meta {
+    display: flex;
+    justify-content: space-between;
+    font-size: 8px;
+    color: rgba(0,255,65,0.4);
+    margin-top: 4px;
+  }
+
+  /* ── INTERNET TOGGLE ── */
+  .internet-toggle-section {
+    padding: 10px;
+    border-top: 1px solid var(--border);
+    margin-top: auto;
+  }
+
+  .toggle-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 10px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    cursor: pointer;
+  }
+
+  .toggle-label {
+    font-size: 9px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--phosphor-dim);
+  }
+
+  .toggle-switch {
+    width: 36px; height: 18px;
+    background: rgba(0,255,65,0.1);
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    position: relative;
+    transition: all 0.3s;
+    cursor: pointer;
+  }
+
+  .toggle-switch.on {
+    background: rgba(0,255,65,0.25);
+    border-color: var(--phosphor);
+    box-shadow: 0 0 10px var(--phosphor-glow);
+  }
+
+  .toggle-switch::after {
+    content:'';
+    position: absolute;
+    width: 12px; height: 12px;
+    background: var(--phosphor-dim);
+    border-radius: 50%;
+    top: 2px; left: 2px;
+    transition: all 0.3s;
+    box-shadow: 0 0 4px var(--phosphor);
+  }
+
+  .toggle-switch.on::after {
+    left: 20px;
+    background: var(--phosphor);
+    box-shadow: 0 0 10px var(--phosphor);
+  }
+
+  /* ── CENTER: MAIN AREA ── */
+  .panel-center {
+    display: grid;
+    grid-template-rows: 1fr 1fr;
+    background: var(--bg-panel);
+    gap: 1px;
+    background: var(--border);
+  }
+
+  /* Visual Layer */
+  .visual-layer {
+    background: var(--bg-panel);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    position: relative;
+  }
+
+  .viz-canvas {
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+    background: var(--bg-deep);
+  }
+
+  /* Neural network visualization */
+  .neural-viz {
+    position: absolute;
+    inset: 0;
+  }
+
+  .neural-viz canvas {
+    width: 100%;
+    height: 100%;
+  }
+
+  /* Vocal layer waveform */
+  .vocal-bar {
+    height: 56px;
+    background: var(--bg-card);
+    border-top: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 0 14px;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .vocal-icon {
+    font-size: 11px;
+    letter-spacing: 0.15em;
+    color: var(--phosphor-dim);
+    flex-shrink: 0;
+    font-family: 'Orbitron', monospace;
+  }
+
+  .waveform-wrap {
+    flex: 1;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+  }
+
+  .wave-bar {
+    flex: 1;
+    background: var(--phosphor);
+    border-radius: 1px;
+    box-shadow: 0 0 4px var(--phosphor-dim);
+    min-height: 2px;
+    transition: height 0.1s ease;
+  }
+
+  .vocal-controls {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    flex-shrink: 0;
+  }
+
+  .voc-btn {
+    width: 30px; height: 30px;
+    background: var(--bg-deep);
+    border: 1px solid var(--border);
+    border-radius: 50%;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    transition: all 0.2s;
+    color: var(--phosphor-dim);
+    font-family: 'Share Tech Mono', monospace;
+  }
+
+  .voc-btn:hover { border-color: var(--phosphor); color: var(--phosphor); box-shadow: 0 0 10px var(--phosphor-glow); }
+  .voc-btn.active { border-color: var(--phosphor); background: var(--phosphor-fade); color: var(--phosphor); box-shadow: 0 0 12px var(--phosphor-glow); }
+
+  .vocal-status {
+    font-size: 9px;
+    color: var(--phosphor-dim);
+    letter-spacing: 0.1em;
+    opacity: 0.6;
+    flex-shrink: 0;
+    min-width: 80px;
+    text-align: right;
+  }
+
+  /* Chat Window */
+  .chat-panel {
+    background: var(--bg-panel);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .chat-messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+  }
+
+  .chat-messages::-webkit-scrollbar { width: 3px; }
+  .chat-messages::-webkit-scrollbar-track { background: transparent; }
+  .chat-messages::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  .msg {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    max-width: 85%;
+  }
+
+  .msg.user { align-self: flex-end; align-items: flex-end; }
+  .msg.andie { align-self: flex-start; align-items: flex-start; }
+
+  .msg-meta {
+    font-size: 8px;
+    color: rgba(0,255,65,0.35);
+    letter-spacing: 0.1em;
+  }
+
+  .msg-bubble {
+    font-size: 11px;
+    line-height: 1.6;
+    padding: 8px 12px;
+    border-radius: 2px;
+    letter-spacing: 0.03em;
+  }
+
+  .msg.user .msg-bubble {
+    background: rgba(0,224,255,0.10);
+    border: 1px solid rgba(0,224,255,0.25);
+    color: var(--phosphor);
+    border-radius: 3px 0 3px 3px;
+    text-shadow: 0 0 8px var(--phosphor-glow);
+  }
+
+  .msg.andie .msg-bubble {
+    background: rgba(0,224,255,0.07);
+    border: 1px solid rgba(0,224,255,0.18);
+    color: var(--phosphor);
+    border-radius: 0 3px 3px 3px;
+    text-shadow: 0 0 8px var(--phosphor-glow);
+  }
+
+  .msg.system .msg-bubble {
+    background: transparent;
+    border: none;
+    color: rgba(0,255,65,0.3);
+    font-size: 9px;
+    letter-spacing: 0.15em;
+    text-align: center;
+    align-self: center;
+    padding: 2px 8px;
+  }
+
+  .msg.system { align-self: center; align-items: center; max-width: 100%; }
+
+  .typing-indicator {
+    display: flex;
+    gap: 4px;
+    padding: 8px 12px;
+    background: rgba(0,255,65,0.04);
+    border: 1px solid rgba(0,255,65,0.12);
+    border-radius: 0 3px 3px 3px;
+    width: fit-content;
+  }
+
+  .typing-dot {
+    width: 5px; height: 5px;
+    border-radius: 50%;
+    background: var(--phosphor);
+    animation: blink-dot 1.2s ease-in-out infinite;
+  }
+
+  .typing-dot:nth-child(2) { animation-delay: 0.2s; }
+  .typing-dot:nth-child(3) { animation-delay: 0.4s; }
+
+  @keyframes blink-dot {
+    0%,80%,100% { opacity: 0.2; transform: scale(0.8); }
+    40% { opacity: 1; transform: scale(1.2); }
+  }
+
+  .chat-input-row {
+    display: flex;
+    gap: 0;
+    border-top: 1px solid var(--border);
+    background: var(--bg-card);
+  }
+
+  .chat-input-row input {
+    flex: 1;
+    background: transparent;
+    border: none;
+    outline: none;
+    color: var(--phosphor);
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 11px;
+    padding: 12px 14px;
+    letter-spacing: 0.05em;
+  }
+
+  .chat-input-row input::placeholder {
+    color: rgba(0,255,65,0.2);
+    font-size: 10px;
+    letter-spacing: 0.1em;
+  }
+
+  .chat-send {
+    background: transparent;
+    border: none;
+    border-left: 1px solid var(--border);
+    color: var(--phosphor-dim);
+    font-family: 'Orbitron', monospace;
+    font-size: 9px;
+    letter-spacing: 0.15em;
+    padding: 0 16px;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .chat-send:hover { background: var(--phosphor-fade); color: var(--phosphor); }
+
+  /* ── RIGHT PANEL: VALHALLA ── */
+  .panel-right {
+    background: var(--bg-panel);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .valhalla-screen {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    padding: 10px;
+    gap: 6px;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+  }
+
+  .obs-block {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    padding: 8px 10px;
+    font-size: 9px;
+    line-height: 1.7;
+    letter-spacing: 0.04em;
+    color: rgba(0,255,65,0.65);
+    position: relative;
+    overflow: hidden;
+  }
+
+  .obs-block::before {
+    content: attr(data-tag);
+    position: absolute;
+    top: 5px; right: 8px;
+    font-size: 7px;
+    color: rgba(0,255,65,0.25);
+    letter-spacing: 0.2em;
+    font-family: 'Orbitron', monospace;
+  }
+
+  .obs-block.critical {
+    border-color: rgba(255,60,48,0.4);
+    color: rgba(255,200,0,0.8);
+    background: rgba(255,60,48,0.04);
+  }
+
+  .obs-block.highlight {
+    border-color: var(--phosphor-dim);
+    color: var(--phosphor);
+  }
+
+  .obs-block .obs-time {
+    color: rgba(0,255,65,0.3);
+    font-size: 8px;
+    margin-bottom: 2px;
+    letter-spacing: 0.15em;
+  }
+
+  /* Valhalla metrics grid */
+  .metrics-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 5px;
+    padding: 8px 10px;
+    border-top: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+
+  .metric-cell {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    padding: 8px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .metric-label {
+    font-size: 7px;
+    letter-spacing: 0.25em;
+    color: rgba(0,255,65,0.35);
+    text-transform: uppercase;
+  }
+
+  .metric-value {
+    font-family: 'Orbitron', monospace;
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--phosphor);
+    text-shadow: 0 0 12px var(--phosphor);
+    line-height: 1;
+  }
+
+  .metric-value.warn {
+    color: var(--warn);
+    text-shadow: 0 0 12px var(--warn);
+  }
+
+  .metric-sub {
+    font-size: 7px;
+    color: rgba(0,255,65,0.3);
+    letter-spacing: 0.1em;
+  }
+
+  /* ── FOOTER ── */
+  .footer {
+    grid-column: 1 / -1;
+    background: var(--bg-panel);
+    border-top: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    padding: 0 14px;
+    gap: 16px;
+    font-size: 8px;
+    letter-spacing: 0.15em;
+    color: rgba(0,255,65,0.3);
+  }
+
+  .footer-sep {
+    width: 1px;
+    height: 12px;
+    background: var(--border);
+    flex-shrink: 0;
+  }
+
+  .footer-scroll {
+    flex: 1;
+    overflow: hidden;
+    white-space: nowrap;
+  }
+
+  .footer-scroll span {
+    display: inline-block;
+    animation: scroll-text 20s linear infinite;
+  }
+
+  @keyframes scroll-text {
+    0% { transform: translateX(100%); }
+    100% { transform: translateX(-100%); }
+  }
+
+  /* Glitch effect on logo */
+  @keyframes glitch {
+    0%,94%,100% { text-shadow: 0 0 20px var(--phosphor), 0 0 40px var(--phosphor-dim); clip-path: none; }
+    95% { text-shadow: -2px 0 var(--cyan), 2px 0 var(--danger), 0 0 20px var(--phosphor); clip-path: inset(30% 0 30% 0); }
+    97% { text-shadow: 2px 0 var(--cyan), -2px 0 var(--danger), 0 0 20px var(--phosphor); clip-path: inset(60% 0 10% 0); }
+    99% { text-shadow: 0 0 20px var(--phosphor), 0 0 40px var(--phosphor-dim); clip-path: none; }
+  }
+
+  .logo-text { animation: glitch 8s ease-in-out infinite; }
+
+  /* Scroll log animation */
+  @keyframes fadeIn {
+    from { opacity:0; transform: translateY(4px); }
+    to { opacity:1; transform: translateY(0); }
+  }
+
+  .obs-block { animation: fadeIn 0.3s ease; }
+  .msg { animation: fadeIn 0.2s ease; }
+
+
+  /* Selected agent indicator */
+  .active-agent-label {
+    font-size: 8px;
+    letter-spacing: 0.2em;
+    color: var(--phosphor);
+    background: var(--phosphor-fade);
+    padding: 2px 7px;
+    border: 1px solid rgba(0,255,65,0.3);
+    border-radius: 2px;
+  }
+</style>
+</head>
+<body>
+<div class="console">
+  <!-- HEADER -->
+  <header class="header">
+    <div class="logo">
+      <div class="logo-badge"></div>
+      <span class="logo-text">ANDIE</span>
+      <span style="font-family:'Rajdhani',sans-serif;font-size:11px;font-weight:300;letter-spacing:0.4em;opacity:0.5;margin-top:2px">NEURAL OPS CONSOLE</span>
+    </div>
+    <div class="header-status">
+      <div class="status-item"><div class="status-dot"></div>CORE ONLINE</div>
+      <div class="status-item"><div class="status-dot" id="netDot"></div><span id="netLabel">NET: OFF</span></div>
+      <div class="status-item"><div class="status-dot warn"></div>VALHALLA ACTIVE</div>
+      <div class="status-item"><div class="status-dot"></div>SWARM: 3/5</div>
+      <div class="sys-time" id="sysTime">00:00:00</div>
+    </div>
+  </header>
+  <!-- LEFT PANEL: AGENTS -->
+  <aside class="panel-left">
+    <div class="panel-title">AGENT SWARM <span class="active-agent-label">3 ACTIVE</span></div>
+    <div class="agent-list">
+      <div class="agent-card active"><div class="agent-name"><div class="agent-status-badge"></div>NEXUS</div><div class="agent-role">ORCHESTRATOR // PRIMARY</div></div>
+      <div class="agent-card"><div class="agent-name"><div class="agent-status-badge processing"></div>ORACLE</div><div class="agent-role">REASONING // INFERENCE</div></div>
+      <div class="agent-card"><div class="agent-name"><div class="agent-status-badge"></div>HERALD</div><div class="agent-role">LANGUAGE // OUTPUT</div></div>
+      <div class="agent-card idle"><div class="agent-name"><div class="agent-status-badge" style="background:#333;box-shadow:none;animation:none"></div>CIPHER</div><div class="agent-role">SECURITY // STANDBY</div></div>
+      <div class="agent-card idle"><div class="agent-name"><div class="agent-status-badge" style="background:#333;box-shadow:none;animation:none"></div>WRAITH</div><div class="agent-role">WEB SCRAPE // STANDBY</div></div>
+    </div>
+    <div class="internet-toggle-section">
+      <div class="toggle-row">
+        <div>
+          <div class="toggle-label">INTERNET ACCESS</div>
+          <div style="font-size:8px;color:rgba(0,255,65,0.3);letter-spacing:0.1em;margin-top:2px" id="netStatus">WRAITH AGENT: OFFLINE</div>
+        </div>
+        <div class="toggle-switch" id="netToggle"></div>
+      </div>
+    </div>
+  </aside>
+  <!-- CENTER: VISUAL + CHAT -->
+  <main class="panel-center">
+    <div class="visual-layer">
+      <div class="panel-title">VISUAL LAYER // NEURAL MAP <span style="font-size:8px;color:rgba(0,255,65,0.4)">REAL-TIME</span></div>
+      <div class="viz-canvas"><canvas id="neuralCanvas"></canvas></div>
+      <div class="vocal-bar">
+        <div class="vocal-icon">VOCAL</div>
+        <div class="waveform-wrap" id="waveform"></div>
+        <div class="vocal-controls">
+          <button class="voc-btn" id="micBtn">🎙</button>
+          <button class="voc-btn active" id="speakBtn">🔊</button>
+          <button class="voc-btn" id="ttsBtn">EL</button>
+        </div>
+        <div class="vocal-status" id="vocalStatus">STANDBY</div>
+      </div>
+    </div>
+    <div class="chat-panel">
+      <div class="panel-title">COMM CHANNEL <span style="font-size:8px;color:rgba(0,255,65,0.4)" id="agentTarget">→ NEXUS</span></div>
+      <div class="chat-messages" id="chatMessages">
+        <div class="msg system"><div class="msg-bubble">// SESSION INITIALIZED // SWARM READY //</div></div>
+        <div class="msg andie"><div class="msg-meta">ANDIE · NEXUS · 00:00:01</div><div class="msg-bubble">Neural ops console online. All primary systems nominal. Awaiting directive, operator.</div></div>
+      </div>
+      <div class="chat-input-row">
+        <input type="text" id="chatInput" placeholder="ENTER DIRECTIVE // PRESS RETURN TO TRANSMIT">
+        <button class="chat-send">TRANSMIT</button>
+      </div>
+    </div>
+  </main>
+  <!-- RIGHT: VALHALLA -->
+  <aside class="panel-right">
+    <div class="panel-title">VALHALLA // OBS <span style="font-size:8px;color:rgba(0,255,65,0.4)" id="obsCount">LOG: 0</span></div>
+    <div class="valhalla-screen" id="valhalla"></div>
+    <div class="metrics-grid">
+      <div class="metric-cell"><div class="metric-label">TOKENS/SEC</div><div class="metric-value" id="tokRate">—</div><div class="metric-sub">THROUGHPUT</div></div>
+      <div class="metric-cell"><div class="metric-label">LATENCY</div><div class="metric-value warn" id="latVal">—</div><div class="metric-sub">MS LAST CALL</div></div>
+      <div class="metric-cell"><div class="metric-label">DECISIONS</div><div class="metric-value" id="decCount">0</div><div class="metric-sub">THIS SESSION</div></div>
+      <div class="metric-cell"><div class="metric-label">CONFIDENCE</div><div class="metric-value" id="confVal">—</div><div class="metric-sub">LAST RESPONSE</div></div>
+    </div>
+  </aside>
+  <!-- FOOTER -->
+  <footer class="footer">
+    <span>ANDIE v3.0</span>
+    <div class="footer-sep"></div>
+    <span>CLAUDE API</span>
+    <div class="footer-sep"></div>
+    <span id="sessionId">SESSION: —</span>
+    <div class="footer-sep"></div>
+    <div class="footer-scroll"><span>AUTONOMOUS NEURAL DECISION INTELLIGENCE ENGINE // FIVE-AGENT SWARM ARCHITECTURE // CLAUDE API BACKEND // ELEVENLABS TTS // WEB SPEECH API // VALHALLA OBSERVATION LAYER // BLAQBOXX BUILD 2026 //</span></div>
+  </footer>
+</div>
+<script>
+// --- Internet toggle wiring ---
+const netToggle = document.getElementById('netToggle');
+const netStatus = document.getElementById('netStatus');
+const netDot = document.getElementById('netDot');
+let netOn = false;
+netToggle.addEventListener('click', async () => {
+  netOn = !netOn;
+  netToggle.classList.toggle('on', netOn);
+  netDot.style.background = netOn ? 'var(--phosphor)' : '';
+  netStatus.textContent = netOn ? 'WRAITH AGENT: ONLINE' : 'WRAITH AGENT: OFFLINE';
+  document.getElementById('netLabel').textContent = netOn ? 'NET: ON' : 'NET: OFF';
+  appendMsg('system', netOn ? '// INTERNET ENABLED //' : '// INTERNET DISABLED //');
+  try {
+    await fetch('/agents/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ task: netOn ? 'ENABLE INTERNET' : 'DISABLE INTERNET' })
+    });
+  } catch (err) {
+    appendMsg('system', `// ERROR: ${err.message} //`);
+  }
+});
+
+// --- Vocal controls wiring ---
+const micBtn = document.getElementById('micBtn');
+const speakBtn = document.getElementById('speakBtn');
+const ttsBtn = document.getElementById('ttsBtn');
+const vocalStatus = document.getElementById('vocalStatus');
+
+micBtn.addEventListener('click', async () => {
+  micBtn.classList.toggle('active');
+  vocalStatus.textContent = micBtn.classList.contains('active') ? 'MIC ON' : 'STANDBY';
+  appendMsg('system', micBtn.classList.contains('active') ? '// MIC ACTIVATED //' : '// MIC DEACTIVATED //');
+  try {
+    await fetch('/agents/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ task: micBtn.classList.contains('active') ? 'MIC ON' : 'MIC OFF' })
+    });
+  } catch (err) {
+    appendMsg('system', `// ERROR: ${err.message} //`);
+  }
+});
+
+speakBtn.addEventListener('click', async () => {
+  speakBtn.classList.toggle('active');
+  vocalStatus.textContent = speakBtn.classList.contains('active') ? 'SPEAKER ON' : 'STANDBY';
+  appendMsg('system', speakBtn.classList.contains('active') ? '// SPEAKER ENABLED //' : '// SPEAKER DISABLED //');
+  try {
+    await fetch('/agents/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ task: speakBtn.classList.contains('active') ? 'SPEAKER ON' : 'SPEAKER OFF' })
+    });
+  } catch (err) {
+    appendMsg('system', `// ERROR: ${err.message} //`);
+  }
+});
+
+ttsBtn.addEventListener('click', async () => {
+  ttsBtn.classList.toggle('active');
+  vocalStatus.textContent = ttsBtn.classList.contains('active') ? 'TTS ON' : 'STANDBY';
+  appendMsg('system', ttsBtn.classList.contains('active') ? '// TTS ENABLED //' : '// TTS DISABLED //');
+  try {
+    await fetch('/agents/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ task: ttsBtn.classList.contains('active') ? 'TTS ON' : 'TTS OFF' })
+    });
+  } catch (err) {
+    appendMsg('system', `// ERROR: ${err.message} //`);
+  }
+});
+// --- Utility: Append message to chat ---
+function appendMsg(role, text, agent = 'NEXUS') {
+  const chatMessages = document.getElementById('chatMessages');
+  const now = new Date();
+  const ts = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}:${String(now.getSeconds()).padStart(2,'0')}`;
+  const div = document.createElement('div');
+  div.className = 'msg ' + role;
+  if (role === 'system') {
+    div.innerHTML = `<div class="msg-bubble">${text}</div>`;
+  } else {
+    const who = role === 'user' ? 'OPERATOR' : ('ANDIE · ' + agent);
+    div.innerHTML = `<div class="msg-meta">${who} · ${ts}</div><div class="msg-bubble">${text}</div>`;
+  }
+  chatMessages.appendChild(div);
+  chatMessages.scrollTop = chatMessages.scrollHeight;
+  return div;
+}
+
+// --- Autoload: Trigger backend on page load ---
+window.addEventListener('DOMContentLoaded', async () => {
+  const chatMessages = document.getElementById('chatMessages');
+  const inputTask = 'SYSTEM STATUS CHECK';
+  const loadingDiv = appendMsg('system', '// CONTACTING ANDIE CORE //');
+  try {
+    const res = await fetch('/agents/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ task: inputTask })
+    });
+    const data = await res.json();
+    console.log('[ANDIE DEBUG] Backend response:', data);
+    loadingDiv.remove();
+    if (typeof data.result === 'string' && data.result.length > 0) {
+      appendMsg('andie', data.result);
+    } else if (data && data.result) {
+      appendMsg('andie', JSON.stringify(data.result));
+    } else {
+      appendMsg('andie', '[No response]');
+    }
+    // Show context/history in the UI
+    if (Array.isArray(data.context)) {
+      const hist = data.context.map(entry => `<div><b>Input:</b> ${entry.input}<br><b>Result:</b> ${entry.result}</div>`).join('<hr style="border:0;border-top:1px solid var(--border);margin:4px 0">');
+      appendMsg('system', `<div style="font-size:10px;opacity:0.7"><b>Context History:</b><br>${hist}</div>`);
+    }
+  } catch (err) {
+    loadingDiv.remove();
+    appendMsg('system', `// ERROR: ${err.message} //`);
+  }
+});
+
+// --- Chat input wiring ---
+function sendChat() {
+  const input = document.getElementById('chatInput');
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = '';
+  appendMsg('user', text);
+  const loadingDiv = appendMsg('system', '// PROCESSING //');
+  fetch('/agents/run', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ task: text })
+  })
+    .then(res => res.json())
+    .then(data => {
+      console.log('[ANDIE DEBUG] Backend response:', data);
+      loadingDiv.remove();
+      if (typeof data.result === 'string' && data.result.length > 0) {
+        appendMsg('andie', data.result);
+      } else if (data && data.result) {
+        appendMsg('andie', JSON.stringify(data.result));
+      } else {
+        appendMsg('andie', '[No response]');
+      }
+      // Show context/history in the UI
+      if (Array.isArray(data.context)) {
+        const hist = data.context.map(entry => `<div><b>Input:</b> ${entry.input}<br><b>Result:</b> ${entry.result}</div>`).join('<hr style="border:0;border-top:1px solid var(--border);margin:4px 0">');
+        appendMsg('system', `<div style=\"font-size:10px;opacity:0.7\"><b>Context History:</b><br>${hist}</div>`);
+      }
+    })
+    .catch(err => {
+      loadingDiv.remove();
+      appendMsg('system', `// ERROR: ${err.message} //`);
+    });
+}
+document.querySelector('.chat-send').onclick = sendChat;
+document.getElementById('chatInput').addEventListener('keydown', e => {
+  if (e.key === 'Enter') sendChat();
+});
+
+// --- Agent selection wiring ---
+document.querySelectorAll('.agent-card').forEach(card => {
+  card.addEventListener('click', () => {
+    document.querySelectorAll('.agent-card').forEach(c => c.classList.remove('active'));
+    card.classList.add('active');
+    const agent = card.textContent.trim().split('\n')[0];
+    document.getElementById('agentTarget').textContent = '→ ' + agent;
+    appendMsg('system', `// SWITCHING TO AGENT: ${agent} //`);
+    // Optionally, notify backend of agent switch
+    fetch('/agents/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ task: `SWITCH AGENT ${agent}` })
+    });
+  });
+});
+</script>
+</body>
+</html>

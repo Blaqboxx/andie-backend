@@ -1,0 +1,804 @@
+INFO:     Started server process [261283]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [261283]
+INFO:     Started server process [261405]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [261405]
+INFO:     Started server process [261426]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [261426]
+INFO:     Started server process [261463]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [261463]
+INFO:     Started server process [261499]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [261499]
+INFO:     Started server process [261530]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [261530]
+INFO:     Started server process [261565]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [261565]
+INFO:     Started server process [261604]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [261604]
+INFO:     Started server process [261643]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [261643]
+INFO:     Started server process [261672]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [261672]
+INFO:     Started server process [261710]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [261710]
+INFO:     Started server process [261755]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [261755]
+INFO:     Started server process [261793]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [261793]
+INFO:     Started server process [261823]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [261823]
+INFO:     Started server process [261851]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [261851]
+INFO:     Started server process [261898]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [261898]
+INFO:     Started server process [261935]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [261935]
+INFO:     Started server process [261971]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [261971]
+INFO:     Started server process [262559]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [262559]
+✅ LLM ENGINE ACTIVE
+[ANDIE ENV] All required packages present.
+[ANDIE ENV] Using Python: /home/jamai-jamison/valhalla/andie-backend/venv/bin/python3
+[ANDIE ENV] requirements.txt updated at /home/jamai-jamison/valhalla/andie-backend/andie_core/../requirements.txt
+🔥 ANDIE Autonomous Daemon Started
+🧠 ANDIE scanning system...
+🟡 No actionable error detected
+🧠 ANDIE scanning system...
+🟡 No actionable error detected
+🧠 ANDIE scanning system...
+🟡 No actionable error detected
+🧠 ANDIE scanning system...
+🟡 No actionable error detected
+🧠 ANDIE scanning system...
+🟡 No actionable error detected
+🧠 ANDIE scanning system...
+🟡 No actionable error detected
+🧠 ANDIE scanning system...
+🟡 No actionable error detected
+🧠 ANDIE scanning system...
+🟡 No actionable error detected
+🧠 ANDIE scanning system...
+🟡 No actionable error detected
+🧠 ANDIE scanning system...
+🟡 No actionable error detected
+🧠 ANDIE scanning system...
+🟡 No actionable error detected
+INFO:     Started server process [264337]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [264337]
+INFO:     Started server process [265964]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [265964]
+✅ LLM ENGINE ACTIVE
+[ANDIE ENV] All required packages present.
+[ANDIE ENV] Using Python: /home/jamai-jamison/valhalla/andie-backend/venv/bin/python3
+[ANDIE ENV] requirements.txt updated at /home/jamai-jamison/valhalla/andie-backend/andie_core/../requirements.txt
+🔥 ANDIE Autonomous Daemon Started
+🧠 ANDIE scanning system...
+🟡 No actionable error detected
+🧠 ANDIE scanning system...
+🟡 No actionable error detected
+🧠 ANDIE scanning system...
+🟡 No actionable error detected
+🧠 ANDIE scanning system...
+🟡 No actionable error detected
+🧠 ANDIE scanning system...
+🟡 No actionable error detected
+🧠 ANDIE scanning system...
+🟡 No actionable error detected
+✅ LLM ENGINE ACTIVE
+[ANDIE] Orchestration started. Agents running...
+✅ [STATE] HEALTHY | Score: 100 | CPU: 50.0% | MEM: 52.4% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 15.4% | MEM: 52.4% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+[ORCHESTRATOR] Report from cryptonia_agent: {'cryptonia_status': 'started', 'pid': 289859}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 8.3% | MEM: 52.4% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 11.7% | MEM: 52.4% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 21.4% | MEM: 53.3% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 28.7% | MEM: 54.1% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 8.3% | MEM: 54.1% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 6.1% | MEM: 54.1% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 12.4% | MEM: 52.7% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 6.9% | MEM: 52.7% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 9.4% | MEM: 52.7% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 8.2% | MEM: 52.7% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 4.3% | MEM: 52.7% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 11.7% | MEM: 52.7% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 3.9% | MEM: 52.7% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 9.1% | MEM: 52.7% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 5.9% | MEM: 52.7% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 7.9% | MEM: 52.7% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 3.7% | MEM: 52.7% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 7.7% | MEM: 52.7% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 10.4% | MEM: 52.7% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 3.9% | MEM: 52.7% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 8.7% | MEM: 52.7% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 3.9% | MEM: 52.7% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 33.4% | MEM: 54.4% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 16.8% | MEM: 54.3% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 26.2% | MEM: 54.0% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 8.9% | MEM: 54.0% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 8.3% | MEM: 52.6% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 8.6% | MEM: 52.6% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 4.3% | MEM: 52.6% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 37.2% | MEM: 53.1% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 5.6% | MEM: 53.0% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 8.3% | MEM: 53.0% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 3.8% | MEM: 53.0% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 9.8% | MEM: 53.0% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 4.3% | MEM: 53.0% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 12.5% | MEM: 53.0% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 8.9% | MEM: 53.0% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 10.4% | MEM: 52.6% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 8.0% | MEM: 52.6% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 3.8% | MEM: 52.6% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 7.5% | MEM: 52.6% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 3.8% | MEM: 52.6% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 11.3% | MEM: 52.6% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 3.6% | MEM: 52.6% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 8.1% | MEM: 52.6% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 8.0% | MEM: 52.6% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 4.3% | MEM: 52.6% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 12.0% | MEM: 52.6% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 3.8% | MEM: 52.6% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 9.2% | MEM: 52.6% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 3.5% | MEM: 52.5% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 9.1% | MEM: 52.5% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 6.7% | MEM: 52.5% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 5.3% | MEM: 52.5% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 12.8% | MEM: 52.5% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 4.0% | MEM: 52.5% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 8.1% | MEM: 52.5% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 3.7% | MEM: 52.5% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 8.5% | MEM: 52.5% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 9.1% | MEM: 52.5% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+[ORCHESTRATOR] Report from cryptonia_agent: {'cryptonia_status': 'started', 'pid': 291235}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 7.7% | MEM: 52.5% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 8.9% | MEM: 52.5% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 3.5% | MEM: 52.5% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 13.1% | MEM: 52.5% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 3.7% | MEM: 52.5% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 7.9% | MEM: 52.5% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 40.5% | MEM: 53.9% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 18.8% | MEM: 53.9% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 35.4% | MEM: 53.9% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 36.6% | MEM: 54.1% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 34.1% | MEM: 54.3% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 12.3% | MEM: 54.3% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 11.5% | MEM: 54.4% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 30.8% | MEM: 54.4% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 22.1% | MEM: 53.9% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 12.2% | MEM: 53.9% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 14.2% | MEM: 54.0% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 36.1% | MEM: 54.5% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 14.6% | MEM: 54.5% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 4.1% | MEM: 54.5% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 13.0% | MEM: 54.5% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 8.6% | MEM: 53.1% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 4.0% | MEM: 53.1% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 11.5% | MEM: 53.1% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 4.1% | MEM: 53.1% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 9.0% | MEM: 53.1% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 3.8% | MEM: 53.1% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 9.7% | MEM: 53.1% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 5.5% | MEM: 53.1% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 6.3% | MEM: 53.1% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 8.8% | MEM: 53.1% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 8.0% | MEM: 53.1% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 9.9% | MEM: 53.1% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 3.8% | MEM: 53.1% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 8.5% | MEM: 53.1% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 7.8% | MEM: 53.1% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 7.8% | MEM: 53.1% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 10.7% | MEM: 53.1% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 4.2% | MEM: 53.1% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 7.9% | MEM: 53.1% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 4.2% | MEM: 53.1% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 9.6% | MEM: 53.1% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 5.0% | MEM: 53.1% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 8.4% | MEM: 53.1% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 4.5% | MEM: 53.1% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 11.3% | MEM: 53.1% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 9.5% | MEM: 53.1% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 7.7% | MEM: 53.1% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 8.0% | MEM: 53.1% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 4.8% | MEM: 53.1% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 7.9% | MEM: 53.1% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 3.7% | MEM: 53.1% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 9.4% | MEM: 53.1% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 8.4% | MEM: 53.1% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 5.8% | MEM: 53.1% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 8.2% | MEM: 53.1% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 3.9% | MEM: 53.1% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 8.0% | MEM: 53.1% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 4.6% | MEM: 53.1% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 11.8% | MEM: 53.1% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 6.3% | MEM: 53.1% | LLM: ACTIVE
+[ORCHESTRATOR] Report from cryptonia_agent: {'cryptonia_status': 'started', 'pid': 292876}
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 7.4% | MEM: 53.1% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 7.7% | MEM: 53.1% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 3.8% | MEM: 53.1% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 8.2% | MEM: 53.1% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 4.4% | MEM: 53.1% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 7.9% | MEM: 53.1% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 4.0% | MEM: 53.1% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 7.8% | MEM: 53.1% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 7.8% | MEM: 53.1% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 4.0% | MEM: 53.1% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 11.4% | MEM: 53.1% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 3.8% | MEM: 53.1% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 9.5% | MEM: 53.1% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 6.0% | MEM: 53.1% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 8.3% | MEM: 53.1% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 9.6% | MEM: 53.1% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 5.0% | MEM: 53.1% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 10.3% | MEM: 53.1% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 3.7% | MEM: 53.1% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 9.6% | MEM: 53.1% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 3.4% | MEM: 53.1% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 8.7% | MEM: 53.1% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 7.3% | MEM: 53.1% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 8.0% | MEM: 53.1% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 9.0% | MEM: 53.1% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 3.9% | MEM: 53.1% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 7.9% | MEM: 53.1% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 3.9% | MEM: 53.1% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 16.3% | MEM: 53.1% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 31.2% | MEM: 54.7% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 35.0% | MEM: 54.9% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 17.9% | MEM: 54.9% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 21.8% | MEM: 55.0% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 21.7% | MEM: 55.0% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+⚠️  [STATE] DEGRADED | Score: 70 | CPU: 83.4% | MEM: 55.3% | LLM: ACTIVE
+[ORCHESTRATOR] System is degraded. Monitoring closely.
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 30.0% | MEM: 55.4% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 10.6% | MEM: 55.4% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 40.6% | MEM: 55.4% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 6.4% | MEM: 54.0% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 15.6% | MEM: 54.0% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 90 | CPU: 53.5% | MEM: 52.0% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 10.8% | MEM: 52.0% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 46.3% | MEM: 53.7% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 21.5% | MEM: 53.7% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 12.7% | MEM: 53.9% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 9.7% | MEM: 53.9% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 12.5% | MEM: 53.9% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 5.2% | MEM: 52.5% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 8.7% | MEM: 52.6% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 7.4% | MEM: 52.6% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 4.9% | MEM: 52.6% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 36.1% | MEM: 54.2% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 10.7% | MEM: 54.2% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 32.8% | MEM: 54.0% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 7.8% | MEM: 54.0% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 8.4% | MEM: 54.0% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 4.6% | MEM: 52.8% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 11.6% | MEM: 52.8% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 9.0% | MEM: 52.8% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 6.2% | MEM: 52.8% | LLM: ACTIVE
+[ORCHESTRATOR] Report from cryptonia_agent: {'cryptonia_status': 'started', 'pid': 294381}
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 7.9% | MEM: 52.8% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 10.3% | MEM: 52.8% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 7.9% | MEM: 52.8% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 3.9% | MEM: 52.8% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 9.0% | MEM: 52.8% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 8.2% | MEM: 52.8% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 8.1% | MEM: 52.8% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 8.4% | MEM: 52.8% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 4.7% | MEM: 52.8% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 12.0% | MEM: 52.8% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 4.3% | MEM: 52.8% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 9.6% | MEM: 52.8% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 5.0% | MEM: 52.8% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 9.3% | MEM: 52.8% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 11.2% | MEM: 52.8% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 4.6% | MEM: 52.8% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 8.8% | MEM: 52.8% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 3.9% | MEM: 52.8% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 10.5% | MEM: 52.8% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 20.5% | MEM: 52.9% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 22.3% | MEM: 53.1% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 26.1% | MEM: 54.5% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 24.0% | MEM: 54.7% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 27.9% | MEM: 54.8% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 7.4% | MEM: 54.7% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 12.3% | MEM: 54.7% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 5.4% | MEM: 53.5% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 26.8% | MEM: 53.4% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 4.0% | MEM: 53.4% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 10.1% | MEM: 53.4% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 8.2% | MEM: 53.4% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 5.1% | MEM: 53.4% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 11.0% | MEM: 53.4% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 27.9% | MEM: 54.5% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 27.9% | MEM: 54.9% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+⚠️  [STATE] DEGRADED | Score: 70 | CPU: 88.9% | MEM: 54.8% | LLM: ACTIVE
+[ORCHESTRATOR] System is degraded. Monitoring closely.
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 36.5% | MEM: 54.7% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 8.6% | MEM: 54.7% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 8.7% | MEM: 53.2% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 10.0% | MEM: 53.2% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 3.8% | MEM: 53.2% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 9.7% | MEM: 53.2% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 4.0% | MEM: 53.2% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 8.3% | MEM: 53.2% | LLM: ACTIVE
+Traceback (most recent call last):
+  File "/home/jamai-jamison/valhalla/andie-backend/venv/lib/python3.12/site-packages/psutil/_pslinux.py", line 1593, in wrapper
+    return fun(self, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/jamai-jamison/valhalla/andie-backend/venv/lib/python3.12/site-packages/psutil/_common.py", line 377, in wrapper
+    raise err from None
+  File "/home/jamai-jamison/valhalla/andie-backend/venv/lib/python3.12/site-packages/psutil/_common.py", line 375, in wrapper
+    return fun(self)
+           ^^^^^^^^^
+  File "/home/jamai-jamison/valhalla/andie-backend/venv/lib/python3.12/site-packages/psutil/_pslinux.py", line 1683, in _parse_stat_file
+    data = bcat(f"{self._procfs_path}/{self.pid}/stat")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/jamai-jamison/valhalla/andie-backend/venv/lib/python3.12/site-packages/psutil/_common.py", line 730, in bcat
+    return cat(fname, fallback=fallback, _open=open_binary)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/jamai-jamison/valhalla/andie-backend/venv/lib/python3.12/site-packages/psutil/_common.py", line 718, in cat
+    with _open(fname) as f:
+         ^^^^^^^^^^^^
+  File "/home/jamai-jamison/valhalla/andie-backend/venv/lib/python3.12/site-packages/psutil/_common.py", line 682, in open_binary
+    return open(fname, "rb", buffering=FILE_READ_BUFFER_SIZE)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: '/proc/293210/stat'
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/home/jamai-jamison/valhalla/andie-backend/andie_core/launch_andie_agents.py", line 27, in <module>
+    asyncio.run(main())
+  File "/usr/lib/python3.12/asyncio/runners.py", line 194, in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/asyncio/base_events.py", line 687, in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+  File "/home/jamai-jamison/valhalla/andie-backend/andie_core/launch_andie_agents.py", line 24, in main
+    await orchestrator.run_all()
+  File "/home/jamai-jamison/valhalla/andie-backend/andie_core/orchestrator.py", line 92, in run_all
+    await asyncio.gather(*(agent.run() for agent in self.agents))
+  File "/home/jamai-jamison/valhalla/andie-backend/agents/process_agent.py", line 14, in run
+    found = any(self.process_name in p.name() for p in psutil.process_iter())
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/jamai-jamison/valhalla/andie-backend/agents/process_agent.py", line 14, in <genexpr>
+    found = any(self.process_name in p.name() for p in psutil.process_iter())
+                                     ^^^^^^^^
+  File "/home/jamai-jamison/valhalla/andie-backend/venv/lib/python3.12/site-packages/psutil/__init__.py", line 680, in name
+    name = self._proc.name()
+           ^^^^^^^^^^^^^^^^^
+  File "/home/jamai-jamison/valhalla/andie-backend/venv/lib/python3.12/site-packages/psutil/_pslinux.py", line 1593, in wrapper
+    return fun(self, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/jamai-jamison/valhalla/andie-backend/venv/lib/python3.12/site-packages/psutil/_pslinux.py", line 1740, in name
+    return decode(self._parse_stat_file()['name'])
+                  ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/jamai-jamison/valhalla/andie-backend/venv/lib/python3.12/site-packages/psutil/_pslinux.py", line 1605, in wrapper
+    raise NoSuchProcess(pid, name) from err
+psutil.NoSuchProcess: process no longer exists (pid=293210, name='kworker/1:1-cgroup_free')
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 5.8% | MEM: 53.2% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 11.8% | MEM: 53.1% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 7.4% | MEM: 53.1% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 6.1% | MEM: 53.1% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 8.7% | MEM: 53.1% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 5.1% | MEM: 53.1% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 9.7% | MEM: 53.1% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 11.2% | MEM: 53.1% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 31.6% | MEM: 54.4% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 14.5% | MEM: 54.4% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 17.1% | MEM: 54.4% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 12.6% | MEM: 54.4% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 6.5% | MEM: 54.4% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 14.1% | MEM: 53.2% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 23.4% | MEM: 52.7% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 7.4% | MEM: 52.7% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 3.2% | MEM: 52.7% | LLM: ACTIVE
+[ORCHESTRATOR] Report from cryptonia_agent: {'cryptonia_status': 'started', 'pid': 295782}
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 6.2% | MEM: 52.7% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 6.7% | MEM: 52.7% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 3.7% | MEM: 52.7% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 6.1% | MEM: 52.7% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 2.0% | MEM: 52.7% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 6.3% | MEM: 52.7% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 2.3% | MEM: 52.7% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 10.0% | MEM: 52.7% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 1.8% | MEM: 52.7% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 7.2% | MEM: 52.7% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 6.3% | MEM: 52.7% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 1.8% | MEM: 52.7% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 5.8% | MEM: 52.7% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 3.7% | MEM: 52.7% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 6.7% | MEM: 52.7% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 3.6% | MEM: 52.7% | LLM: ACTIVE
+[ORCHESTRATOR] Report from process_agent: {'process_running': False}
+✅ [STATE] HEALTHY | Score: 100 | CPU: 6.7% | MEM: 52.7% | LLM: ACTIVE
+✅ [STATE] HEALTHY | Score: 100 | CPU: 8.3% | MEM: 52.7% | LLM: ACTIVE

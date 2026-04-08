@@ -1,0 +1,850 @@
+{
+  "history": [
+    {
+      "id": "bfc8e656-5b36-4226-850b-6154a02fc035",
+      "task": "heartbeat",
+      "agent": "ANDIE",
+      "tool": "daemon",
+      "result": "OK",
+      "status": "ok",
+      "timestamp": 1775530921.1199033
+    },
+    {
+      "id": "76c53dbb-6f34-439c-9518-2dadb4a874ab",
+      "task": "heartbeat",
+      "agent": "ANDIE",
+      "tool": "daemon",
+      "result": "OK",
+      "status": "ok",
+      "timestamp": 1775530926.1210687
+    },
+    {
+      "id": "aa4a2142-c757-499c-8296-e78b61fa6312",
+      "task": "heartbeat",
+      "agent": "ANDIE",
+      "tool": "daemon",
+      "result": "OK",
+      "status": "ok",
+      "timestamp": 1775530931.1223934
+    },
+    {
+      "id": "9f19ec2f-5d45-485b-af72-a5af57637578",
+      "task": "heartbeat",
+      "agent": "ANDIE",
+      "tool": "daemon",
+      "result": "OK",
+      "status": "ok",
+      "timestamp": 1775530936.1241136
+    },
+    {
+      "id": "80f16a7a-fafa-48e6-ad96-93ba6324fb55",
+      "task": "heartbeat",
+      "agent": "ANDIE",
+      "tool": "daemon",
+      "result": "OK",
+      "status": "ok",
+      "timestamp": 1775530941.1254356
+    },
+    {
+      "id": "c81a708a-a37b-41f1-b5e5-2b7754166a00",
+      "task": "heartbeat",
+      "agent": "ANDIE",
+      "tool": "daemon",
+      "result": "OK",
+      "status": "ok",
+      "timestamp": 1775530946.1267078
+    },
+    {
+      "id": "99855c5c-1c44-4763-a6c4-e59bea08fd6b",
+      "task": "heartbeat",
+      "agent": "ANDIE",
+      "tool": "daemon",
+      "result": "OK",
+      "status": "ok",
+      "timestamp": 1775530951.1282368
+    },
+    {
+      "id": "7ee22e66-8f22-451a-864c-88c0875e8d86",
+      "task": "heartbeat",
+      "agent": "ANDIE",
+      "tool": "daemon",
+      "result": "OK",
+      "status": "ok",
+      "timestamp": 1775530956.130188
+    },
+    {
+      "id": "e1f2f9d3-f809-4b3b-baae-a4d2a932398a",
+      "task": "heartbeat",
+      "agent": "ANDIE",
+      "tool": "daemon",
+      "result": "OK",
+      "status": "ok",
+      "timestamp": 1775530961.131457
+    },
+    {
+      "id": "4f3f3b87-1621-4981-9f2b-eee8e134ab0b",
+      "task": "heartbeat",
+      "agent": "ANDIE",
+      "tool": "daemon",
+      "result": "OK",
+      "status": "ok",
+      "timestamp": 1775530966.1334512
+    },
+    {
+      "id": "0a198077-3fbb-405f-a409-ee8fb5eb404a",
+      "task": "heartbeat",
+      "agent": "ANDIE",
+      "tool": "daemon",
+      "result": "OK",
+      "status": "ok",
+      "timestamp": 1775530971.1355999
+    },
+    {
+      "id": "0b2ffa83-d11c-49a5-9e6a-8e380ac48e15",
+      "task": "heartbeat",
+      "agent": "ANDIE",
+      "tool": "daemon",
+      "result": "OK",
+      "status": "ok",
+      "timestamp": 1775530976.1373978
+    },
+    {
+      "id": "24795a46-0965-4bc5-91c5-fabb3bf5841b",
+      "task": "heartbeat",
+      "agent": "ANDIE",
+      "tool": "daemon",
+      "result": "OK",
+      "status": "ok",
+      "timestamp": 1775530981.1395123
+    },
+    {
+      "id": "420e21eb-18db-4f4d-b0d6-12aeef66140c",
+      "task": "heartbeat",
+      "agent": "ANDIE",
+      "tool": "daemon",
+      "result": "OK",
+      "status": "ok",
+      "timestamp": 1775530986.1414437
+    },
+    {
+      "id": "bee28792-84c0-4163-b942-107c66598ed2",
+      "task": "heartbeat",
+      "agent": "ANDIE",
+      "tool": "daemon",
+      "result": "OK",
+      "status": "ok",
+      "timestamp": 1775530991.1442988
+    },
+    {
+      "id": "a53a64f5-02f3-4878-912c-49b3346c10ee",
+      "task": "heartbeat",
+      "agent": "ANDIE",
+      "tool": "daemon",
+      "result": "OK",
+      "status": "ok",
+      "timestamp": 1775530996.1464503
+    },
+    {
+      "id": "b88c6e63-9a2a-45d0-adbf-1583b2b4c325",
+      "task": "heartbeat",
+      "agent": "ANDIE",
+      "tool": "daemon",
+      "result": "OK",
+      "status": "ok",
+      "timestamp": 1775531001.1485314
+    },
+    {
+      "id": "4deefb28-4ba3-4def-8543-d6fc8fadd0ab",
+      "task": "heartbeat",
+      "agent": "ANDIE",
+      "tool": "daemon",
+      "result": "OK",
+      "status": "ok",
+      "timestamp": 1775531006.1508064
+    },
+    {
+      "id": "a0684614-2723-4053-83ef-9a98c7a1af9d",
+      "task": "heartbeat",
+      "agent": "ANDIE",
+      "tool": "daemon",
+      "result": "OK",
+      "status": "ok",
+      "timestamp": 1775531011.1537602
+    },
+    {
+      "id": "792cad1a-5880-4466-83af-6b72d73de3f8",
+      "task": "heartbeat",
+      "agent": "ANDIE",
+      "tool": "daemon",
+      "result": "OK",
+      "status": "ok",
+      "timestamp": 1775531016.1557457
+    },
+    {
+      "id": "6501dc7e-b9e6-4be6-85f9-259b21903cd0",
+      "task": "heartbeat",
+      "agent": "ANDIE",
+      "tool": "daemon",
+      "result": "OK",
+      "status": "ok",
+      "timestamp": 1775531021.1601005
+    },
+    {
+      "id": "2090787b-8d4b-4d42-bef2-ecf62630da5e",
+      "task": "heartbeat",
+      "agent": "ANDIE",
+      "tool": "daemon",
+      "result": "OK",
+      "status": "ok",
+      "timestamp": 1775531026.162922
+    },
+    {
+      "id": "86e20441-8489-44e5-b984-e0e3f426b849",
+      "task": "heartbeat",
+      "agent": "ANDIE",
+      "tool": "daemon",
+      "result": "OK",
+      "status": "ok",
+      "timestamp": 1775531031.1656272
+    },
+    {
+      "id": "772b8611-4997-42a5-bda8-e26b2f0709b2",
+      "task": "heartbeat",
+      "agent": "ANDIE",
+      "tool": "daemon",
+      "result": "OK",
+      "status": "ok",
+      "timestamp": 1775531036.168267
+    },
+    {
+      "id": "b721a2e2-f307-4bea-abff-f3ef940466a7",
+      "task": "heartbeat",
+      "agent": "ANDIE",
+      "tool": "daemon",
+      "result": "OK",
+      "status": "ok",
+      "timestamp": 1775531041.1706223
+    },
+    {
+      "id": "a9a8c87c-c518-4b6e-9fd7-21609a4c77aa",
+      "task": "heartbeat",
+      "agent": "ANDIE",
+      "tool": "daemon",
+      "result": "OK",
+      "status": "ok",
+      "timestamp": 1775531046.1733177
+    },
+    {
+      "id": "528bc1de-d610-4864-bb57-c2b9abe4c22b",
+      "task": "heartbeat",
+      "agent": "ANDIE",
+      "tool": "daemon",
+      "result": "OK",
+      "status": "ok",
+      "timestamp": 1775531051.1759212
+    },
+    {
+      "id": "64165263-e591-41f0-9fcc-938f3cb86ea9",
+      "task": "heartbeat",
+      "agent": "ANDIE",
+      "tool": "daemon",
+      "result": "OK",
+      "status": "ok",
+      "timestamp": 1775531056.179398
+    },
+    {
+      "id": "9768d527-2f17-42b1-9188-af9997cdc825",
+      "task": "heartbeat",
+      "agent": "ANDIE",
+      "tool": "daemon",
+      "result": "OK",
+      "status": "ok",
+      "timestamp": 1775531061.182413
+    },
+    {
+      "id": "775c1bd1-dbcb-4dff-87a9-a660bb143aa9",
+      "task": "heartbeat",
+      "agent": "ANDIE",
+      "tool": "daemon",
+      "result": "OK",
+      "status": "ok",
+      "timestamp": 1775531066.185251
+    },
+    {
+      "id": "59cf1e74-4af2-4151-b45d-1927d89684e1",
+      "task": "heartbeat",
+      "agent": "ANDIE",
+      "tool": "daemon",
+      "result": "OK",
+      "status": "ok",
+      "timestamp": 1775531071.1881
+    },
+    {
+      "id": "07ca1104-24a4-4cb2-91ab-57fcd55b53e4",
+      "task": "heartbeat",
+      "agent": "ANDIE",
+      "tool": "daemon",
+      "result": "OK",
+      "status": "ok",
+      "timestamp": 1775531076.19091
+    },
+    {
+      "id": "95a58e73-9fa9-4e36-bde6-3555a8054400",
+      "task": "heartbeat",
+      "agent": "ANDIE",
+      "tool": "daemon",
+      "result": "OK",
+      "status": "ok",
+      "timestamp": 1775531081.1942248
+    },
+    {
+      "id": "2e163020-9f02-4588-9958-eb016b663aa0",
+      "task": "heartbeat",
+      "agent": "ANDIE",
+      "tool": "daemon",
+      "result": "OK",
+      "status": "ok",
+      "timestamp": 1775531086.1975546
+    },
+    {
+      "id": "c2b34e57-627a-42ca-b96d-8e98eeddc2cd",
+      "task": "heartbeat",
+      "agent": "ANDIE",
+      "tool": "daemon",
+      "result": "OK",
+      "status": "ok",
+      "timestamp": 1775531091.203194
+    },
+    {
+      "id": "c18736c3-201e-458e-8c3b-22ff43b45be3",
+      "task": "heartbeat",
+      "agent": "ANDIE",
+      "tool": "daemon",
+      "result": "OK",
+      "status": "ok",
+      "timestamp": 1775531096.2099383
+    },
+    {
+      "id": "df9ad98f-a979-4b8e-bc74-5ef03b99c375",
+      "task": "heartbeat",
+      "agent": "ANDIE",
+      "tool": "daemon",
+      "result": "OK",
+      "status": "ok",
+      "timestamp": 1775531101.2132614
+    },
+    {
+      "id": "f2de250c-0d64-4204-a598-c93c8a16b9b6",
+      "task": "heartbeat",
+      "agent": "ANDIE",
+      "tool": "daemon",
+      "result": "OK",
+      "status": "ok",
+      "timestamp": 1775531106.2166054
+    },
+    {
+      "id": "181fdd32-8302-4755-9232-7c15758725d5",
+      "task": "heartbeat",
+      "agent": "ANDIE",
+      "tool": "daemon",
+      "result": "OK",
+      "status": "ok",
+      "timestamp": 1775531111.220085
+    },
+    {
+      "id": "b7bf5f5e-a891-41e9-a2cd-bdd72315f6fc",
+      "task": "heartbeat",
+      "agent": "ANDIE",
+      "tool": "daemon",
+      "result": "OK",
+      "status": "ok",
+      "timestamp": 1775531116.223353
+    },
+    {
+      "id": "017a451e-2727-40a3-adda-ff04610ebdc3",
+      "task": "heartbeat",
+      "agent": "ANDIE",
+      "tool": "daemon",
+      "result": "OK",
+      "status": "ok",
+      "timestamp": 1775531121.2271965
+    },
+    {
+      "id": "1635678f-d6fc-4c1d-bb57-a2ad32d4a4bc",
+      "task": "heartbeat",
+      "agent": "ANDIE",
+      "tool": "daemon",
+      "result": "OK",
+      "status": "ok",
+      "timestamp": 1775531126.2327886
+    },
+    {
+      "id": "f083e006-fba2-44f8-bd0f-2636b0c9543e",
+      "task": "heartbeat",
+      "agent": "ANDIE",
+      "tool": "daemon",
+      "result": "OK",
+      "status": "ok",
+      "timestamp": 1775531131.2362251
+    },
+    {
+      "id": "77b2b4f8-e9c7-4b2f-ae5d-7c2eaf29fe33",
+      "task": "heartbeat",
+      "agent": "ANDIE",
+      "tool": "daemon",
+      "result": "OK",
+      "status": "ok",
+      "timestamp": 1775531136.2397451
+    },
+    {
+      "id": "0d15a55c-7a15-448c-b1c5-6d285ec375dd",
+      "task": "heartbeat",
+      "agent": "ANDIE",
+      "tool": "daemon",
+      "result": "OK",
+      "status": "ok",
+      "timestamp": 1775531141.242314
+    },
+    {
+      "id": "33132931-4def-43d3-9809-bb2d451e3789",
+      "task": "heartbeat",
+      "agent": "ANDIE",
+      "tool": "daemon",
+      "result": "OK",
+      "status": "ok",
+      "timestamp": 1775531148.8135016
+    },
+    {
+      "id": "09504bfe-a0b3-4263-a15a-9855d670d49b",
+      "task": "heartbeat",
+      "agent": "ANDIE",
+      "tool": "daemon",
+      "result": "OK",
+      "status": "ok",
+      "timestamp": 1775531158.6996763
+    },
+    {
+      "id": "1aa9fb81-a64d-4e90-bca4-6237e740e750",
+      "task": "heartbeat",
+      "agent": "ANDIE",
+      "tool": "daemon",
+      "result": "OK",
+      "status": "ok",
+      "timestamp": 1775531163.7089877
+    },
+    {
+      "id": "d3d23fc2-ed41-46ab-ae6b-9f8afcd9288c",
+      "task": "heartbeat",
+      "agent": "ANDIE",
+      "tool": "daemon",
+      "result": "OK",
+      "status": "ok",
+      "timestamp": 1775531168.7142441
+    },
+    {
+      "id": "6fc7fd94-5922-4303-94e1-eafd7c9e6edc",
+      "task": "heartbeat",
+      "agent": "ANDIE",
+      "tool": "daemon",
+      "result": "OK",
+      "status": "ok",
+      "timestamp": 1775531173.717382
+    },
+    {
+      "id": "3a86163a-e545-4323-b78f-aa393acef4da",
+      "task": "heartbeat",
+      "agent": "ANDIE",
+      "tool": "daemon",
+      "result": "OK",
+      "status": "ok",
+      "timestamp": 1775531178.722154
+    },
+    {
+      "id": "2ae7c82e-a3d2-4b13-9299-27b0e88077fc",
+      "task": "heartbeat",
+      "agent": "ANDIE",
+      "tool": "daemon",
+      "result": "OK",
+      "status": "ok",
+      "timestamp": 1775531183.7257447
+    },
+    {
+      "id": "6f6e7ca6-1a71-4c23-a8d1-3f1d693dfb6d",
+      "task": "heartbeat",
+      "agent": "ANDIE",
+      "tool": "daemon",
+      "result": "OK",
+      "status": "ok",
+      "timestamp": 1775531188.730071
+    },
+    {
+      "id": "1b86f244-1250-4178-b80b-0d2e7c2bd9fc",
+      "task": "heartbeat",
+      "agent": "ANDIE",
+      "tool": "daemon",
+      "result": "OK",
+      "status": "ok",
+      "timestamp": 1775531193.7337492
+    },
+    {
+      "id": "a9b4584f-3015-42d5-9a1f-c76eebdd9efa",
+      "task": "heartbeat",
+      "agent": "ANDIE",
+      "tool": "daemon",
+      "result": "OK",
+      "status": "ok",
+      "timestamp": 1775531198.737847
+    },
+    {
+      "id": "8eecd820-1ba0-4dda-8424-c665baeb8c8f",
+      "task": "heartbeat",
+      "agent": "ANDIE",
+      "tool": "daemon",
+      "result": "OK",
+      "status": "ok",
+      "timestamp": 1775531203.7410986
+    },
+    {
+      "id": "c09ac450-03e1-4b4b-b9f3-f5dcc8c66f3c",
+      "task": "heartbeat",
+      "agent": "ANDIE",
+      "tool": "daemon",
+      "result": "OK",
+      "status": "ok",
+      "timestamp": 1775531208.7450984
+    },
+    {
+      "id": "162997ae-8a6c-48c0-a5e8-4e684ddb2e30",
+      "task": "heartbeat",
+      "agent": "ANDIE",
+      "tool": "daemon",
+      "result": "OK",
+      "status": "ok",
+      "timestamp": 1775531213.7491105
+    },
+    {
+      "id": "91f66b53-2b86-4b97-9ec4-665c4bdb5d6f",
+      "task": "heartbeat",
+      "agent": "ANDIE",
+      "tool": "daemon",
+      "result": "OK",
+      "status": "ok",
+      "timestamp": 1775531218.7530558
+    },
+    {
+      "id": "5b09c1b3-f132-446c-9d57-b0cd9ec04df4",
+      "task": "heartbeat",
+      "agent": "ANDIE",
+      "tool": "daemon",
+      "result": "OK",
+      "status": "ok",
+      "timestamp": 1775531223.75968
+    },
+    {
+      "id": "b438af69-8992-4080-8dc8-a8abebf7be98",
+      "task": "heartbeat",
+      "agent": "ANDIE",
+      "tool": "daemon",
+      "result": "OK",
+      "status": "ok",
+      "timestamp": 1775531228.7641635
+    },
+    {
+      "id": "406d2d89-8760-4ee4-94c7-23f6dada9965",
+      "task": "heartbeat",
+      "agent": "ANDIE",
+      "tool": "daemon",
+      "result": "OK",
+      "status": "ok",
+      "timestamp": 1775531233.7842185
+    },
+    {
+      "id": "a8c29398-807c-4700-82a5-944d3c202009",
+      "task": "heartbeat",
+      "agent": "ANDIE",
+      "tool": "daemon",
+      "result": "OK",
+      "status": "ok",
+      "timestamp": 1775531238.790895
+    },
+    {
+      "id": "d76a290b-7117-45fe-9145-e0b309a1ecc5",
+      "task": "heartbeat",
+      "agent": "ANDIE",
+      "tool": "daemon",
+      "result": "OK",
+      "status": "ok",
+      "timestamp": 1775531243.7969487
+    },
+    {
+      "id": "db5654ff-b65e-41a4-be9b-2dc586dcdc4f",
+      "task": "heartbeat",
+      "agent": "ANDIE",
+      "tool": "daemon",
+      "result": "OK",
+      "status": "ok",
+      "timestamp": 1775531248.8067193
+    },
+    {
+      "id": "2dd8cb9a-71c5-4897-a2aa-771f9e6997c2",
+      "task": "heartbeat",
+      "agent": "ANDIE",
+      "tool": "daemon",
+      "result": "OK",
+      "status": "ok",
+      "timestamp": 1775531253.8111372
+    },
+    {
+      "id": "0185b033-c651-49a1-80c6-ca2fc9d52532",
+      "task": "heartbeat",
+      "agent": "ANDIE",
+      "tool": "daemon",
+      "result": "OK",
+      "status": "ok",
+      "timestamp": 1775531258.815529
+    },
+    {
+      "id": "dd7c5612-3d83-4f32-b8eb-f0da9229459a",
+      "task": "heartbeat",
+      "agent": "ANDIE",
+      "tool": "daemon",
+      "result": "OK",
+      "status": "ok",
+      "timestamp": 1775531263.819235
+    },
+    {
+      "id": "8331372b-aad3-42d7-b4e1-7fc317ca8eba",
+      "task": "heartbeat",
+      "agent": "ANDIE",
+      "tool": "daemon",
+      "result": "OK",
+      "status": "ok",
+      "timestamp": 1775531268.8242064
+    },
+    {
+      "id": "314817fb-ea98-4771-8520-ee97bb2076bb",
+      "task": "heartbeat",
+      "agent": "ANDIE",
+      "tool": "daemon",
+      "result": "OK",
+      "status": "ok",
+      "timestamp": 1775531273.8305912
+    },
+    {
+      "id": "7f0b1694-f613-4db5-a8cb-29579c9d6602",
+      "task": "heartbeat",
+      "agent": "ANDIE",
+      "tool": "daemon",
+      "result": "OK",
+      "status": "ok",
+      "timestamp": 1775531278.835207
+    },
+    {
+      "id": "789ecc76-0831-4def-977c-2a5ec7b43449",
+      "task": "heartbeat",
+      "agent": "ANDIE",
+      "tool": "daemon",
+      "result": "OK",
+      "status": "ok",
+      "timestamp": 1775531283.8432536
+    },
+    {
+      "id": "67038d7e-ee91-4495-ae5a-94368612bf90",
+      "task": "heartbeat",
+      "agent": "ANDIE",
+      "tool": "daemon",
+      "result": "OK",
+      "status": "ok",
+      "timestamp": 1775531288.8602278
+    },
+    {
+      "id": "65728cf4-9358-4c10-8a90-50ea61edf27e",
+      "task": "heartbeat",
+      "agent": "ANDIE",
+      "tool": "daemon",
+      "result": "OK",
+      "status": "ok",
+      "timestamp": 1775531293.8706377
+    },
+    {
+      "id": "bf61b7f3-23e7-4b13-816f-70200e80a3fe",
+      "task": "heartbeat",
+      "agent": "ANDIE",
+      "tool": "daemon",
+      "result": "OK",
+      "status": "ok",
+      "timestamp": 1775531298.8742573
+    },
+    {
+      "id": "985f1e37-054e-4bcd-9071-cc1085d84b85",
+      "task": "heartbeat",
+      "agent": "ANDIE",
+      "tool": "daemon",
+      "result": "OK",
+      "status": "ok",
+      "timestamp": 1775531303.880011
+    },
+    {
+      "id": "427106a6-f407-40d3-8478-73794d4b4f15",
+      "task": "heartbeat",
+      "agent": "ANDIE",
+      "tool": "daemon",
+      "result": "OK",
+      "status": "ok",
+      "timestamp": 1775531308.891232
+    },
+    {
+      "id": "cb2450c4-0b76-44fb-a976-fd0b169e4273",
+      "task": "heartbeat",
+      "agent": "ANDIE",
+      "tool": "daemon",
+      "result": "OK",
+      "status": "ok",
+      "timestamp": 1775531313.8977528
+    },
+    {
+      "id": "142ff3d6-fa7f-4950-9369-bb8915fb3c95",
+      "task": "heartbeat",
+      "agent": "ANDIE",
+      "tool": "daemon",
+      "result": "OK",
+      "status": "ok",
+      "timestamp": 1775531318.904718
+    },
+    {
+      "id": "882ecb22-3071-4d75-b8ea-f7c4a055d1ed",
+      "task": "heartbeat",
+      "agent": "ANDIE",
+      "tool": "daemon",
+      "result": "OK",
+      "status": "ok",
+      "timestamp": 1775531323.9098878
+    },
+    {
+      "id": "b10227d5-15cf-4c65-8433-5238e6b3ca11",
+      "task": "heartbeat",
+      "agent": "ANDIE",
+      "tool": "daemon",
+      "result": "OK",
+      "status": "ok",
+      "timestamp": 1775531333.282706
+    },
+    {
+      "id": "cb669393-3065-46b5-b4a4-bb5056201a4d",
+      "task": "heartbeat",
+      "agent": "ANDIE",
+      "tool": "daemon",
+      "result": "OK",
+      "status": "ok",
+      "timestamp": 1775531342.1816423
+    },
+    {
+      "id": "493aa0f4-af34-4de2-895a-043433c95dc8",
+      "task": "heartbeat",
+      "agent": "ANDIE",
+      "tool": "daemon",
+      "result": "OK",
+      "status": "ok",
+      "timestamp": 1775531352.1941345
+    },
+    {
+      "id": "43d5a5bc-9e62-4e73-9fb8-4eb493410556",
+      "task": "heartbeat",
+      "agent": "ANDIE",
+      "tool": "daemon",
+      "result": "OK",
+      "status": "ok",
+      "timestamp": 1775531362.2060044
+    },
+    {
+      "id": "25233e52-af5a-4204-9689-8f278ec5ddab",
+      "task": "heartbeat",
+      "agent": "ANDIE",
+      "tool": "daemon",
+      "result": "OK",
+      "status": "ok",
+      "timestamp": 1775531372.2209594
+    },
+    {
+      "id": "01fb4754-40f3-4e06-9244-772fe68335e8",
+      "task": "heartbeat",
+      "agent": "ANDIE",
+      "tool": "daemon",
+      "result": "OK",
+      "status": "ok",
+      "timestamp": 1775531382.2362947
+    },
+    {
+      "id": "6eac5e94-bf5f-4caa-bcaa-654cc7551915",
+      "task": "heartbeat",
+      "agent": "ANDIE",
+      "tool": "daemon",
+      "result": "OK",
+      "status": "ok",
+      "timestamp": 1775531392.246717
+    },
+    {
+      "id": "875afa41-b56f-4885-ae15-fbd038819346",
+      "task": "heartbeat",
+      "agent": "ANDIE",
+      "tool": "daemon",
+      "result": "OK",
+      "status": "ok",
+      "timestamp": 1775531402.2620585
+    },
+    {
+      "id": "c0249ee5-a686-4d54-b42e-7e0efff13315",
+      "task": "heartbeat",
+      "agent": "ANDIE",
+      "tool": "daemon",
+      "result": "OK",
+      "status": "ok",
+      "timestamp": 1775531412.2744646
+    },
+    {
+      "id": "43ed1ff4-a7a5-4fb8-bc51-f9fe7d64444e",
+      "task": "heartbeat",
+      "agent": "ANDIE",
+      "tool": "daemon",
+      "result": "OK",
+      "status": "ok",
+      "timestamp": 1775531422.2873187
+    },
+    {
+      "id": "976674ec-e60c-4e3f-9083-d42ccb369008",
+      "task": "heartbeat",
+      "agent": "ANDIE",
+      "tool": "daemon",
+      "result": "OK",
+      "status": "ok",
+      "timestamp": 1775531432.3001258
+    },
+    {
+      "id": "864d4372-7585-4ae7-9655-3d6b0122bcfb",
+      "task": "heartbeat",
+      "agent": "ANDIE",
+      "tool": "daemon",
+      "result": "OK",
+      "status": "ok",
+      "timestamp": 1775531442.3136137
+    },
+    {
+      "id": "cf4ee738-3b18-44f5-8f4a-a12da6c9a368",
+      "task": "heartbeat",
+      "agent": "ANDIE",
+      "tool": "daemon",
+      "result": "OK",
+      "status": "ok",
+      "timestamp": 1775531452.3380702
+    },
+    {
+      "id": "be4fb218-7766-41a1-851c-f8d2b787bc95",
+      "task": "heartbeat",
+      "agent": "ANDIE",
+      "tool": "daemon",
+      "result": "OK",
+      "status": "ok",
+      "timestamp": 1775531462.360403
+    }
+  ]
+}
