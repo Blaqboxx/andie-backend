@@ -1,3 +1,29 @@
+from andie.brain.llm_router import call_llm
+from andie.memory.memory_service import MemoryService
+
+memory = MemoryService()
+
+def run_orchestrator(task: str, context: str = None):
+    # 1. Retrieve memory context (optional, can combine with user context)
+    mem_context = memory.query_memory(task)
+    combined_context = context if context else str(mem_context)
+
+    # 2. Build LLM input
+    response = call_llm(
+        prompt=task,
+        system="You are ANDIE orchestrator. Plan and execute tasks.",
+        context=combined_context
+    )
+
+    # 3. Store result
+    memory.store_memory(response, {"task": task, "context": combined_context})
+
+    # 4. Return result
+    return {
+        "task": task,
+        "response": response,
+        "context_used": combined_context
+    }
 
 import asyncio
 from typing import Dict, Any, List

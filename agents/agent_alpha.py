@@ -24,10 +24,15 @@ def normalize_llm_output(parsed):
     }
 
 def run_agent(task, memory=None):
-    if memory is None:
-        memory = []
+    # Build LLM input contract
+    llm_input = {
+        "prompt": task if isinstance(task, str) else str(task),
+        "system": "You are agent_alpha, an expert AI agent.",
+        "context": "\n".join(memory) if memory else "",
+        "metadata": {"agent": "agent_alpha"}
+    }
 
-    raw_output = think(task, memory)
+    raw_output = think(llm_input)
     print(f"[DEBUG] Raw LLM Output: {raw_output}")
 
     parsed = safe_parse_llm_output(raw_output)

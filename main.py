@@ -1,104 +1,132 @@
-from fastapi import FastAPI, APIRouter, Request
-import psutil
-from andie_core.memory.short_term import ShortTermMemory
-from typing import List
+# ------------------------
+# MEMORY QUERY ENDPOINT
+# ------------------------
 
-app = FastAPI()
-router = APIRouter()
-
-# --- ANDIE State API ---
-@router.get("/andie/state")
-def andie_state():
-    memory = ShortTermMemory().history
-    return {
-        "status": "running",
-        "system": {
-            "cpu": psutil.cpu_percent(),
-            "ram": psutil.virtual_memory().percent,
-            "disk": psutil.disk_usage('/') .percent
-        },
-        "last_action": memory[-1] if memory else None
-    }
-
-app.include_router(router)
-
-# --- ANDIE ENVIRONMENT VALIDATION ---
-try:
-    from andie_core.andie_env import validate_and_fix_env
-    validate_and_fix_env()
-except Exception as e:
-    print(f"[ANDIE ENV] Validation failed: {e}")
-
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import RedirectResponse
+from andie.brain.llm_router import call_llm
 import subprocess
 import os
-import threading
-from Malk.runtime.daemon import run_daemon
-run_daemon()
-from Malk.core.system_state import state
-from fastapi.middleware.cors import CORSMiddleware
-from Malk.core.logger import get_logs
+import signal
+from threading import Lock
+import asyncio
+from agents.health_agent import HealthAgent
+import json
+from pathlib import Path
 
-""" Optional: ANDIE Core integration"""
-try:
-    from andie_core import AndieCore
-    andie_core = AndieCore()
-except ImportError:
-    andie_core = None
+# --- LLM Client Setup ---
+app = FastAPI()
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
+# --- Health Agent Status Store ---
+health_status = {"status": "unknown"}
+
+# ------------------------
+# MEMORY QUERY ENDPOINT
+# ------------------------
+@app.post("/memory/query")
+async def memory_query(request: Request):
+    data = await request.json()
+    query = data.get("query", "").lower()
+    mem_path = Path("andie_memory.json")
+    if not mem_path.exists():
+        return {"results": []}
+    with open(mem_path) as f:
+        mem = json.load(f)
+    results = []
+    for section in ("tasks", "history"):
+        for item in mem.get(section, []):
+            if query in str(item).lower():
+                results.append({"section": section, "item": item})
+    return {"results": results}
+
+# Function for HealthAgent to update status
+def update_health_status(data):
+    global health_status
+    health_status.update(data)
+
+# --- Health Agent Background Startup ---
+class FastAPIHealthAgent(HealthAgent):
+    async def report(self, data):
+        print("[HealthAgent] report called with:", data)
+        update_health_status(data)
+    async def run(self):
+        print("[HealthAgent] run started")
+        await super().run()
+
+health_agent_instance = FastAPIHealthAgent()
+
+@app.on_event("startup")
+async def start_health_agent():
+    loop = asyncio.get_event_loop()
+    loop.create_task(health_agent_instance.run())
+
+# --- Health Agent Status Store ---
+health_status = {"status": "unknown"}
+
+# Function for HealthAgent to update status
+def update_health_status(data):
+    global health_status
+    health_status.update(data)
 
 
-""" --- LLM Client Setup (user must fill in) ---"""
-try:
-    from openai import OpenAI
-    client = OpenAI()
-except ImportError:
-    client = None
+# --- Cryptonia Agent Process Management ---
+cryptonia_process = None
+cryptonia_status = "stopped"
+cryptonia_lock = Lock()
 
-""" --- Simple log buffer for dashboard ---"""
-from collections import deque
-LOG_BUFFER = deque(maxlen=100)
+def get_cryptonia_pid():
+    global cryptonia_process
+    if cryptonia_process and cryptonia_process.poll() is None:
+        return cryptonia_process.pid
+    return None
 
-def log_event(msg):
-    LOG_BUFFER.append(msg)
+@app.post("/agents/cryptonia/start")
+def start_cryptonia():
+    global cryptonia_process, cryptonia_status
+    with cryptonia_lock:
+        if cryptonia_process and cryptonia_process.poll() is None:
+            cryptonia_status = "running"
+            return {"status": "already running", "pid": cryptonia_process.pid}
+        try:
+            cryptonia_process = subprocess.Popen([
+                "python3", "Cryptonia/main.py", "--dry-run"
+            ], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            cryptonia_status = "running"
+            return {"status": "started", "pid": cryptonia_process.pid}
+        except Exception as e:
+            cryptonia_status = "error"
+            return {"status": "error", "error": str(e)}
 
-task_queue: List[dict] = []
+@app.post("/agents/cryptonia/stop")
+def stop_cryptonia():
+    global cryptonia_process, cryptonia_status
+    with cryptonia_lock:
+        if cryptonia_process and cryptonia_process.poll() is None:
+            try:
+                os.kill(cryptonia_process.pid, signal.SIGTERM)
+                cryptonia_status = "stopped"
+                return {"status": "stopped"}
+            except Exception as e:
+                return {"status": "error", "error": str(e)}
+        else:
+            cryptonia_status = "stopped"
+            return {"status": "not running"}
 
-@app.post("/task")
-def submit_task(data: dict):
-    """Submit a new task/message to ANDIE from the frontend/mobile app."""
-    task = {
-        "id": len(task_queue) + 1,
-        "task": data.get("task", ""),
-        "status": "queued"
-    }
-    task_queue.append(task)
-    # Optionally: trigger daemon/task system here
-    return {"status": "queued", "task": task}
+@app.get("/agents/cryptonia/status")
+def cryptonia_status_endpoint():
+    global cryptonia_process, cryptonia_status
+    if cryptonia_process and cryptonia_process.poll() is None:
+        return {"status": "running", "pid": cryptonia_process.pid}
+    return {"status": cryptonia_status}
 
-@app.get("/tasks/queue")
-def get_task_queue():
-    """Get the current queued tasks/messages."""
-    return {"tasks": task_queue}
 
-@app.get("/")
-def root():
-    return {"status": "ANDIE running autonomously"}
+## LLM client is now handled by andie.brain.llm_router.call_llm
 
-@app.post("/autonomy/start")
-def start_autonomy():
-    state["autonomy_enabled"] = True
-    return {"status": "started"}
-
-@app.post("/autonomy/stop")
-def stop_autonomy():
-    state["autonomy_enabled"] = False
-    return {"status": "stopped"}
-
-""" ------------------------"""
-""" SYSTEM STATUS"""
-""" ------------------------"""
+# ------------------------
+# SYSTEM STATUS
+# ------------------------
 @app.get("/system/status")
 def system_status():
     return {
@@ -107,9 +135,9 @@ def system_status():
         "uptime": "active"
     }
 
-""" ------------------------"""
-""" AGENTS LIST"""
-""" ------------------------"""
+# ------------------------
+# AGENTS LIST
+# ------------------------
 @app.get("/agents")
 def get_agents():
     return [
@@ -120,36 +148,22 @@ def get_agents():
         {"name": "WRAITH", "role": "web"}
     ]
 
-""" ------------------------"""
-""" AGENT RUN (LLM CORE)"""
-""" ------------------------"""
-def call_llm(task: str) -> str:
-    if client:
-        response = client.responses.create(
-            model="gpt-4o-mini",
-            input=task
-        )
-        if hasattr(response, "output_text") and response.output_text:
-            return response.output_text
-        return response.output[0].content[0].text
-    elif andie_core:
-        return andie_core.run(task)
-    return "[ERROR] LLM client not configured. Please fill in call_llm()."
+# ------------------------
+# AGENT RUN (LLM CORE)
+# ------------------------
 
 @app.post("/agents/run")
 def run_agent(data: dict):
     task = data.get("task", "")
-    if not task:
-        return {"error": "No task provided"}
-    try:
-        result = call_llm(task)
-        return {"result": result}
-    except Exception as e:
-        return {"error": str(e)}
+    result = call_llm({"prompt": task})
+    return {
+        "result": result,
+        "status": "ok"
+    }
 
-""" ------------------------"""
-""" TERMINAL (SECURED BASIC)"""
-""" ------------------------"""
+# ------------------------
+# TERMINAL (SECURED BASIC)
+# ------------------------
 DANGEROUS = ["rm -rf", "shutdown", "reboot", "mkfs", "dd if="]
 def is_dangerous(cmd):
     return any(x in cmd.lower() for x in DANGEROUS)
@@ -174,9 +188,9 @@ def run_terminal(data: dict):
     except Exception as e:
         return {"error": str(e)}
 
-""" ------------------------"""
-""" TASKS (PLACEHOLDER)"""
-""" ------------------------"""
+# ------------------------
+# TASKS (PLACEHOLDER)
+# ------------------------
 @app.get("/tasks")
 def get_tasks():
     return [
@@ -184,34 +198,164 @@ def get_tasks():
         {"id": 2, "task": "Agent sync", "status": "running"}
     ]
 
-""" ------------------------"""
-""" SECURITY LOGS"""
-""" ------------------------"""
+# ------------------------
+# SECURITY LOGS
+# ------------------------
 @app.get("/security/logs")
 def security_logs():
     return [{"event": "No threats detected"}]
 
-""" ------------------------"""
-""" CHAT (MOBILE CHAT UI)"""
-""" ------------------------"""
+# ------------------------
+# CHAT (MOBILE CHAT UI)
+# ------------------------
 @app.post("/chat")
 def chat(data: dict):
     message = data.get("message", "")
-    if not message:
-        return {"error": "No message provided"}
+    result = call_llm(message)
+    return {
+        "response": result,
+        "status": "ok"
+    }
+
+@app.get("/agents/health/status")
+def get_health_status():
+    return health_status
+
+# --- Health Check and Frontend Redirect ---
+
+
+
+
+
+
+
+
+# ------------------------
+# SYSTEM STATUS
+# ------------------------
+@app.get("/system/status")
+def system_status():
+    return {
+        "status": "online",
+        "agents": ["NEXUS", "ORACLE", "HERALD", "CIPHER", "WRAITH"],
+        "uptime": "active"
+    }
+
+# ------------------------
+# AGENTS LIST
+# ------------------------
+@app.get("/agents")
+def get_agents():
+    return [
+        {"name": "NEXUS", "role": "orchestrator"},
+        {"name": "ORACLE", "role": "reasoning"},
+        {"name": "HERALD", "role": "language"},
+        {"name": "CIPHER", "role": "security"},
+        {"name": "WRAITH", "role": "web"}
+    ]
+
+# ------------------------
+# AGENT RUN (LLM CORE)
+# ------------------------
+
+
+
+
+@app.post("/agents/run")
+def run_agent(data: dict):
+    # Canonicalize LLM input contract
+    prompt = data.get("prompt") or data.get("input") or data.get("task") or ""
+    llm_input = {
+        "prompt": prompt,
+        "system": data.get("system", "You are an AI agent executing a task."),
+        "context": data.get("context", ""),
+        "metadata": {"agent": data.get("agent", "unknown")}
+    }
+
+    agent_name = data.get("agent")
+    if agent_name:
+        try:
+            import importlib
+            agent_mod = importlib.import_module(f"andie.agents.{agent_name}")
+            if hasattr(agent_mod, "run_agent"):
+                result = agent_mod.run_agent(llm_input)
+            elif hasattr(agent_mod, "main"):
+                result = agent_mod.main(llm_input)
+            else:
+                result = f"No run_agent or main() in {agent_name}"
+        except Exception as e:
+            result = f"Agent import/run error: {str(e)}"
+    else:
+        result = call_llm(llm_input)
+
+    return {
+        "result": result,
+        "status": "ok"
+    }
+
+# ------------------------
+# TERMINAL (SECURED BASIC)
+# ------------------------
+DANGEROUS = ["rm -rf", "shutdown", "reboot", "mkfs", "dd if="]
+
+def is_dangerous(cmd):
+    return any(x in cmd.lower() for x in DANGEROUS)
+
+@app.post("/terminal/run")
+def run_terminal(data: dict):
+    cmd = data.get("command", "")
+
+    if is_dangerous(cmd):
+        return {"error": "Blocked by Security Sentinel"}
+
     try:
-        result = call_llm(message)
-        return {"response": result}
+        result = subprocess.run(
+            cmd,
+            shell=True,
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+        return {
+            "output": result.stdout,
+            "error": result.stderr
+        }
     except Exception as e:
         return {"error": str(e)}
 
-@app.get("/logs")
-def logs_endpoint():
-    return {"logs": get_logs()}
+# ------------------------
+# TASKS (PLACEHOLDER)
+# ------------------------
+@app.get("/tasks")
+def get_tasks():
+    return [
+        {"id": 1, "task": "System check", "status": "complete"},
+        {"id": 2, "task": "Agent sync", "status": "running"}
+    ]
 
-# --- ANDIE Task System Integration ---
-try:
-    import andie_core.andie_task_system
-except ImportError as e:
-    log_event(f"ANDIE Task System not loaded: {e}")
-# This will start the autonomous debugging agent loop on startup
+# ------------------------
+# SECURITY LOGS
+# ------------------------
+@app.get("/security/logs")
+def security_logs():
+    return [{"event": "No threats detected"}]
+
+# ------------------------
+# CHAT (MOBILE CHAT UI)
+# ------------------------
+
+@app.post("/chat")
+def chat(data: dict):
+    message = data.get("message", "")
+
+    result = call_llm(message)
+
+    return {
+        "response": result,
+        "status": "ok"
+    }
+
+# --- Health Check and Frontend Redirect ---
+@app.get("/")
+def root():
+    return RedirectResponse(url="/static/ui-v2/index-merged.html")

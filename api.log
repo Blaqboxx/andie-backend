@@ -1,0 +1,54 @@
+INFO:     Started server process [662200]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     127.0.0.1:58168 - "POST /agent/agent_alpha HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:58172 - "GET /docs HTTP/1.1" 200 OK
+/home/jamai-jamison/valhalla/andie-backend/venv/lib/python3.12/site-packages/fastapi/openapi/utils.py:252: UserWarning: Duplicate Operation ID system_status_system_status_get for function system_status at /home/jamai-jamison/valhalla/andie-backend/main.py
+  warnings.warn(message, stacklevel=1)
+/home/jamai-jamison/valhalla/andie-backend/venv/lib/python3.12/site-packages/fastapi/openapi/utils.py:252: UserWarning: Duplicate Operation ID get_agents_agents_get for function get_agents at /home/jamai-jamison/valhalla/andie-backend/main.py
+  warnings.warn(message, stacklevel=1)
+/home/jamai-jamison/valhalla/andie-backend/venv/lib/python3.12/site-packages/fastapi/openapi/utils.py:252: UserWarning: Duplicate Operation ID run_agent_agents_run_post for function run_agent at /home/jamai-jamison/valhalla/andie-backend/main.py
+  warnings.warn(message, stacklevel=1)
+/home/jamai-jamison/valhalla/andie-backend/venv/lib/python3.12/site-packages/fastapi/openapi/utils.py:252: UserWarning: Duplicate Operation ID run_terminal_terminal_run_post for function run_terminal at /home/jamai-jamison/valhalla/andie-backend/main.py
+  warnings.warn(message, stacklevel=1)
+/home/jamai-jamison/valhalla/andie-backend/venv/lib/python3.12/site-packages/fastapi/openapi/utils.py:252: UserWarning: Duplicate Operation ID get_tasks_tasks_get for function get_tasks at /home/jamai-jamison/valhalla/andie-backend/main.py
+  warnings.warn(message, stacklevel=1)
+/home/jamai-jamison/valhalla/andie-backend/venv/lib/python3.12/site-packages/fastapi/openapi/utils.py:252: UserWarning: Duplicate Operation ID security_logs_security_logs_get for function security_logs at /home/jamai-jamison/valhalla/andie-backend/main.py
+  warnings.warn(message, stacklevel=1)
+/home/jamai-jamison/valhalla/andie-backend/venv/lib/python3.12/site-packages/fastapi/openapi/utils.py:252: UserWarning: Duplicate Operation ID chat_chat_post for function chat at /home/jamai-jamison/valhalla/andie-backend/main.py
+  warnings.warn(message, stacklevel=1)
+INFO:     127.0.0.1:48556 - "GET /openapi.json HTTP/1.1" 200 OK
+LLM ERROR: Error code: 400 - {'error': {'message': 'One of "input" or "previous_response_id"or \'prompt\'or \'conversation_id\' must be provided.', 'type': 'invalid_request_error', 'param': None, 'code': 'missing_required_parameter'}}
+INFO:     127.0.0.1:41136 - "POST /agents/run HTTP/1.1" 200 OK
+LLM ERROR: Error code: 400 - {'error': {'message': 'One of "input" or "previous_response_id"or \'prompt\'or \'conversation_id\' must be provided.', 'type': 'invalid_request_error', 'param': None, 'code': 'missing_required_parameter'}}
+INFO:     127.0.0.1:57242 - "POST /agents/run HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52268 - "POST /agent/agent_alpha HTTP/1.1" 404 Not Found
+LLM ERROR: Error code: 400 - {'error': {'message': 'One of "input" or "previous_response_id"or \'prompt\'or \'conversation_id\' must be provided.', 'type': 'invalid_request_error', 'param': None, 'code': 'missing_required_parameter'}}
+INFO:     127.0.0.1:36278 - "POST /agents/run HTTP/1.1" 200 OK
+LLM ERROR: Error code: 400 - {'error': {'message': 'One of "input" or "previous_response_id"or \'prompt\'or \'conversation_id\' must be provided.', 'type': 'invalid_request_error', 'param': None, 'code': 'missing_required_parameter'}}
+INFO:     127.0.0.1:34060 - "POST /agents/run HTTP/1.1" 200 OK
+LLM ERROR: Error code: 400 - {'error': {'message': 'One of "input" or "previous_response_id"or \'prompt\'or \'conversation_id\' must be provided.', 'type': 'invalid_request_error', 'param': None, 'code': 'missing_required_parameter'}}
+INFO:     127.0.0.1:39394 - "POST /agents/run HTTP/1.1" 200 OK
+LLM ERROR: Error code: 400 - {'error': {'message': 'One of "input" or "previous_response_id"or \'prompt\'or \'conversation_id\' must be provided.', 'type': 'invalid_request_error', 'param': None, 'code': 'missing_required_parameter'}}
+INFO:     127.0.0.1:51942 - "POST /agents/run HTTP/1.1" 200 OK
+LLM ERROR: Error code: 400 - {'error': {'message': 'One of "input" or "previous_response_id"or \'prompt\'or \'conversation_id\' must be provided.', 'type': 'invalid_request_error', 'param': None, 'code': 'missing_required_parameter'}}
+INFO:     127.0.0.1:51524 - "POST /agents/run HTTP/1.1" 200 OK
+LLM ERROR: Error code: 400 - {'error': {'message': 'One of "input" or "previous_response_id"or \'prompt\'or \'conversation_id\' must be provided.', 'type': 'invalid_request_error', 'param': None, 'code': 'missing_required_parameter'}}
+INFO:     127.0.0.1:33390 - "POST /agents/run HTTP/1.1" 200 OK
+LLM ERROR: Error code: 400 - {'error': {'message': 'One of "input" or "previous_response_id"or \'prompt\'or \'conversation_id\' must be provided.', 'type': 'invalid_request_error', 'param': None, 'code': 'missing_required_parameter'}}
+INFO:     127.0.0.1:54554 - "POST /agents/run HTTP/1.1" 200 OK
+LLM ERROR: Error code: 400 - {'error': {'message': 'One of "input" or "previous_response_id"or \'prompt\'or \'conversation_id\' must be provided.', 'type': 'invalid_request_error', 'param': None, 'code': 'missing_required_parameter'}}
+INFO:     127.0.0.1:46318 - "POST /agents/run HTTP/1.1" 200 OK
+LLM ERROR: Error code: 400 - {'error': {'message': 'One of "input" or "previous_response_id"or \'prompt\'or \'conversation_id\' must be provided.', 'type': 'invalid_request_error', 'param': None, 'code': 'missing_required_parameter'}}
+INFO:     127.0.0.1:38064 - "POST /agents/run HTTP/1.1" 200 OK
+LLM ERROR: Error code: 400 - {'error': {'message': 'One of "input" or "previous_response_id"or \'prompt\'or \'conversation_id\' must be provided.', 'type': 'invalid_request_error', 'param': None, 'code': 'missing_required_parameter'}}
+INFO:     127.0.0.1:52726 - "POST /agents/run HTTP/1.1" 200 OK
+LLM ERROR: Error code: 400 - {'error': {'message': 'One of "input" or "previous_response_id"or \'prompt\'or \'conversation_id\' must be provided.', 'type': 'invalid_request_error', 'param': None, 'code': 'missing_required_parameter'}}
+INFO:     127.0.0.1:46148 - "POST /agents/run HTTP/1.1" 200 OK
+LLM ERROR: Error code: 400 - {'error': {'message': 'One of "input" or "previous_response_id"or \'prompt\'or \'conversation_id\' must be provided.', 'type': 'invalid_request_error', 'param': None, 'code': 'missing_required_parameter'}}
+INFO:     127.0.0.1:59632 - "POST /agents/run HTTP/1.1" 200 OK
+LLM ERROR: Error code: 400 - {'error': {'message': 'One of "input" or "previous_response_id"or \'prompt\'or \'conversation_id\' must be provided.', 'type': 'invalid_request_error', 'param': None, 'code': 'missing_required_parameter'}}
+INFO:     127.0.0.1:34234 - "POST /agents/run HTTP/1.1" 200 OK
+LLM RAW RESPONSE: Response(id='resp_0f1e82d9d0abc75b0069d83569df80819481aeaf201bf45964', created_at=1775777129.0, error=None, incomplete_details=None, instructions=None, metadata={}, model='gpt-4o-mini-2024-07-18', object='response', output=[ResponseOutputMessage(id='msg_0f1e82d9d0abc75b0069d8356c73608194a7ba89a569e2f1f0', content=[ResponseOutputText(annotations=[], text='It looks like you might be trying to initiate a test or experiment. How can I assist you with that?', type='output_text', logprobs=[])], role='assistant', status='completed', type='message', phase=None)], parallel_tool_calls=True, temperature=1.0, tool_choice='auto', tools=[], top_p=1.0, background=False, completed_at=1775777132.0, conversation=None, max_output_tokens=None, max_tool_calls=None, previous_response_id=None, prompt=None, prompt_cache_key=None, prompt_cache_retention=None, reasoning=Reasoning(effort=None, generate_summary=None, summary=None), safety_identifier=None, service_tier='default', status='completed', text=ResponseTextConfig(format=ResponseFormatText(type='text'), verbosity='medium'), top_logprobs=0, truncation='disabled', usage=ResponseUsage(input_tokens=9, input_tokens_details=InputTokensDetails(cached_tokens=0), output_tokens=23, output_tokens_details=OutputTokensDetails(reasoning_tokens=0), total_tokens=32), user=None, billing={'payer': 'developer'}, frequency_penalty=0.0, presence_penalty=0.0, store=True)
+INFO:     127.0.0.1:38376 - "POST /agents/run HTTP/1.1" 200 OK

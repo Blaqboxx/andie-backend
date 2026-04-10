@@ -1,0 +1,19 @@
+INFO:     Started server process [641690]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8080 (Press CTRL+C to quit)
+INFO:     127.0.0.1:45204 - "GET /health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:45482 - "POST /agent/process_agent HTTP/1.1" 500 Internal Server Error
+INFO:     127.0.0.1:45486 - "POST /agent/health_agent HTTP/1.1" 500 Internal Server Error
+INFO:     127.0.0.1:50834 - "POST /agent/agent_alpha HTTP/1.1" 500 Internal Server Error
+✅ LLM ENGINE ACTIVE
+INFO:     127.0.0.1:53644 - "POST /agent/agent_alpha HTTP/1.1" 500 Internal Server Error
+INFO:     127.0.0.1:39548 - "POST /agent/agent_alpha HTTP/1.1" 500 Internal Server Error
+INFO:     127.0.0.1:39476 - "POST /agent/agent_alpha HTTP/1.1" 500 Internal Server Error
+INFO:     127.0.0.1:54282 - "POST /agent/agent_alpha HTTP/1.1" 500 Internal Server Error
+INFO:     127.0.0.1:49634 - "POST /agent/agent_alpha HTTP/1.1" 500 Internal Server Error
+INFO:     127.0.0.1:56886 - "POST /agent/agent_alpha HTTP/1.1" 500 Internal Server Error
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [641690]

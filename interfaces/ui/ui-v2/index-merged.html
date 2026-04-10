@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<!--
+Merged UI: andie-control.html (sci-fi, neural, CRT, agent cards, neural viz, chat, metrics)
+with operator console structure from ui-v2 (system status, cognition bar, activity/memory, modern layout)
+-->
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ANDIE // Neural Operator Console</title>
+  <link rel="stylesheet" href="style.css">
+  <style>
+    /* CRT scanlines and phosphor glow from andie-control */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background: repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,224,255,0.04) 2px,rgba(0,224,255,0.04) 4px);
+      pointer-events: none;
+      z-index: 9999;
+      animation: scanroll 8s linear infinite;
+    }
+    body::after {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background: radial-gradient(ellipse at center, transparent 50%, rgba(0,0,0,0.85) 100%);
+      pointer-events: none;
+      z-index: 9998;
+    }
+    @keyframes scanroll {
+      0% { background-position: 0 0; }
+      100% { background-position: 0 80px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="console">
+    <!-- TOP STATUS BAR (LAYER 2) -->
+    <div class="status-bar">
+      <span class="online">● CORE</span>
+      <span>○ NET</span>
+      <span class="online">● VALHALLA</span>
+      <span>SWARM 3/5</span>
+    </div>
+    <!-- COLLAPSIBLE PANELS (LAYER 3, 4, 5) -->
+    <aside class="side-panels">
+      <div class="panel-section">
+        <div class="panel-title" onclick="toggleSection('agentPanel')">🧠 ACTIVE: NEXUS <span style='font-size:10px;opacity:0.6;'>&#9660;</span></div>
+        <div id="agentPanel" class="hidden">
+          <div class="agent-list">
+            <div class="agent-card active"><div class="agent-name"><div class="agent-status-badge"></div>NEXUS</div><div class="agent-role">ORCHESTRATOR // PRIMARY</div></div>
+            <div class="agent-card"><div class="agent-name"><div class="agent-status-badge processing"></div>ORACLE</div><div class="agent-role">REASONING // INFERENCE</div></div>
+            <div class="agent-card"><div class="agent-name"><div class="agent-status-badge"></div>HERALD</div><div class="agent-role">LANGUAGE // OUTPUT</div></div>
+            <div class="agent-card idle"><div class="agent-name"><div class="agent-status-badge" style="background:#333;box-shadow:none;animation:none"></div>CIPHER</div><div class="agent-role">SECURITY // STANDBY</div></div>
+            <div class="agent-card idle"><div class="agent-name"><div class="agent-status-badge" style="background:#333;box-shadow:none;animation:none"></div>WRAITH</div><div class="agent-role">WEB SCRAPE // STANDBY</div></div>
+          </div>
+        </div>
+      </div>
+      <div class="panel-section">

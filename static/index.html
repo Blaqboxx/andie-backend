@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>ANDIE Control</title>
+  <style>
+    body {
+      background: #0a0a0a;
+      color: #00ffcc;
+      font-family: monospace;
+      padding: 20px;
+    }
+    .card {
+      border: 1px solid #00ffcc;
+      padding: 20px;
+      margin: 10px 0;
+    }
+  </style>
+</head>
+<body>
+
+<h1>🤖 ANDIE Dashboard</h1>
+
+<div class="card">
+  <h2>Status</h2>
+  <p id="status">Loading...</p>
+</div>
+
+<script>
+async function fetchStatus() {
+  const res = await fetch("http://localhost:8000");
+  const data = await res.json();
+
+  document.getElementById("status").innerText = data.status;
+}
+
+setInterval(fetchStatus, 2000);
+fetchStatus();
+</script>
+
+</body>
+</html>

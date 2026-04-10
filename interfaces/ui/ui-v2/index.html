@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ANDIE Operator Console v2</title>
+  <link rel="icon" type="image/svg+xml" href="/static/ui-v2/favicon.svg">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app">
+    <!-- TOP BAR -->
+    <div class="topbar">
+      <div class="logo">ANDIE</div>
+      <div class="status">
+        <span class="dot online"></span> CORE ONLINE
+      </div>
+      <div class="mode-toggle" onclick="toggleDevMode()">NORMAL</div>
+    </div>
+    <!-- MAIN -->
+    <div class="main">
+      <!-- LEFT: SYSTEM PANEL -->
+      <div class="left-panel">
+        <div class="status-block">
+          <div class="label">SYSTEM</div>
+          <div class="value online">ONLINE</div>
+        </div>
+        <div class="card">
+          <div class="card-title">Active Agent</div>
+          <select id="agent-select">
+            <option value="Alpha">Alpha</option>
+            <option value="Beta">Beta</option>
+            <option value="Gamma">Gamma</option>
+          </select>
+          <div id="active-agent">Alpha</div>
+        </div>
+        <!-- AGENT CONTROLS -->
+        <div class="card" id="agent-controls">
+          <div class="card-title">Cryptonia Controls</div>
+          <div>Status: <span id="cryptonia-status">Unknown</span></div>
+          <button id="cryptonia-start">Start Cryptonia</button>
+          <button id="cryptonia-stop">Stop Cryptonia</button>
+        </div>
+        <div class="card dev-only hidden" id="debug-panel">
+          <div class="card-title">Debug</div>
+          <pre id="debug-log"></pre>
+        </div>
+      </div>
+      <!-- CENTER: CHAT + COGNITION -->
+      <div class="center-panel">
+        <!-- THINKING STATE -->
+        <div id="cognition-bar" class="cognition-bar">🧠 Idle</div>
+        <!-- CHAT / OUTPUT -->
+        <div id="chat-output" class="chat-output"></div>
+      </div>
+      <!-- RIGHT: ACTIVITY + MEMORY -->
+      <div class="right-panel">
+        <div class="card">
+          <div class="card-title">Activity</div>
+          <div id="activity-feed"></div>

@@ -1,6 +1,4 @@
-from openai import OpenAI
-
-client = OpenAI()
+from andie.brain.llm_router import call_llm
 
 def generate_code(task):
     prompt = f"""
@@ -18,18 +16,10 @@ Task:
 
 Return ONLY executable Python.
 """
-
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[{"role": "user", "content": prompt}]
-    )
-
-    code = response.choices[0].message.content.strip()
-
+    code = call_llm(prompt, system=None, context=None, model="gpt-4o").strip()
     # CLEAN SAFETY FILTER
     if "```" in code:
         code = code.replace("```python", "").replace("```", "").strip()
-
     # --- Validate Python syntax ---
     import ast
     try:
@@ -37,5 +27,6 @@ Return ONLY executable Python.
     except Exception as e:
         # If not valid Python, return a safe stub
         return "print('Error: Invalid code generated')"
+    return code
 
     return code
