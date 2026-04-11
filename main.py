@@ -1,8 +1,10 @@
+
 # ------------------------
-# MEMORY QUERY ENDPOINT
+# MEMORY QUERY ENDPOINT (REAL)
 # ------------------------
 
 from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import RedirectResponse
 from andie.brain.llm_router import call_llm
@@ -12,34 +14,68 @@ import signal
 from threading import Lock
 import asyncio
 from agents.health_agent import HealthAgent
-import json
-from pathlib import Path
 
 # --- LLM Client Setup ---
 app = FastAPI()
+
+from andie.memory.memory_service import MemoryService
+memory_service = MemoryService()
+
+@app.post("/memory/query")
+def memory_query(data: dict):
+    query = data.get("query", "")
+    if not query:
+        return {"results": []}
+    # Use the real memory service
+    result_obj = memory_service.query_memory(query)
+    # Add IDs for frontend compatibility
+    results = [
+        {"id": i+1, "text": r["content"]} for i, r in enumerate(result_obj.get("results", []))
+    ]
+    return {"results": results}
+
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import RedirectResponse
+from andie.brain.llm_router import call_llm
+import subprocess
+import os
+import signal
+from threading import Lock
+import asyncio
+from agents.health_agent import HealthAgent
+
+
+# --- LLM Client Setup ---
+app = FastAPI()
+
+# --- Uvicorn Entrypoint ---
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+
+# --- CORS for frontend dev ---
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3173", "http://localhost:5173"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+# --- Health Agent Background Startup ---
+@app.post("/orchestrator/run")
+async def orchestrator_run(request: Request):
+    data = await request.json()
+    task = data.get("task", "")
+    context = data.get("context", "")
+    # Optionally use context in call_llm if needed
+    result = call_llm(task)
+    return {"response": result, "status": "ok"}
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # --- Health Agent Status Store ---
 health_status = {"status": "unknown"}
-
-# ------------------------
-# MEMORY QUERY ENDPOINT
-# ------------------------
-@app.post("/memory/query")
-async def memory_query(request: Request):
-    data = await request.json()
-    query = data.get("query", "").lower()
-    mem_path = Path("andie_memory.json")
-    if not mem_path.exists():
-        return {"results": []}
-    with open(mem_path) as f:
-        mem = json.load(f)
-    results = []
-    for section in ("tasks", "history"):
-        for item in mem.get(section, []):
-            if query in str(item).lower():
-                results.append({"section": section, "item": item})
-    return {"results": results}
 
 # Function for HealthAgent to update status
 def update_health_status(data):
@@ -155,7 +191,7 @@ def get_agents():
 @app.post("/agents/run")
 def run_agent(data: dict):
     task = data.get("task", "")
-    result = call_llm({"prompt": task})
+    result = call_llm(task)
     return {
         "result": result,
         "status": "ok"
@@ -286,7 +322,11 @@ def run_agent(data: dict):
         except Exception as e:
             result = f"Agent import/run error: {str(e)}"
     else:
-        result = call_llm(llm_input)
+        # llm_input should be a string prompt, not a dict
+        if isinstance(llm_input, dict) and "prompt" in llm_input:
+            result = call_llm(llm_input["prompt"])
+        else:
+            result = call_llm(llm_input)
 
     return {
         "result": result,
