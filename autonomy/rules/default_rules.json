@@ -1,0 +1,71 @@
+{
+  "rules": [
+    {
+      "id": "rule_stream_error_recovery",
+      "enabled": true,
+      "priority": 100,
+      "when": {
+        "eventType": "STREAM_ERROR",
+        "conditions": [
+          {
+            "field": "severity",
+            "operator": "==",
+            "value": "error"
+          },
+          {
+            "field": "metadata.source",
+            "operator": "==",
+            "value": "encoder"
+          }
+        ]
+      },
+      "then": {
+        "action": "TRIGGER_AGENT",
+        "agent": "self_healing_agent",
+        "input": {
+          "reason": "Stream failure detected"
+        },
+        "maxRetries": 3,
+        "agentCooldownMs": 10000
+      },
+      "cooldownMs": 30000
+    },
+    {
+      "id": "rule_task_failure_recovery",
+      "enabled": true,
+      "priority": 80,
+      "when": {
+        "eventType": "TASK_FAILURE",
+        "conditions": [
+          {
+            "field": "severity",
+            "operator": "==",
+            "value": "error"
+          }
+        ]
+      },
+      "then": {
+        "action": "TRIGGER_AGENT_PLAN",
+        "agents": [
+          {
+            "agent": "diagnostic_agent",
+            "role": "diagnose",
+            "input": {
+              "reason": "Inspect failing task before recovery"
+            }
+          },
+          {
+            "agent": "self_healing_agent",
+            "role": "recover",
+            "input": {
+              "reason": "Recover task after diagnostics"
+            }
+          }
+        ],
+        "maxRetries": 3,
+        "agentCooldownMs": 10000
+      },
+      "cooldownMs": 15000
+    }
+  ]
+}
