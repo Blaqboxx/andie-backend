@@ -1,0 +1,20 @@
+# Python bytecode and caches
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Virtual environments
+venv/
+.venv/
+
+# Node dependencies
+node_modules/
+
+# Runtime logs and local artifacts
+*.log
+~/
+
+# OS/editor noise
+.DS_Store
