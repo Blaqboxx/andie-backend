@@ -1,0 +1,18 @@
+ANDIE UI chat and voice reference
+
+Date: 2026-04-16
+
+Current behavior:
+- The Chat page supports normal conversational chat for ordinary text input.
+- If typed text does not match a structured operator command, the UI routes it to assistant chat.
+- The Chat page also supports operator command input for structured control tasks.
+- Speech-to-text is available through the Media Intelligence panel and can auto-send transcripts into the same chat flow.
+- Text-to-speech is available through browser speech synthesis when voice reply is enabled.
+
+Important UX note:
+- The composer label still says "Operator command", but the actual behavior is broader than command-only.
+- The interface currently supports both normal chat and operator command workflows in the same surface.
+
+Reference intent:
+- Use this note when answering questions about whether ANDIE has a normal STT/TTS chat box or only an operator command box.
+- Correct answer: ANDIE currently has both.

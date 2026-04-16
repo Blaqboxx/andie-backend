@@ -1,0 +1,36 @@
+{
+  "checks": [
+    {
+      "detail": "counter=0 (expected 0)",
+      "name": "outcome_ingestion_failures",
+      "passed": true
+    },
+    {
+      "detail": "counter=0 (expected 0)",
+      "name": "memory_write_errors",
+      "passed": true
+    },
+    {
+      "detail": "counter=0 (max 2)",
+      "name": "score_drift_spikes",
+      "passed": true
+    },
+    {
+      "detail": "no replacement_success_rate_pct samples found in lookback window",
+      "name": "replacement_success_rate",
+      "passed": false
+    },
+    {
+      "detail": "avg=0.000 (max 0.350)",
+      "name": "drift_intensity",
+      "passed": true
+    },
+    {
+      "detail": "ratio=0.000 (max 0.100)",
+      "name": "severe_drift_ratio",
+      "passed": true
+    }
+  ],
+  "passed": false,
+  "sampleCount": 2
+}

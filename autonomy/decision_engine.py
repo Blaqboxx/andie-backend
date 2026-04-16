@@ -1,7 +1,32 @@
 from __future__ import annotations
 
+import os
 from collections import deque
 from typing import Any, Deque, Dict, List
+
+from autonomy.learning import detect_pattern
+
+
+AUTONOMY_MAX_CONFIDENCE_REQUIRED = float(os.environ.get("AUTONOMY_MAX_CONFIDENCE_REQUIRED", "0.6"))
+
+
+def weighted_decision(context: Dict[str, Any]) -> str:
+    """Map confidence + knowledge strength to EXECUTE/REVIEW/BLOCK."""
+    knowledge = context.get("knowledge_guidance") if isinstance(context.get("knowledge_guidance"), dict) else {}
+    confidence = float(context.get("confidence", 0.5) or 0.5)
+    pattern = context.get("pattern")
+
+    if pattern == "HIGH_FAILURE_RATE":
+        return "BLOCK"
+
+    has_relevant_knowledge = bool(knowledge.get("relevant"))
+    min_execute = max(AUTONOMY_MAX_CONFIDENCE_REQUIRED, 0.7)
+
+    if has_relevant_knowledge and confidence >= min_execute:
+        return "EXECUTE"
+    if confidence >= 0.35:
+        return "REVIEW"
+    return "BLOCK"
 
 
 class DecisionLayer:
@@ -22,6 +47,14 @@ class DecisionLayer:
     ) -> Dict[str, Any] | None:
         self._events.append(event)
         context = context or {}
+        pattern = detect_pattern(context.get("recentLearningEvents", [])) if isinstance(context.get("recentLearningEvents"), list) else None
+        if pattern == "HIGH_FAILURE_RATE":
+            return {
+                "action": "BLOCK",
+                "confidence": 0.2,
+                "reason": "Recent learning history shows a high failure rate",
+                "pattern": pattern,
+            }
 
         then = trigger.get("then") if isinstance(trigger.get("then"), dict) else {}
         action = then.get("action")

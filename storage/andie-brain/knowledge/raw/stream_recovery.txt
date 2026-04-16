@@ -1,0 +1,6 @@
+When a stream pipeline fails, run these checks in order:
+1. Validate encoder process health and logs.
+2. Restart the stream pipeline service.
+3. Confirm output bitrate and frame cadence.
+4. Verify destination endpoint is reachable.
+5. Publish STREAM_ERROR recovery completion event.

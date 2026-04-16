@@ -1,0 +1,320 @@
+[
+  {
+    "timestamp": 1776210824.9824853,
+    "event": {
+      "type": "PRICE_SIGNAL",
+      "description": "BTC momentum breakout",
+      "metadata": {
+        "symbol": "BTC/USDT",
+        "signal": "buy",
+        "price": 65000,
+        "strategy": "momentum",
+        "tradingMode": "AUTO",
+        "dryRun": true,
+        "dailyLoss": 10,
+        "openPositions": 1
+      }
+    },
+    "action": "execute_trade",
+    "result": "blocked"
+  },
+  {
+    "timestamp": 1776210946.8888152,
+    "event": {
+      "type": "PRICE_SIGNAL",
+      "description": "BTC momentum breakout",
+      "metadata": {
+        "symbol": "BTC/USDT",
+        "signal": "buy",
+        "price": 65000,
+        "strategy": "momentum",
+        "tradingMode": "AUTO",
+        "dryRun": true,
+        "dailyLoss": 10,
+        "openPositions": 1
+      }
+    },
+    "action": "execute_trade",
+    "result": "review"
+  },
+  {
+    "timestamp": 1776212217.1745765,
+    "event": {
+      "type": "TRADE_SIGNAL",
+      "action": "buy",
+      "metadata": {
+        "symbol": "BTC/USDT",
+        "signal": "buy",
+        "price": 70000,
+        "tradingMode": "AUTO",
+        "dryRun": true,
+        "openPositions": 0,
+        "dailyLoss": 0
+      }
+    },
+    "action": "execute_trade",
+    "result": "review"
+  },
+  {
+    "timestamp": 1776212218.7610753,
+    "event": {
+      "type": "TRADE_SIGNAL",
+      "action": "sell",
+      "metadata": {
+        "symbol": "ETH/USDT",
+        "signal": "sell",
+        "price": 3500,
+        "tradingMode": "AUTO",
+        "dryRun": true,
+        "openPositions": 0,
+        "dailyLoss": 0
+      }
+    },
+    "action": "execute_trade",
+    "result": "review"
+  },
+  {
+    "timestamp": 1776212220.2930074,
+    "event": {
+      "type": "TRADE_SIGNAL",
+      "action": "sell",
+      "metadata": {
+        "symbol": "ETH/USDT",
+        "signal": "sell",
+        "price": 3500,
+        "tradingMode": "AUTO",
+        "dryRun": true,
+        "openPositions": 0,
+        "dailyLoss": 0
+      }
+    },
+    "action": "execute_trade",
+    "result": "review"
+  },
+  {
+    "timestamp": 1776212221.8828862,
+    "event": {
+      "type": "TRADE_SIGNAL",
+      "action": "buy",
+      "metadata": {
+        "symbol": "BTC/USDT",
+        "signal": "buy",
+        "price": 70000,
+        "tradingMode": "SAFE",
+        "dryRun": true
+      }
+    },
+    "action": "execute_trade",
+    "result": "review"
+  },
+  {
+    "timestamp": 1776212250.3450432,
+    "event": {
+      "type": "TRADE_SIGNAL",
+      "action": "buy",
+      "metadata": {
+        "symbol": "BTC/USDT",
+        "signal": "buy",
+        "price": 70000,
+        "tradingMode": "AUTO",
+        "dryRun": true,
+        "openPositions": 0,
+        "dailyLoss": 0
+      }
+    },
+    "action": "execute_trade",
+    "result": "review"
+  },
+  {
+    "timestamp": 1776212250.4349558,
+    "event": {
+      "type": "TRADE_SIGNAL",
+      "action": "sell",
+      "metadata": {
+        "symbol": "ETH/USDT",
+        "signal": "sell",
+        "price": 3500,
+        "tradingMode": "AUTO",
+        "dryRun": true,
+        "openPositions": 0,
+        "dailyLoss": 0
+      }
+    },
+    "action": "execute_trade",
+    "result": "review"
+  },
+  {
+    "timestamp": 1776212250.5205567,
+    "event": {
+      "type": "TRADE_SIGNAL",
+      "action": "sell",
+      "metadata": {
+        "symbol": "ETH/USDT",
+        "signal": "sell",
+        "price": 3500,
+        "tradingMode": "AUTO",
+        "dryRun": true,
+        "openPositions": 0,
+        "dailyLoss": 0
+      }
+    },
+    "action": "execute_trade",
+    "result": "review"
+  },
+  {
+    "timestamp": 1776212250.60835,
+    "event": {
+      "type": "TRADE_SIGNAL",
+      "action": "buy",
+      "metadata": {
+        "symbol": "BTC/USDT",
+        "signal": "buy",
+        "price": 70000,
+        "tradingMode": "SAFE",
+        "dryRun": true
+      }
+    },
+    "action": "execute_trade",
+    "result": "review"
+  },
+  {
+    "timestamp": 1776212276.9925323,
+    "event": {
+      "type": "TRADE_SIGNAL",
+      "action": "buy",
+      "metadata": {
+        "symbol": "BTC/USDT",
+        "signal": "buy",
+        "price": 70000,
+        "tradingMode": "AUTO",
+        "dryRun": true,
+        "openPositions": 0,
+        "dailyLoss": 0
+      }
+    },
+    "action": "execute_trade",
+    "result": "review"
+  },
+  {
+    "timestamp": 1776212278.5111334,
+    "event": {
+      "type": "TRADE_SIGNAL",
+      "action": "sell",
+      "metadata": {
+        "symbol": "ETH/USDT",
+        "signal": "sell",
+        "price": 3500,
+        "tradingMode": "AUTO",
+        "dryRun": true,
+        "openPositions": 0,
+        "dailyLoss": 0
+      }
+    },
+    "action": "execute_trade",
+    "result": "review"
+  },
+  {
+    "timestamp": 1776212280.0175128,
+    "event": {
+      "type": "TRADE_SIGNAL",
+      "action": "sell",
+      "metadata": {
+        "symbol": "ETH/USDT",
+        "signal": "sell",
+        "price": 3500,
+        "tradingMode": "AUTO",
+        "dryRun": true,
+        "openPositions": 0,
+        "dailyLoss": 0
+      }
+    },
+    "action": "execute_trade",
+    "result": "review"
+  },
+  {
+    "timestamp": 1776212281.5413604,
+    "event": {
+      "type": "TRADE_SIGNAL",
+      "action": "buy",
+      "metadata": {
+        "symbol": "BTC/USDT",
+        "signal": "buy",
+        "price": 70000,
+        "tradingMode": "SAFE",
+        "dryRun": true
+      }
+    },
+    "action": "execute_trade",
+    "result": "review"
+  },
+  {
+    "timestamp": 1776212318.0498514,
+    "event": {
+      "type": "TRADE_SIGNAL",
+      "action": "buy",
+      "metadata": {
+        "symbol": "BTC/USDT",
+        "signal": "buy",
+        "price": 70000,
+        "tradingMode": "AUTO",
+        "dryRun": true,
+        "openPositions": 0,
+        "dailyLoss": 0
+      }
+    },
+    "action": "execute_trade",
+    "result": "review"
+  },
+  {
+    "timestamp": 1776212319.5644035,
+    "event": {
+      "type": "TRADE_SIGNAL",
+      "action": "sell",
+      "metadata": {
+        "symbol": "ETH/USDT",
+        "signal": "sell",
+        "price": 3500,
+        "tradingMode": "AUTO",
+        "dryRun": true,
+        "openPositions": 0,
+        "dailyLoss": 0
+      }
+    },
+    "action": "execute_trade",
+    "result": "review"
+  },
+  {
+    "timestamp": 1776212321.0712538,
+    "event": {
+      "type": "TRADE_SIGNAL",
+      "action": "sell",
+      "metadata": {
+        "symbol": "ETH/USDT",
+        "signal": "sell",
+        "price": 3500,
+        "tradingMode": "AUTO",
+        "dryRun": true,
+        "openPositions": 0,
+        "dailyLoss": 0
+      }
+    },
+    "action": "execute_trade",
+    "result": "blocked"
+  },
+  {
+    "timestamp": 1776212322.5854015,
+    "event": {
+      "type": "TRADE_SIGNAL",
+      "action": "buy",
+      "metadata": {
+        "symbol": "BTC/USDT",
+        "signal": "buy",
+        "price": 70000,
+        "tradingMode": "SAFE",
+        "dryRun": true
+      }
+    },
+    "action": "execute_trade",
+    "result": "review"
+  }
+]

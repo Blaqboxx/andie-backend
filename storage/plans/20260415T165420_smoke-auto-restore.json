@@ -1,0 +1,25 @@
+{
+  "name": "smoke-auto-restore",
+  "savedAt": "2026-04-15T16:54:20.908845+00:00",
+  "savedBy": "smoke-tester",
+  "task": "Smoke restore task",
+  "editablePlan": [
+    {
+      "step": "analyze_video",
+      "recommended_action": "auto_execute"
+    },
+    {
+      "step": "verify_stream_health",
+      "recommended_action": "operator_review",
+      "skipped": false
+    }
+  ],
+  "editTrail": [
+    {
+      "id": "smoke-1",
+      "action": "reorder",
+      "timestamp": "2026-04-15T00:00:00Z"
+    }
+  ],
+  "requestId": "smoke-req-1"
+}

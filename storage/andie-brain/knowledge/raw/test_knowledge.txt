@@ -1,0 +1,5 @@
+Stream Recovery Guide
+When a stream pipeline fails:
+1. Check logs for error patterns
+2. Verify data source connectivity
+3. Restart the stream service

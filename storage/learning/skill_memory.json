@@ -1,0 +1,220 @@
+{
+  "analyze_video": {
+    "executions": 76.2872,
+    "successes": 76.2872,
+    "failures": 0.0,
+    "avg_latency": 3.4450640766666185e-05,
+    "failure_signatures": {},
+    "last_updated": "2026-04-15T23:48:58.914919+00:00"
+  },
+  "resync_audio": {
+    "executions": 62.8136,
+    "successes": 62.8136,
+    "failures": 0.0,
+    "avg_latency": 1.4744680442154437e-05,
+    "failure_signatures": {},
+    "last_updated": "2026-04-15T23:48:58.916744+00:00",
+    "operator_feedback": {
+      "swaps_to": 0,
+      "swaps_from": 0,
+      "skips": 21,
+      "last_feedback": "2026-04-15T23:48:58.446643+00:00"
+    }
+  },
+  "verify_stream_health": {
+    "executions": 75.1286,
+    "successes": 75.1286,
+    "failures": 0.0,
+    "avg_latency": 1.6597350137159786e-05,
+    "failure_signatures": {},
+    "last_updated": "2026-04-15T23:48:58.915963+00:00"
+  },
+  "check_service_status": {
+    "executions": 20.9968,
+    "successes": 20.9968,
+    "failures": 0.0,
+    "avg_latency": 1.3713042485103523e-05,
+    "failure_signatures": {},
+    "last_updated": "2026-04-15T23:48:58.933886+00:00"
+  },
+  "restart_server": {
+    "executions": 19.133,
+    "successes": 19.133,
+    "failures": 0.0,
+    "avg_latency": 1.6939122918886388e-05,
+    "failure_signatures": {},
+    "last_updated": "2026-04-15T23:48:58.860026+00:00",
+    "skill": "restart_server",
+    "context_key": null
+  },
+  "restart_server::stream::alpha": {
+    "executions": 0.0,
+    "successes": 0.0,
+    "failures": 0.0,
+    "avg_latency": 0.0,
+    "failure_signatures": {},
+    "last_updated": null,
+    "skill": "restart_server",
+    "context_key": "stream::alpha",
+    "operator_feedback": {
+      "swaps_to": 0,
+      "swaps_from": 4,
+      "skips": 0,
+      "last_feedback": "2026-04-15T23:48:58.618861+00:00"
+    }
+  },
+  "check_service_status::stream::alpha": {
+    "executions": 0.0,
+    "successes": 0.0,
+    "failures": 0.0,
+    "avg_latency": 0.0,
+    "failure_signatures": {},
+    "last_updated": null,
+    "skill": "check_service_status",
+    "context_key": "stream::alpha",
+    "operator_feedback": {
+      "swaps_to": 4,
+      "swaps_from": 0,
+      "skips": 0,
+      "last_feedback": "2026-04-15T23:48:58.618861+00:00"
+    }
+  },
+  "check_service_status::hls": {
+    "executions": 49.7908,
+    "successes": 38.275,
+    "failures": 11.5157,
+    "avg_latency": 0.08000000000000002,
+    "failure_signatures": {
+      "synthetic_backfill": 11.5157
+    },
+    "last_updated": "2026-04-16T01:19:39.851065+00:00",
+    "skill": "check_service_status",
+    "context_key": "hls",
+    "operator_feedback": {
+      "swaps_to": 0,
+      "swaps_from": 4,
+      "skips": 0,
+      "last_feedback": "2026-04-15T23:48:59.000651+00:00"
+    },
+    "replacement_outcomes": {
+      "total": 49.8244,
+      "success": 38.3,
+      "failure": 11.5246,
+      "last_updated": "2026-04-16T01:19:39.851065+00:00"
+    },
+    "replacement_pairs": {
+      "restart_server": {
+        "success": 38.3,
+        "failure": 11.5246,
+        "last_updated": "2026-04-16T01:19:39.851065+00:00"
+      }
+    }
+  },
+  "restart_encoder::hls": {
+    "executions": 99.3608,
+    "successes": 76.1554,
+    "failures": 23.2056,
+    "avg_latency": 0.08,
+    "failure_signatures": {
+      "synthetic_backfill": 23.2056
+    },
+    "last_updated": "2026-04-16T01:19:40.043503+00:00",
+    "skill": "restart_encoder",
+    "context_key": "hls",
+    "operator_feedback": {
+      "swaps_to": 4,
+      "swaps_from": 0,
+      "skips": 0,
+      "last_feedback": "2026-04-15T23:48:59.000651+00:00"
+    },
+    "replacement_outcomes": {
+      "total": 99.5239,
+      "success": 76.2737,
+      "failure": 23.2501,
+      "last_updated": "2026-04-16T01:19:40.043503+00:00"
+    },
+    "replacement_pairs": {
+      "check_service_status": {
+        "success": 39.3541,
+        "failure": 8.7191,
+        "last_updated": "2026-04-16T01:19:39.486668+00:00"
+      },
+      "restart_server": {
+        "success": 36.92,
+        "failure": 14.5308,
+        "last_updated": "2026-04-16T01:19:40.043503+00:00"
+      }
+    }
+  },
+  "resync_audio::hls": {
+    "executions": 0.0,
+    "successes": 0.0,
+    "failures": 0.0,
+    "avg_latency": 0.0,
+    "failure_signatures": {},
+    "last_updated": "2026-04-16T00:26:35.251154+00:00",
+    "skill": "resync_audio",
+    "context_key": "hls",
+    "replacement_outcomes": {
+      "total": 3.0803,
+      "success": 3.0803,
+      "failure": 0.0,
+      "last_updated": "2026-04-16T00:26:35.251154+00:00"
+    },
+    "replacement_pairs": {
+      "analyze_video": {
+        "success": 3.0803,
+        "failure": 0.0,
+        "last_updated": "2026-04-16T00:26:35.251154+00:00"
+      }
+    }
+  },
+  "restart_server::hls": {
+    "executions": 0.7701,
+    "successes": 0.7701,
+    "failures": 0.0,
+    "avg_latency": 0.12,
+    "failure_signatures": {},
+    "last_updated": "2026-04-16T00:26:35.508013+00:00",
+    "skill": "restart_server",
+    "context_key": "hls",
+    "replacement_outcomes": {
+      "total": 0.7701,
+      "success": 0.7701,
+      "failure": 0.0,
+      "last_updated": "2026-04-16T00:26:35.508013+00:00"
+    },
+    "replacement_pairs": {
+      "check_service_status": {
+        "success": 0.7701,
+        "failure": 0.0,
+        "last_updated": "2026-04-16T00:26:35.508013+00:00"
+      }
+    }
+  },
+  "switch_stream::hls": {
+    "executions": 48.8,
+    "successes": 27.5165,
+    "failures": 21.2833,
+    "avg_latency": 0.08000000000000002,
+    "failure_signatures": {
+      "synthetic_backfill": 21.2833
+    },
+    "last_updated": "2026-04-16T01:19:39.684654+00:00",
+    "skill": "switch_stream",
+    "context_key": "hls",
+    "replacement_outcomes": {
+      "total": 48.8329,
+      "success": 27.5252,
+      "failure": 21.3082,
+      "last_updated": "2026-04-16T01:19:39.684654+00:00"
+    },
+    "replacement_pairs": {
+      "check_service_status": {
+        "success": 27.5252,
+        "failure": 21.3082,
+        "last_updated": "2026-04-16T01:19:39.684654+00:00"
+      }
+    }
+  }
+}

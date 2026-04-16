@@ -1,0 +1,8 @@
+{
+  "name": "restart_stream",
+  "steps": [
+    "check encoder",
+    "restart pipeline",
+    "verify output"
+  ]
+}
