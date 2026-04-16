@@ -1,5 +1,6 @@
 import sys
 import unittest
+import os
 from pathlib import Path
 from unittest.mock import patch
 import tempfile
@@ -226,6 +227,38 @@ class SkillsApiTests(unittest.TestCase):
         self.assertEqual(feedback_response.status_code, 200)
         feedback = feedback_response.json()["feedback"]
         self.assertEqual(feedback["restart_server::hls"]["replacement_outcomes"]["success"], 1)
+
+    def test_skill_outcome_endpoint_rejects_synthetic_without_dev_flag(self):
+        with patch.dict(os.environ, {"ANDIE_ALLOW_SYNTHETIC_OUTCOMES": "false"}, clear=False):
+            response = self.client.post(
+                "/skills/outcome",
+                json={
+                    "skill": "restart_server",
+                    "replaced_from": "check_service_status",
+                    "context_key": "hls_stream",
+                    "result": "success",
+                    "source": "synthetic",
+                },
+            )
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_skill_outcome_endpoint_accepts_synthetic_with_dev_flag(self):
+        with patch.dict(os.environ, {"ANDIE_ALLOW_SYNTHETIC_OUTCOMES": "true"}, clear=False):
+            response = self.client.post(
+                "/skills/outcome",
+                json={
+                    "skill": "restart_server",
+                    "replaced_from": "check_service_status",
+                    "context_key": "hls_stream",
+                    "result": "success",
+                    "source": "synthetic",
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["source"], "synthetic")
 
     def test_execute_skill_records_replacement_outcome_when_provided(self):
         response = self.client.post(
@@ -505,6 +538,38 @@ class SkillsApiTests(unittest.TestCase):
         self.assertIn("simulation_usage_rate", metrics["rates"])
         self.assertIn("prune_effectiveness", metrics["rates"])
         self.assertIn("learning_signal_density", metrics["rates"])
+
+    def test_trust_dashboard_endpoint_reports_ratios_and_tier(self):
+        self.client.post(
+            "/skills/outcome",
+            json={
+                "skill": "restart_server",
+                "replaced_from": "check_service_status",
+                "context_key": "hls_stream",
+                "result": "success",
+                "source": "live",
+            },
+        )
+        with patch.dict(os.environ, {"ANDIE_ALLOW_SYNTHETIC_OUTCOMES": "true"}, clear=False):
+            self.client.post(
+                "/skills/outcome",
+                json={
+                    "skill": "restart_server",
+                    "replaced_from": "check_service_status",
+                    "context_key": "hls_stream",
+                    "result": "success",
+                    "source": "synthetic",
+                },
+            )
+
+        response = self.client.get("/trust/dashboard")
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertIn("confidence_tier", payload)
+        self.assertIn("real_vs_synthetic", payload)
+        self.assertEqual(payload["real_vs_synthetic"]["total"], 2)
+        self.assertEqual(payload["real_vs_synthetic"]["real"], 1)
+        self.assertEqual(payload["real_vs_synthetic"]["synthetic"], 1)
 
     def test_latest_snapshot_prefers_max_saved_at_timestamp(self):
         now = datetime.now(timezone.utc)

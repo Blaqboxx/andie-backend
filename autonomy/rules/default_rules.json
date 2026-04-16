@@ -1,6 +1,21 @@
 {
   "rules": [
     {
+      "id": "rule_trade_signal_governance",
+      "enabled": true,
+      "priority": 110,
+      "when": {
+        "eventType": "TRADE_SIGNAL"
+      },
+      "then": {
+        "action": "TRIGGER_AGENT",
+        "agent": "autonomy.trading_agent",
+        "maxRetries": 1,
+        "agentCooldownMs": 1000
+      },
+      "cooldownMs": 0
+    },
+    {
       "id": "rule_stream_error_recovery",
       "enabled": true,
       "priority": 100,

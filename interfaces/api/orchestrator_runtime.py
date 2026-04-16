@@ -11,15 +11,25 @@ from uuid import uuid4
 import requests
 
 from interfaces.api.dispatcher import classify_task, dispatch_task
+from interfaces.api.outcome_tracking import derive_replaced_from, record_skill_outcome_internal
 from interfaces.api.security_sentinel import audit_security_event, signed_headers
+from interfaces.api.skill_control import blocked_primary_skill, get_skill_control_state, list_routable_skills
 from interfaces.api.workflow_engine import workflow_engine
+from autonomy.runtime_config import get_runtime_config
 from scheduler.queue import cancel_task, queue_metrics, recent_tasks, request_manual_retry
+from autonomy.confidence_engine import evaluate_plan
+from skills import register_builtin_skills
+from skills.executor import execute_skill_plan
+from skills.registry import registry
+from skills.router import build_execution_plan
 
 
 SYSTEM_PROMPT = (
     "You are ANDIE, the operator control surface for a distributed AI system. "
     "Respond concisely, operationally, and with concrete next actions."
 )
+
+register_builtin_skills()
 
 
 def execution_enabled() -> bool:
@@ -90,8 +100,94 @@ def invoke_llm(task_text: str, context: str, snapshot: Dict[str, Any]) -> str | 
         return None
 
 
+def query_local_knowledge(task_text: str, top_k: int = 3) -> Dict[str, Any] | None:
+    try:
+        from knowledge.answer import answer_with_knowledge
+
+        response = answer_with_knowledge(task_text, mode="answer", k=top_k)
+        if response.get("status") != "ok":
+            return None
+        return {
+            "response": response.get("answer") or "Local knowledge available.",
+            "results": response.get("results") or [],
+            "sources": response.get("sources") or [],
+        }
+    except Exception:
+        return None
+
+
 def restart_backend_process(shell_command: str) -> None:
     subprocess.Popen(shell_command, shell=True)
+
+
+def _runtime_replacement_map(skill_params: Dict[str, Any]) -> Dict[str, str]:
+    mapping = skill_params.get("replacement_map") if isinstance(skill_params, dict) else None
+    if not isinstance(mapping, dict):
+        return {}
+
+    result: Dict[str, str] = {}
+    for replacement, original in mapping.items():
+        replacement_name = str(replacement or "").strip()
+        original_name = str(original or "").strip()
+        if replacement_name and original_name:
+            result[replacement_name] = original_name
+    return result
+
+
+def _record_runtime_plan_outcomes(execution: Dict[str, Any], skill_params: Dict[str, Any]) -> Dict[str, Any]:
+    if not bool(get_runtime_config().get("runtime_outcome_emission_enabled", True)):
+        payload = {"success": 0, "failure": 0, "disabled": True}
+        if isinstance(execution, dict):
+            execution["replacementOutcomes"] = payload
+        return payload
+
+    completed = execution.get("completed") if isinstance(execution, dict) else None
+    if not isinstance(completed, list):
+        return {"success": 0, "failure": 0}
+
+    context_key = skill_params.get("context_key") if isinstance(skill_params, dict) else None
+    replacement_map = _runtime_replacement_map(skill_params)
+    success_count = 0
+    failure_count = 0
+
+    for entry in completed:
+        if not isinstance(entry, dict):
+            continue
+        skill_name = str(entry.get("skill") or entry.get("step") or "").strip()
+        if not skill_name:
+            continue
+
+        status = str(entry.get("status") or "").strip().lower()
+        failed = status == "failed"
+        result = "failure" if failed else "success"
+        if failed:
+            failure_count += 1
+        else:
+            success_count += 1
+
+        replaced_from = derive_replaced_from(
+            entry,
+            {
+                "replaced_from": replacement_map.get(skill_name),
+                "original_skill": skill_params.get("original_skill") if isinstance(skill_params, dict) else None,
+                "replacement_for": skill_params.get("replacement_for") if isinstance(skill_params, dict) else None,
+                "original": skill_params.get("original") if isinstance(skill_params, dict) else None,
+            },
+            skill_params,
+        )
+        outcome = record_skill_outcome_internal(
+            skill_name,
+            result=result,
+            context_key=context_key,
+            replaced_from=replaced_from,
+            latency=entry.get("latency") if isinstance(entry, dict) else None,
+            error=entry.get("error") if isinstance(entry, dict) else None,
+            record_execution=False,
+        )
+        entry["outcome"] = outcome
+
+    execution["replacementOutcomes"] = {"success": success_count, "failure": failure_count}
+    return execution["replacementOutcomes"]
 
 
 def execute_local_command(
@@ -103,6 +199,83 @@ def execute_local_command(
     snapshot = command_snapshot()
     lowered = (task_text or "").lower().strip()
     task_id = extract_task_id(task_text)
+
+    blocked_skill = blocked_primary_skill(task_text, registry.list())
+    routable_skills, suppressed_map = list_routable_skills(registry.list())
+    skill_plan = {"selectedSkill": None, "plan": []} if blocked_skill else build_execution_plan(task_text, routable_skills)
+    execute_selected_skill = bool(params.get("executeSkill") or params.get("execute_skill"))
+    if skill_plan.get("selectedSkill"):
+        skill_params = dict(params.get("skillParams") or params.get("skill_params") or {})
+        scored_plan = evaluate_plan(skill_plan.get("plan") or [], context_key=skill_params.get("context_key"))
+
+        if execute_selected_skill and not skill_plan.get("requiresApproval"):
+            executed = execute_skill_plan(skill_plan.get("plan") or [], skill_params)
+            replacement_outcomes = _record_runtime_plan_outcomes(executed, skill_params)
+            return {
+                "status": "completed",
+                "route": "thinkpad",
+                "targetNode": "thinkpad",
+                "response": f"Executed skill plan for {skill_plan.get('selectedSkill')} successfully.",
+                "result": {
+                    "mode": "skill_execution",
+                    "proposal": skill_plan,
+                    "scoredPlan": scored_plan,
+                    "execution": executed,
+                    "replacementOutcomes": replacement_outcomes,
+                    "controlState": get_skill_control_state(),
+                    "snapshot": snapshot,
+                },
+                "executedAt": utc_now(),
+            }
+
+        if skill_plan.get("requiresApproval") and execute_selected_skill:
+            return {
+                "status": "pending_approval",
+                "route": "thinkpad",
+                "targetNode": "thinkpad",
+                "response": f"Skill plan for {skill_plan.get('selectedSkill')} requires manual approval before execution.",
+                "result": {
+                    "mode": "skill_proposal",
+                    "proposal": skill_plan,
+                    "scoredPlan": scored_plan,
+                    "controlState": get_skill_control_state(),
+                    "snapshot": snapshot,
+                },
+                "executedAt": utc_now(),
+            }
+
+        return {
+            "status": "completed",
+            "route": "thinkpad",
+            "targetNode": "thinkpad",
+            "response": f"Proposed skill plan for {skill_plan.get('selectedSkill')} for task '{task_text}'.",
+            "result": {
+                "mode": "skill_proposal",
+                "proposal": skill_plan,
+                "scoredPlan": scored_plan,
+                "controlState": get_skill_control_state(),
+                "snapshot": snapshot,
+            },
+            "executedAt": utc_now(),
+        }
+
+    if suppressed_map:
+        return {
+            "status": "completed",
+            "route": "thinkpad",
+            "targetNode": "thinkpad",
+            "response": "No runnable skill is available under the current skill control policy.",
+            "result": {
+                "mode": "skill_proposal",
+                "proposal": {"selectedSkill": None, "plan": []},
+                "scoredPlan": [],
+                "controlState": get_skill_control_state(),
+                "suppressedSkills": [{"skill": skill, "reason": reason} for skill, reason in sorted(suppressed_map.items())],
+                "blockedSkill": blocked_skill,
+                "snapshot": snapshot,
+            },
+            "executedAt": utc_now(),
+        }
 
     if "restart backend" in lowered:
         if not execution_enabled():
@@ -203,6 +376,21 @@ def execute_local_command(
             "targetNode": "thinkpad",
             "response": response,
             "result": {"tasks": tasks},
+            "executedAt": utc_now(),
+        }
+
+    local_knowledge = query_local_knowledge(task_text, top_k=3)
+    if local_knowledge:
+        return {
+            "status": "completed",
+            "route": "thinkpad",
+            "targetNode": "thinkpad",
+            "response": local_knowledge.get("response") or "Local knowledge available.",
+            "result": {
+                "mode": "local_knowledge",
+                "matches": local_knowledge.get("results") or [],
+                "snapshot": snapshot,
+            },
             "executedAt": utc_now(),
         }
 

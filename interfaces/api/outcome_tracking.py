@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from typing import Any, Dict
 
 from fastapi import HTTPException
@@ -57,6 +58,21 @@ def record_skill_outcome_internal(
     if normalized_result not in {"success", "failure"}:
         raise HTTPException(status_code=400, detail="result must be 'success' or 'failure'")
 
+    normalized_source = str(source or "live").strip().lower() or "live"
+    if normalized_source not in {"live", "synthetic"}:
+        raise HTTPException(status_code=400, detail="source must be 'live' or 'synthetic'")
+    allow_synthetic = os.environ.get("ANDIE_ALLOW_SYNTHETIC_OUTCOMES", "false").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    if normalized_source == "synthetic" and not allow_synthetic:
+        raise HTTPException(
+            status_code=403,
+            detail="synthetic outcomes disabled; set ANDIE_ALLOW_SYNTHETIC_OUTCOMES=true in dev mode",
+        )
+
     ctx = str(context_key or "").strip() or None
     original = str(replaced_from or "").strip() or None
     before = _score_skill(normalized_skill, context_key=ctx, replaced_from=original)
@@ -84,7 +100,7 @@ def record_skill_outcome_internal(
                 control_plane_metrics.increment("replacement_failure_count")
 
         control_plane_metrics.increment("outcome_events_total")
-        if str(source or "live").strip().lower() == "live":
+        if normalized_source == "live":
             control_plane_metrics.increment("real_outcome_events_total")
 
         snapshot = skill_memory_snapshot(normalized_skill, context_key=ctx, replaced_from=original)
@@ -116,7 +132,7 @@ def record_skill_outcome_internal(
             "replaced_from": original,
             "previous_score": before,
             "updated_score": updated,
-            "source": source,
+            "source": normalized_source,
             "snapshot": snapshot,
         }
     except Exception as exc:

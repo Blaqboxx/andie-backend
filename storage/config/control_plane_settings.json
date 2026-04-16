@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "savedAt": "2026-04-15T19:55:38.696041+00:00",
+  "updatedBy": "validation",
+  "config": {
+    "agents": {
+      "defaultAgent": "general_agent"
+    },
+    "integrations": {
+      "apiBaseUrl": "http://127.0.0.1:8000"
+    },
+    "skills": {
+      "controls": {
+        "incident_mode": false,
+        "blacklisted_skills": []
+      }
+    }
+  }
+}

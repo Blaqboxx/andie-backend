@@ -1,0 +1,75 @@
+{
+  "checks": [
+    {
+      "detail": "samples=28 (min 20)",
+      "name": "sample_size",
+      "passed": true
+    },
+    {
+      "detail": "events_per_hour=0.000 (min 5.000)",
+      "name": "learning_signal_density",
+      "passed": false
+    },
+    {
+      "detail": "counter=0 (expected 0)",
+      "name": "outcome_ingestion_failures",
+      "passed": true
+    },
+    {
+      "detail": "counter=0 (expected 0)",
+      "name": "memory_write_errors",
+      "passed": true
+    },
+    {
+      "detail": "counter=0 (max 2)",
+      "name": "score_drift_spikes",
+      "passed": true
+    },
+    {
+      "detail": "avg=72.50% (min 70.00%)",
+      "name": "replacement_success_rate",
+      "passed": true
+    },
+    {
+      "detail": "avg=0.000",
+      "name": "drift_intensity",
+      "passed": true
+    },
+    {
+      "detail": "ratio=0.000 (max 0.100)",
+      "name": "severe_drift_ratio",
+      "passed": true
+    },
+    {
+      "detail": "decision=NO_GO reasons=low_signal_density",
+      "name": "governance_decision",
+      "passed": false
+    }
+  ],
+  "decision": "NO_GO",
+  "governance": {
+    "confidence_tier": "synthetic",
+    "decision": "NO_GO",
+    "metrics": {
+      "drift_rate": 0.0,
+      "learning_density": 0.0,
+      "real_sample_size": 0,
+      "replacement_success_rate": 0.725,
+      "sample_size": 28
+    },
+    "reasons": [
+      "low_signal_density"
+    ],
+    "thresholds": {
+      "max_drift_rate": 0.15,
+      "min_learning_density": 5.0,
+      "min_replacement_success_rate": 0.7,
+      "min_sample_size": 20
+    }
+  },
+  "passed": false,
+  "reasons": [
+    "low_signal_density"
+  ],
+  "sampleCount": 28
+}

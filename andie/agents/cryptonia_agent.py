@@ -3,7 +3,7 @@ import subprocess
 from andie.agents.base_agent import Agent
 
 class CryptoniaAgent(Agent):
-    def __init__(self, config_path='services/cryptonia/config.yaml', dry_run=True, interval=300, **kwargs):
+    def __init__(self, config_path='Cryptonia/config.yaml', dry_run=True, interval=300, **kwargs):
         super().__init__(name="cryptonia_agent", **kwargs)
         self.config_path = config_path
         self.dry_run = dry_run
@@ -18,7 +18,7 @@ class CryptoniaAgent(Agent):
 
     async def start_bot(self):
         cmd = [
-            'python3', 'services/cryptonia/main.py',
+            'python3', 'Cryptonia/main.py',
             '--config', self.config_path,
             '--interval', str(self.interval)
         ]
