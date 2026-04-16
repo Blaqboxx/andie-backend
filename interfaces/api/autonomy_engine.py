@@ -10,10 +10,24 @@ from typing import Any, Dict
 import psutil
 
 from interfaces.api.event_bus import emit_event, recent_events
+from interfaces.api.guardrails import (
+    validate as guardrail_validate,
+    record_decision as guardrail_record_decision,
+    record_error as guardrail_record_error,
+    reset_all as guardrail_reset_all,
+    guardrail_status,
+)
 from interfaces.api.node_monitor import check_node_health
 from interfaces.api.self_healing import detect_issues, recover, recovery_task_for_issue, verify_recovery
 from interfaces.api.workflow_engine import workflow_engine
 from scheduler.queue import queue_metrics
+
+try:
+    from interfaces.api.outcome_tracking import record_skill_outcome_internal as _record_outcome
+    _OUTCOME_TRACKING = True
+except Exception:
+    _OUTCOME_TRACKING = False
+    _record_outcome = None  # type: ignore[assignment]
 
 
 LOOP_INTERVAL_SECONDS = float(os.environ.get("ANDIE_AUTONOMY_INTERVAL_SECONDS", "5"))
@@ -125,6 +139,7 @@ def _status_unlocked() -> Dict[str, Any]:
         "lastDecisionTime": LAST_DECISION_TIME or None,
         "recoveryAttempts": dict(RECOVERY_ATTEMPTS),
         "lastError": LAST_ERROR,
+        "guardrails": guardrail_status(),
     }
 
 
@@ -153,6 +168,7 @@ def autonomy_loop() -> None:
             break
 
         try:
+            iter_start = time.monotonic()
             state = get_system_state()
             with STATE_LOCK:
                 LAST_STATE = state
@@ -161,6 +177,9 @@ def autonomy_loop() -> None:
             _emit({"type": "autonomy_tick", "iteration": iteration, "state": state})
 
             cycle_action = None
+            cycle_blocked = False
+            cycle_block_reason: str | None = None
+            cycle_confidence = 1.0
             issues = detect_issues(state, recent_events(RECENT_EVENT_LIMIT))
             for issue in issues:
                 signature = issue_signature(issue)
@@ -242,11 +261,16 @@ def autonomy_loop() -> None:
                 cycle_action = recovery_task or cycle_action
 
             if issues:
+                duration_ms = int((time.monotonic() - iter_start) * 1000)
                 _emit(
                     {
                         "type": "autonomy_cycle_complete",
                         "iteration": iteration,
                         "decision": cycle_action,
+                        "blocked": cycle_blocked,
+                        "blockReason": cycle_block_reason,
+                        "confidence": cycle_confidence,
+                        "durationMs": duration_ms,
                         "evaluation": None,
                     }
                 )
@@ -254,40 +278,90 @@ def autonomy_loop() -> None:
                     break
                 continue
 
-            decision = decide_action(state)
+            raw_decision = decide_action(state)
+            decision_start = time.monotonic()
+
+            # ── Guardrail validation ────────────────────────────────────────
+            validated_decision, blocked, block_reason, confidence = guardrail_validate(
+                raw_decision, state
+            )
+            decision_time_ms = int((time.monotonic() - decision_start) * 1000)
+
+            if validated_decision and not blocked:
+                guardrail_record_decision(validated_decision)
 
             workflow_result = None
-            if decision:
+            exec_start = time.monotonic()
+            if validated_decision and not blocked:
                 workflow_id = f"autonomy-{int(time.time() * 1000)}"
                 _emit(
                     {
                         "type": "autonomy_decision",
                         "iteration": iteration,
-                        "decision": decision,
+                        "decision": validated_decision,
+                        "confidence": confidence,
                         "workflowId": workflow_id,
                     }
                 )
                 workflow_result = asyncio.run(
                     workflow_engine.run_workflow_stream(
-                        task=decision,
+                        task=validated_decision,
                         workflow_id=workflow_id,
                         context_text="Autonomy loop decision",
                         memory={"source": "autonomy", "iteration": iteration, "state": state},
                         allow_recovery=False,
                     )
                 )
+                # ── Outcome recording → closes the learning loop ─────────
+                if _OUTCOME_TRACKING and _record_outcome is not None:
+                    try:
+                        exec_ms = (time.monotonic() - exec_start) * 1000
+                        outcome = "failure" if (workflow_result or {}).get("status") == "failed" else "success"
+                        _record_outcome(
+                            skill_name=validated_decision,
+                            result=outcome,
+                            context_key="autonomy",
+                            latency=exec_ms,
+                            source="live",
+                        )
+                        _emit({
+                            "type": "autonomy_outcome_recorded",
+                            "iteration": iteration,
+                            "decision": validated_decision,
+                            "outcome": outcome,
+                            "latencyMs": int(exec_ms),
+                        })
+                    except Exception as _outcome_exc:
+                        _emit({"type": "autonomy_outcome_error", "iteration": iteration, "error": str(_outcome_exc)})
+            elif blocked:
+                _emit(
+                    {
+                        "type": "autonomy_decision_blocked",
+                        "iteration": iteration,
+                        "proposedDecision": raw_decision,
+                        "reason": block_reason,
+                        "confidence": confidence,
+                    }
+                )
 
+            duration_ms = int((time.monotonic() - iter_start) * 1000)
             _emit(
                 {
                     "type": "autonomy_cycle_complete",
                     "iteration": iteration,
-                    "decision": decision,
+                    "decision": validated_decision if not blocked else None,
+                    "blocked": blocked,
+                    "blockReason": block_reason,
+                    "confidence": confidence,
+                    "durationMs": duration_ms,
+                    "decisionTimeMs": decision_time_ms,
                     "evaluation": workflow_result.get("evaluation") if workflow_result else None,
                 }
             )
         except Exception as exc:
             with STATE_LOCK:
                 LAST_ERROR = str(exc)
+            guardrail_record_error()
             _emit({"type": "autonomy_error", "iteration": iteration, "error": str(exc)})
 
         if STOP_EVENT.wait(LOOP_INTERVAL_SECONDS):
@@ -300,6 +374,7 @@ def autonomy_loop() -> None:
 def start_autonomy() -> Dict[str, Any]:
     global RUNNING, THREAD, ITERATION_COUNT, LAST_ERROR, LAST_STATE, LAST_DECISION, LAST_DECISION_TIME, RECOVERY_ATTEMPTS
 
+    guardrail_reset_all()
     with STATE_LOCK:
         if RUNNING:
             return {"status": "already_running", "autonomy": _status_unlocked()}
@@ -330,3 +405,22 @@ def stop_autonomy() -> Dict[str, Any]:
     if was_running:
         _emit({"type": "autonomy_stopped", "status": "stopped", "state": status})
     return {"status": "stopped", "autonomy": status}
+
+
+def disable_autonomy(reason: str = "operator_request") -> Dict[str, Any]:
+    """Operator hard kill-switch — blocks all decision execution without stopping the loop."""
+    from interfaces.api.guardrails import enable_hard_kill
+    enable_hard_kill()
+    _emit({"type": "autonomy_disabled", "reason": reason})
+    with STATE_LOCK:
+        return {"status": "disabled", "reason": reason, "autonomy": _status_unlocked()}
+
+
+def enable_autonomy() -> Dict[str, Any]:
+    """Re-enable after hard kill or auto-disable."""
+    from interfaces.api.guardrails import clear_hard_kill, reset_auto_disable
+    clear_hard_kill()
+    reset_auto_disable()
+    _emit({"type": "autonomy_enabled"})
+    with STATE_LOCK:
+        return {"status": "enabled", "autonomy": _status_unlocked()}
