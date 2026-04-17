@@ -217,11 +217,26 @@ class MemoryStore:
                         "swaps_to": 0,
                         "swaps_from": 0,
                         "skips": 0,
+                        "reorders_up": 0,
+                        "reorders_down": 0,
                         "last_feedback": None,
                     }
+                else:
+                    fb = self.data[key]["operator_feedback"]
+                    fb.setdefault("reorders_up", 0)
+                    fb.setdefault("reorders_down", 0)
                 return self.data[key]["operator_feedback"]
 
-            if edit_type == "swap" and from_skill and to_skill:
+            if edit_type == "reorder" and skill_name:
+                direction = str(from_skill or "").strip().lower()  # reuse from_skill as direction field
+                fb = _ensure_entry(self._memory_key(skill_name, canonical), skill_name)
+                if direction == "up":
+                    fb["reorders_up"] = fb.get("reorders_up", 0) + 1
+                else:
+                    fb["reorders_down"] = fb.get("reorders_down", 0) + 1
+                fb["last_feedback"] = ts
+
+            elif edit_type == "swap" and from_skill and to_skill:
                 fb_from = _ensure_entry(self._memory_key(from_skill, canonical), from_skill)
                 fb_from["swaps_from"] = fb_from.get("swaps_from", 0) + 1
                 fb_from["last_feedback"] = ts
@@ -244,7 +259,7 @@ class MemoryStore:
             fb = entry.get("operator_feedback") or {}
             outcomes = entry.get("replacement_outcomes") or {}
             total_outcomes = float(outcomes.get("total", 0) or 0)
-            if any(fb.get(f, 0) for f in ("swaps_to", "swaps_from", "skips")) or total_outcomes > 0:
+            if any(fb.get(f, 0) for f in ("swaps_to", "swaps_from", "skips", "reorders_up", "reorders_down")) or total_outcomes > 0:
                 success_total = float(outcomes.get("success", 0) or 0)
                 failure_total = float(outcomes.get("failure", 0) or 0)
                 result[key] = {
@@ -253,6 +268,8 @@ class MemoryStore:
                     "swaps_to": fb.get("swaps_to", 0),
                     "swaps_from": fb.get("swaps_from", 0),
                     "skips": fb.get("skips", 0),
+                    "reorders_up": fb.get("reorders_up", 0),
+                    "reorders_down": fb.get("reorders_down", 0),
                     "last_feedback": fb.get("last_feedback"),
                     "replacement_outcomes": {
                         "total": int(round(total_outcomes)),
