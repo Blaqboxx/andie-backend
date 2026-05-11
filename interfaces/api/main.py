@@ -132,7 +132,6 @@ if malk_agents_path not in sys.path:
 
 # --- FastAPI app ---
 app = FastAPI()
-memory_service = MemoryService()
 register_builtin_skills()
 app.include_router(knowledge_router)
 app.include_router(autonomy_explainer_router)
@@ -152,6 +151,7 @@ app.add_middleware(
 
 @app.on_event("startup")
 async def _startup_self_build_loop() -> None:
+    app.state.memory_service = MemoryService()
     init_memory_db()
     seed_semantic_defaults(SEMANTIC_BOOTSTRAP_DEFAULTS)
     await start_self_build_loop()
@@ -314,6 +314,13 @@ class FrontendIssueRequest(BaseModel):
     priority: int = 3
     preferredNode: str | None = None
     metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+def _memory_from_request(request: Request) -> MemoryService:
+    service = getattr(request.app.state, "memory_service", None)
+    if service is None:
+        raise HTTPException(status_code=503, detail="memory_service_unavailable")
+    return service
 
 
 class SelfReviewRequest(BaseModel):
@@ -2902,8 +2909,9 @@ def cryptonia_capital_history_api(limit: int = 20):
 
 
 @app.post("/memory/query")
-def query_memory_compat(req: QueryRequest):
+def query_memory_compat(req: QueryRequest, request: Request):
     try:
+        memory_service = _memory_from_request(request)
         result = memory_service.query_memory(req.query, top_k=req.top_k)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))

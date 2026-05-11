@@ -1,4 +1,4 @@
-#!/home/jamai-jamison/valhalla/andie-backend/venv/bin/python3
+#!/mnt/ai-ssd/valhalla/andie-runtime-hardening/venv/bin/python
 import sys
 from openai.cli import main
 if __name__ == '__main__':

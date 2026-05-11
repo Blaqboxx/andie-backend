@@ -19,14 +19,21 @@ from agents.health_agent import HealthAgent
 app = FastAPI()
 
 from andie.memory.memory_service import MemoryService
-memory_service = MemoryService()
+
+
+def _memory_from_request(request: Request) -> MemoryService:
+    service = getattr(request.app.state, "memory_service", None)
+    if service is None:
+        raise RuntimeError("memory_service_unavailable")
+    return service
 
 @app.post("/memory/query")
-def memory_query(data: dict):
+def memory_query(data: dict, request: Request):
     query = data.get("query", "")
     if not query:
         return {"results": []}
     # Use the real memory service
+    memory_service = _memory_from_request(request)
     result_obj = memory_service.query_memory(query)
     # Add IDs for frontend compatibility
     results = [
@@ -95,6 +102,7 @@ health_agent_instance = FastAPIHealthAgent()
 
 @app.on_event("startup")
 async def start_health_agent():
+    app.state.memory_service = MemoryService()
     loop = asyncio.get_event_loop()
     loop.create_task(health_agent_instance.run())
 
