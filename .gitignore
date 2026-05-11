@@ -8,6 +8,15 @@ __pycache__/
 # Virtual environments
 venv/
 .venv/
+env/
+
+# Build & cache
+build/
+dist/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.coverage
 
 # Node dependencies
 node_modules/
@@ -15,6 +24,8 @@ node_modules/
 # Runtime logs and local artifacts
 *.log
 ~/
+logs/
+tmp/
 
 # OS/editor noise
 .DS_Store
