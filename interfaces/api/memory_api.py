@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel
 from typing import Any, Dict, List
 import sys
@@ -32,19 +32,30 @@ class QueryRequest(BaseModel):
     metadata: Dict[str, Any] = {}
 
 
-memory = MemoryService()
+@app.on_event("startup")
+def startup_memory_service() -> None:
+    app.state.memory_service = MemoryService()
+
+
+def _memory_from_request(request: Request) -> MemoryService:
+    service = getattr(request.app.state, "memory_service", None)
+    if service is None:
+        raise HTTPException(status_code=503, detail="memory_service_unavailable")
+    return service
 
 @app.post("/memory/store")
-def store_memory(req: MemoryRequest):
+def store_memory(req: MemoryRequest, request: Request):
     try:
+        memory = _memory_from_request(request)
         return memory.store_memory(req.content, req.metadata)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/memory/query")
-def query_memory(req: QueryRequest):
+def query_memory(req: QueryRequest, request: Request):
     try:
+        memory = _memory_from_request(request)
         return memory.query_memory(req.query, top_k=req.top_k)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
