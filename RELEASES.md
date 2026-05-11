@@ -134,6 +134,8 @@ class MemoryService:
 **Startup Behavior:** Identical from external perspective  
 **Rollback Path:** Single PR revert if needed
 
+**Operator Readiness Guidance:** After backend deployment or restart, wait for `/healthz` to report healthy before validating UI runtime behavior. Early 503s or missing data during startup are a readiness-timing signal, not a frontend contract break.
+
 ### 📋 Testing & CI/CD
 
 **Recommended additions to test suite:**

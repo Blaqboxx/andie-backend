@@ -353,8 +353,19 @@ def test_startup_determinism():
 - [ ] All endpoints use the DI helper
 - [ ] Tests use fixtures to mock `request.app.state`
 - [ ] Startup determinism test added to test suite
+- [ ] Operators wait for `/healthz` to report healthy before treating the UI as ready
 - [ ] No module-level service instances remain
 - [ ] `CONTRIBUTING.md` updated with pattern reference
+
+### Operator Runbook Guidance
+
+After backend deployment or restart, wait for `/healthz` to report healthy before validating UI runtime behavior.
+
+This distinction matters:
+- startup readiness timing issues can cause transient 503s, empty panels, or early fetch failures
+- those symptoms do not imply a frontend incompatibility when route and payload contracts are unchanged
+
+For ANDIE's staged runtime, treat `backend warming up` as a first-class operational state. UI validation should begin only after `api_ready` is true.
 
 ---
 
