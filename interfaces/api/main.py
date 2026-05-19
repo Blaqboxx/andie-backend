@@ -899,3 +899,31 @@ async def diagnostics_run_domain(domain: str):
         raise HTTPException(status_code=400, detail=f"Unknown domain '{domain}'. Valid: {_ALL_DOMAINS}")
     return await _run_domain(domain)
 
+
+# ── Runtime Registry endpoint ─────────────────────────────────────────────────
+from andie_backend.andie.trainstation.registry import snapshot as _registry_snapshot
+from andie_backend.andie.trainstation.healthchecks import start_background_poll as _start_poll, check_all as _check_all
+
+
+@router.on_event("startup")
+async def _trainstation_startup():
+    """On backend startup: run initial health check then start background poll."""
+    try:
+        await _check_all()
+        _start_poll(interval=30)
+    except Exception:
+        pass
+
+
+@router.get("/registry")
+async def get_registry():
+    """Live service registry — status of all stack components."""
+    return _registry_snapshot()
+
+
+@router.post("/registry/refresh")
+async def refresh_registry():
+    """Trigger immediate health check sweep across all services."""
+    results = await _check_all()
+    return {"refreshed": True, "results": results, "registry": _registry_snapshot()}
+
