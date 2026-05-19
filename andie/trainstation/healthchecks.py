@@ -12,7 +12,7 @@ from andie_backend.andie.trainstation import registry
 
 HEALTH_ENDPOINTS = {
     "backend":  ("http://localhost:8010/health", False),   # (url, strict_200)
-    "ui":       ("http://localhost:5173/", False),
+    "ui":       ("http://192.168.50.183:5173/", False),    # host LAN — reachable from container
     "ollama":   ("http://192.168.50.9:11434/api/tags", True),
     "guardian": ("http://localhost:7010/health", True),
     "mcp":      ("http://localhost:7001/status", True),
