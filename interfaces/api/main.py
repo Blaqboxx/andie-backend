@@ -880,3 +880,22 @@ async def get_artifact_file(job_id: str, filepath: str):
     mime, _ = _mimetypes.guess_type(str(target))
     return Response(content=content, media_type=mime or "text/plain")
 
+
+# ── Diagnostics endpoints ─────────────────────────────────────────────────────
+from andie_backend.andie.diagnostics.probe_runner import run_domain as _run_domain, run_all as _run_all_diag, ALL_DOMAINS as _ALL_DOMAINS
+
+
+@router.get("/diagnostics/run")
+async def diagnostics_run_all():
+    """Run all diagnostic domains in parallel and return structured health report."""
+    return await _run_all_diag()
+
+
+@router.get("/diagnostics/run/{domain}")
+async def diagnostics_run_domain(domain: str):
+    """Run diagnostic probes for a single domain (containers/network/gpu/storage/models)."""
+    if domain not in _ALL_DOMAINS:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail=f"Unknown domain '{domain}'. Valid: {_ALL_DOMAINS}")
+    return await _run_domain(domain)
+
