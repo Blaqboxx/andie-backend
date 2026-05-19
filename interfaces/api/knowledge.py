@@ -3,7 +3,7 @@ from pydantic import BaseModel
 import json
 import os
 
-from knowledge.config import PROCESSED_PATH, RAW_PATH, SKILLS_PATH
+from andie_backend.knowledge.config import PROCESSED_PATH, RAW_PATH, SKILLS_PATH
 
 router = APIRouter()
 
@@ -21,7 +21,7 @@ class KnowledgeAnswerRequest(BaseModel):
 
 @router.post("/knowledge/search")
 def knowledge_search(q: Query):
-    from knowledge.retrieve import search
+    from andie_backend.knowledge.retrieve import search
 
     results = search(q.query, k=q.k) if q.k else search(q.query)
     return {"results": results}
@@ -29,7 +29,7 @@ def knowledge_search(q: Query):
 
 @router.post("/knowledge/answer")
 def knowledge_answer(q: KnowledgeAnswerRequest):
-    from knowledge.answer import answer_with_knowledge
+    from andie_backend.knowledge.answer import answer_with_knowledge
 
     return answer_with_knowledge(q.query, mode=q.mode, k=q.k or 5)
 
@@ -37,7 +37,7 @@ def knowledge_answer(q: KnowledgeAnswerRequest):
 @router.post("/knowledge/ingest")
 def knowledge_ingest():
     try:
-        from knowledge.ingest import ingest_all
+        from andie_backend.knowledge.ingest import ingest_all
 
         return {"status": "ok", **ingest_all()}
     except Exception as exc:

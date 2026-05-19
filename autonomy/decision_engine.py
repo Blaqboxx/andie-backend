@@ -4,7 +4,7 @@ import os
 from collections import deque
 from typing import Any, Deque, Dict, List
 
-from autonomy.learning import detect_pattern
+from .learning import detect_pattern
 
 
 AUTONOMY_MAX_CONFIDENCE_REQUIRED = float(os.environ.get("AUTONOMY_MAX_CONFIDENCE_REQUIRED", "0.6"))

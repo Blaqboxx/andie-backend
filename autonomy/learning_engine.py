@@ -3,8 +3,8 @@ from __future__ import annotations
 import re
 from typing import Any, Dict
 
-from autonomy.memory_store import MemoryStore
-from autonomy.metrics import (
+from .memory_store import MemoryStore
+from .metrics import (
     compute_failure_penalty,
     compute_latency_score,
     compute_outcome_score,
@@ -14,7 +14,7 @@ from autonomy.metrics import (
     is_unstable,
     recency_weight,
 )
-from autonomy.runtime_config import get_runtime_config
+from .runtime_config import get_runtime_config
 
 # Dampened influence cap for operator-feedback signals.
 # A value of 0.2 means operator preference can shift a score by at most ±20 %

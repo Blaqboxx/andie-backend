@@ -1,6 +1,6 @@
 import asyncio
 import os
-from andie.agents.base_agent import Agent
+from andie_backend.agents.base_agent import Agent
 
 class RecoveryAgent(Agent):
     def __init__(self, **kwargs):

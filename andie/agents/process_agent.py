@@ -1,6 +1,6 @@
 import asyncio
 import psutil
-from andie.agents.base_agent import Agent
+from andie_backend.agents.base_agent import Agent
 
 class ProcessAgent(Agent):
     def __init__(self, process_name="uvicorn", interval=5, **kwargs):

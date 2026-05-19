@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
-from autonomy.autonomy_profiles import DEFAULT_PROFILE, PROFILES
-from autonomy.trust_engine import compute_trust
+from .autonomy_profiles import DEFAULT_PROFILE, PROFILES
+from .trust_engine import compute_trust
 
 # Defaults are aligned to the balanced profile for backward compatibility.
 AUTO_THRESHOLD: float = PROFILES[DEFAULT_PROFILE]["auto_threshold"]

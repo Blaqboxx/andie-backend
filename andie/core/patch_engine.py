@@ -58,3 +58,167 @@ class PatchEngine:
             return True
         except Exception as e:
             self.restore(file_path)
+            return False
+
+# Example usage:
+# patcher = PatchEngine()
+# patcher.apply_patch("target.py", patch_text)
+
+# Task log (in-memory)
+patch_tasks = []
+tasks = []
+
+def load_memory():
+    try:
+        with open(MEMORY_FILE, "r") as f:
+            return json.load(f)
+    except:
+        return []
+
+def save_memory(memory):
+    with open(MEMORY_FILE, "w") as f:
+        json.dump(memory, f, indent=2)
+
+def apply_patch(patch_text: str, target_file: str):
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, mode="w") as f:
+            f.write(patch_text)
+            patch_path = f.name
+
+        # backup
+        shutil.copy(target_file, target_file + ".bak")
+
+        result = subprocess.getoutput(f"patch {target_file} {patch_path}")
+        print("PATCH RESULT:", result)
+
+        return True
+
+    except Exception as e:
+        print("PATCH ERROR:", e)
+        return False
+
+def rollback(path):
+    shutil.copy(path + ".bak", path)
+    print("♻️ Rolled back:", path)
+
+def safe_apply_patch(patch, file, validate_code):
+    success = apply_patch(patch, file)
+    if not success:
+        return False
+    if validate_code():
+        return True
+    print("❌ Patch broke code — rolling back")
+    rollback(file)
+    return False
+
+def log_task(error, patch, success):
+    patch_tasks.append({
+        "error": error,
+        "patch": patch,
+        "success": success
+    })
+    # Persistent memory
+    memory = load_memory()
+    memory.append({
+        "error": error,
+        "patch": patch,
+        "success": success
+    })
+    save_memory(memory)
+
+def recall_fix(error, memory):
+    for m in memory:
+        if error in m["error"] and m["success"]:
+            return m["patch"]
+    return None
+
+# --- Task Planning System ---
+def create_task(error):
+    return {
+        "id": len(tasks) + 1,
+        "error": error,
+        "status": "pending",
+        "retries": 0,
+        "plan": None,
+        "result": None
+    }
+
+def plan_task(task):
+    # LLM stub: returns a simple plan as a list of steps
+    # Replace with real LLM call for advanced planning
+    return [
+        "identify file with error",
+        "fix syntax",
+        "validate code",
+        "restart server"
+    ]
+
+def execute_task(task, diagnose_and_fix, safe_apply_patch, validate_code):
+    plan = task["plan"]
+    for step in plan:
+        print("🔧 Executing:", step)
+        patch = diagnose_and_fix(step)
+        success = safe_apply_patch(patch, "target_file.py", validate_code)
+        if not success:
+            task["retries"] += 1
+            task["status"] = "failed"
+            return False
+    task["status"] = "completed"
+    return True
+
+def verify_system(get_latest_error):
+    logs = get_latest_error()
+    return "Traceback" not in logs and "Error" not in logs
+
+def extract_error_file(error_log):
+    """Extract the first Python file path from a traceback/error log."""
+    matches = re.findall(r"File '([^']+\.py)'", error_log)
+    if matches:
+        return matches[0]
+    return None
+
+def extract_error_context(log_text: str):
+    import re
+    lines = log_text.splitlines()
+    error_text = ""
+    file_path = None
+
+    # --- Pattern 1: Traceback ---
+    if "Traceback" in log_text:
+        capture = False
+        block = []
+        for line in lines:
+            if "Traceback" in line:
+                capture = True
+                block = [line]
+            elif capture:
+                block.append(line)
+                if line.strip() == "":
+                    break
+        error_text = "\n".join(block)
+        match = re.search(r'File "(.+?)"', error_text)
+        if match:
+            file_path = match.group(1)
+
+    # --- Pattern 2: SyntaxError ---
+    elif "SyntaxError" in log_text:
+        error_text = log_text
+        match = re.search(r'File "(.+?)"', log_text)
+        if match:
+            file_path = match.group(1)
+
+    # --- Pattern 3: ModuleNotFoundError ---
+    elif "ModuleNotFoundError" in log_text:
+        error_text = log_text
+
+    # --- Pattern 4: Generic Error ---
+    elif "Error" in log_text:
+        error_text = log_text
+
+    return {
+        "error": error_text.strip(),
+        "file": file_path
+    }
+
+def has_actionable_error(context):
+    return bool(context["error"]) and len(context["error"]) > 20

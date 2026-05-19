@@ -3,10 +3,10 @@ from __future__ import annotations
 import re
 from typing import Any, Dict, List
 
-from autonomy.autonomy_controller import decide_execution_mode
-from autonomy.autonomy_profiles import DEFAULT_PROFILE
-from autonomy.learning_engine import skill_memory_snapshot
-from autonomy.trust_engine import compute_trust
+from .autonomy_controller import decide_execution_mode
+from .autonomy_profiles import DEFAULT_PROFILE
+from .learning_engine import skill_memory_snapshot
+from .trust_engine import compute_trust
 
 MIN_TRUST_THRESHOLD = 0.30
 PROFILE_MIN_TRUST_THRESHOLD: Dict[str, float] = {

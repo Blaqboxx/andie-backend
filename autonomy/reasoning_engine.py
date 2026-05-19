@@ -1,7 +1,34 @@
+
 from __future__ import annotations
+# =========================
+# 🧠 ReasoningEngine class for orchestrator
+# =========================
 
 import json
 from typing import Any, Callable, Dict, List
+
+LLMCallable = Callable[[str], str]
+
+class ReasoningEngine:
+    def __init__(self, llm: LLMCallable = None):
+        self.llm = llm
+
+    def process(self, context: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Accepts context dict with keys: observations, memory, knowledge, goals.
+        Returns: {"thought": str, "plan": {"tasks": [...]}}
+        """
+        # Simple thought: summarize context
+        thought = f"Observations: {context.get('observations')}, Memory: {len(context.get('memory', []))} items, Goals: {context.get('goals')}"
+        # Build plan using existing function
+        plan_steps = build_reasoning_plan({
+            "observations": context.get("observations"),
+            "goals": context.get("goals"),
+            "memory": context.get("memory"),
+            "knowledge": context.get("knowledge"),
+        }, context.get("knowledge"), self.llm)
+        plan = {"tasks": [{"description": step["step"], "why": step["why"]} for step in plan_steps]}
+        return {"thought": thought, "plan": plan}
 
 
 LLMCallable = Callable[[str], str]

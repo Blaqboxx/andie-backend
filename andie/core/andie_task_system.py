@@ -11,8 +11,8 @@ import threading
 import time
 import json
 import subprocess
-from andie.core.validation_utils import validate_python, backup_file, rollback_file, get_llm_prompt
 from pathlib import Path
+from .validation_utils import validate_python, backup_file, rollback_file, get_llm_prompt
 
 MEMORY_PATH = Path("andie_memory.json")
 
@@ -58,3 +58,41 @@ def get_latest_error():
     # You can swap this for journalctl or log file tailing
     logs = subprocess.getoutput("tail -n 40 uvicorn.log")
     return logs
+
+def diagnose_and_fix(error_log):
+    # Placeholder for LLM call
+    # Replace with your LLM integration
+    print("[LLM] Diagnosing error:", error_log[-200:])
+    # Example: always return a safe echo command
+    return "echo 'No-op fix'"
+
+def andie_task_loop():
+    while True:
+        # 1. Observer: Detect error
+        error = get_latest_error()
+        if "SyntaxError" in error or "Traceback" in error:
+            print("⚠️ ANDIE detected issue")
+            # 2. Reasoner: Propose fix
+            # Harden LLM prompt
+            prompt = get_llm_prompt(error)
+            fix_cmd = diagnose_and_fix(prompt)
+            print("🧠 ANDIE suggests:", fix_cmd)
+            # 3. Executor: Confirm and apply
+            if is_safe(fix_cmd):
+                # Backup main files before edit (example: main.py)
+                backup_file("main.py")
+                queue.add_task({"cmd": fix_cmd, "error": error, "ts": time.time()})
+                result = subprocess.getoutput(fix_cmd)
+                print("🔧 FIX RESULT:", result)
+                queue.complete_task(fix_cmd, result)
+                # Validate before restart
+                if validate_python():
+                    print("✅ Code valid, restarting server")
+                    subprocess.getoutput("pkill -f uvicorn")
+                    subprocess.Popen("uvicorn main:app --reload", shell=True)
+                else:
+                    print("❌ ANDIE detected broken code — rolling back")
+                    rollback_file("main.py")
+        time.sleep(10)
+
+threading.Thread(target=andie_task_loop, daemon=True).start()

@@ -1,6 +1,6 @@
 import asyncio
 import subprocess
-from andie.agents.base_agent import Agent
+from andie_backend.agents.base_agent import Agent
 
 class CryptoniaAgent(Agent):
     def __init__(self, config_path='Cryptonia/config.yaml', dry_run=True, interval=300, **kwargs):

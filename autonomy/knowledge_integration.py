@@ -1,3 +1,24 @@
+
+# =========================
+# 🧠 KnowledgeIntegrator class for orchestrator
+# =========================
+
+class KnowledgeIntegrator:
+    def __init__(self, knowledge_enabled: bool = True):
+        self.knowledge_enabled = knowledge_enabled
+
+    def enrich(self, observations):
+        """
+        Enrich observations with knowledge guidance. Returns a dict with knowledge info.
+        """
+        # Compose a context for enrichment
+        event = {
+            "type": "observation",
+            "description": str(observations[0]) if observations else ""
+        }
+        context = {"event": event}
+        enriched = enrich_autonomy_context(context, knowledge_enabled=self.knowledge_enabled)
+        return enriched.get("knowledge_guidance", {})
 """
 Knowledge Integration for Autonomy
 Provides utilities to query knowledge and enrich autonomous decision contexts.

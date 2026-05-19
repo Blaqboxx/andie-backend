@@ -5,9 +5,9 @@ from typing import Any, Dict
 
 import requests
 
-from interfaces.api.node_metrics import system_metrics
-from interfaces.api.node_registry import load_node_registry
-from interfaces.api.node_scoring import score_node
+from andie_backend.interfaces.api.node_metrics import system_metrics
+from andie_backend.interfaces.api.node_registry import load_node_registry
+from andie_backend.interfaces.api.node_scoring import score_node
 
 
 MAX_LOAD_PER_CPU = float(os.environ.get("ANDIE_NODE_MAX_LOAD_PER_CPU", "1.5"))

@@ -3,9 +3,9 @@ from __future__ import annotations
 import random
 from typing import Any, Dict, List
 
-from autonomy.learning_engine import memory
-from autonomy.memory_store import MemoryStore
-from autonomy.trust_engine import compute_trust
+from .learning_engine import memory
+from .memory_store import MemoryStore
+from .trust_engine import compute_trust
 
 
 def _step_name(step: Any) -> str:

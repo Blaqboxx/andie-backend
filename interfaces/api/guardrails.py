@@ -18,7 +18,7 @@ from collections import deque
 from typing import Any, Dict, Optional, Tuple
 
 try:
-    from autonomy.learning_engine import score_skill as _learning_score_skill
+    from andie_backend.autonomy.learning_engine import score_skill as _learning_score_skill
     _LEARNING_ENGINE = True
 except Exception:
     _LEARNING_ENGINE = False

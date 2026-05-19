@@ -12,7 +12,7 @@ MAX_RETRIES = 2
 
 def suggest_fix(goal, plan, code, error):
 """ Self-debugging suggestion using LLM"""
-from andie.brain.llm_router import call_llm
+from andie_backend.brain.llm_router import call_llm
 
 def suggest_fix(goal, plan, code, error):
     if not error:

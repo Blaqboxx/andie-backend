@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from autonomy.explainer import explain_decision
+from andie_backend.autonomy.explainer import explain_decision
 
 
 router = APIRouter()

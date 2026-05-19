@@ -3,8 +3,8 @@ from __future__ import annotations
 import time
 from typing import Any, Dict
 
-from interfaces.api.workflow_engine import workflow_engine
-from scheduler.queue import reroute_tasks
+from andie_backend.interfaces.api.workflow_engine import workflow_engine
+from andie_backend.scheduler.queue import reroute_tasks
 
 
 def recovery_task_for_issue(issue: Dict[str, Any]) -> str | None:

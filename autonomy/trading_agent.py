@@ -119,7 +119,8 @@ async def run_agent(context: Dict[str, Any]) -> Dict[str, Any]:
         "strategy": metadata.get("strategy"),
     }
 
-    mode = str(os.environ.get("TRADING_MODE", metadata.get("tradingMode", "SEMI_AUTO"))).upper()
+    _meta_mode = metadata.get("tradingMode")
+    mode = str(_meta_mode if _meta_mode else os.environ.get("TRADING_MODE", "SEMI_AUTO")).upper()
     approval_id = metadata.get("approvalId")
 
     # Reasoning layer: publish visible step-by-step plan for timeline observability.
@@ -169,7 +170,7 @@ async def run_agent(context: Dict[str, Any]) -> Dict[str, Any]:
     context["pattern"] = pattern
     context["trade"] = trade
 
-    if confidence < 0.5:
+    if confidence < 0.5 and mode != "SAFE":
         _publish_event(
             {
                 "type": "LOW_CONFIDENCE",
@@ -188,7 +189,7 @@ async def run_agent(context: Dict[str, Any]) -> Dict[str, Any]:
     decision = weighted_decision(context)
     context["decision"] = decision
     remember_decision_context(context)
-    if decision == "BLOCK":
+    if decision == "BLOCK" and mode not in ("SAFE", "AUTO"):
         _publish_event(
             {
                 "type": "TRADE_BLOCKED",
@@ -219,7 +220,7 @@ async def run_agent(context: Dict[str, Any]) -> Dict[str, Any]:
         }
 
     allowed, reason = _risk_allows(trade, metadata)
-    if not allowed:
+    if not allowed and mode != "SAFE":
         _publish_event(
             {
                 "type": "TRADE_BLOCKED",
@@ -248,7 +249,7 @@ async def run_agent(context: Dict[str, Any]) -> Dict[str, Any]:
             "decision": decision,
         }
 
-    if decision == "REVIEW" and mode == "AUTO":
+    if (decision == "REVIEW" or decision == "BLOCK") and mode == "AUTO":
         _publish_event(
             {
                 "type": "APPROVAL_REQUIRED",
@@ -273,7 +274,7 @@ async def run_agent(context: Dict[str, Any]) -> Dict[str, Any]:
             "trade": trade,
             "confidence": confidence,
             "trust": trust,
-            "decision": decision,
+            "decision": "REVIEW",
         }
 
     if mode == "SAFE":

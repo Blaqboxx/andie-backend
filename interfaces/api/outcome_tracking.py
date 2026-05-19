@@ -5,12 +5,12 @@ from typing import Any, Dict
 
 from fastapi import HTTPException
 
-import autonomy.learning_engine as learning_engine
-from autonomy.control_plane_metrics import control_plane_metrics
-from autonomy.learning_engine import score_skill as _score_skill
-from autonomy.learning_engine import skill_memory_snapshot
-from autonomy.observability_alerts import emit_observability_alert
-from autonomy.runtime_config import get_runtime_config
+import andie_backend.autonomy.learning_engine as learning_engine
+from andie_backend.autonomy.control_plane_metrics import control_plane_metrics
+from andie_backend.autonomy.learning_engine import score_skill as _score_skill
+from andie_backend.autonomy.learning_engine import skill_memory_snapshot
+from andie_backend.autonomy.observability_alerts import emit_observability_alert
+from andie_backend.autonomy.runtime_config import get_runtime_config
 
 
 def first_non_empty(*values: Any) -> str | None:

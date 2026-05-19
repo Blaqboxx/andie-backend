@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
-from autonomy.autonomy_profiles import DEFAULT_PROFILE, PROFILES
+from .autonomy_profiles import DEFAULT_PROFILE, PROFILES
 
 RUNTIME_CONFIG: Dict[str, Any] = {
     "profile": DEFAULT_PROFILE,

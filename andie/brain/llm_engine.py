@@ -1,6 +1,6 @@
 """ brain/llm_engine.py"""
 
-from andie.brain.llm_router import llm_invoke
+from andie_backend.brain.llm_router import llm_invoke
 
 print("✅ LLM ENGINE ACTIVE")
 

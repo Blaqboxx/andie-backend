@@ -1,7 +1,8 @@
+
 import asyncio
 from typing import Dict, Any, List
 import time
-from andie.core.decision_engine import compute_health_score, classify
+from .decision_engine import get_health_status
 
 class Orchestrator:
     def __init__(self):
@@ -25,8 +26,9 @@ class Orchestrator:
         health_score = None
         state = None
         if cpu is not None and memory is not None and llm is not None:
-            health_score = compute_health_score(cpu, memory, llm)
-            state = classify(health_score)
+            result = await get_health_status(cpu, memory, llm)
+            health_score = result["score"]
+            state = result["status"]
             log_line = f"[STATE] {state.upper()} | Score: {health_score} | CPU: {cpu:.1f}% | MEM: {memory:.1f}% | LLM: {'ACTIVE' if llm else 'INACTIVE'}"
             if state == "critical":
                 log_line = "🚨 " + log_line
@@ -43,6 +45,7 @@ class Orchestrator:
     def can_recover(self):
         return time.time() - self.last_recovery_time > self.COOLDOWN
 
+
     async def evaluate(self, agent_name: str, data: Dict[str, Any], health_score=None, state=None):
         # Use composite state for decisions
         cpu = data.get("cpu", 0)
@@ -56,3 +59,35 @@ class Orchestrator:
                         if getattr(agent, "name", "") == "recovery_agent":
                             await agent.recover_service()
                     self.recovery_failures += 1
+                    if self.recovery_failures > self.max_retries:
+                        print("[ORCHESTRATOR] Recovery failed too many times. Escalating!")
+                else:
+                    print("[ORCHESTRATOR] CRITICAL state, but in cooldown or already recovering.")
+            elif state == "healthy" and self.system_state["status"] == "recovering":
+                print("[ORCHESTRATOR] System recovered. Marking as healthy.")
+                self.system_state["status"] = "healthy"
+                self.recovery_failures = 0
+            elif state == "degraded":
+                print("[ORCHESTRATOR] System is degraded. Monitoring closely.")
+        else:
+            # Fallback to old logic if not enough data
+            if cpu > 85:
+                if self.system_state["status"] != "recovering" and self.can_recover():
+                    print("[ORCHESTRATOR] High CPU detected! Triggering recovery...")
+                    self.system_state["status"] = "recovering"
+                    self.last_recovery_time = time.time()
+                    for agent in self.agents:
+                        if getattr(agent, "name", "") == "recovery_agent":
+                            await agent.recover_service()
+                    self.recovery_failures += 1
+                    if self.recovery_failures > self.max_retries:
+                        print("[ORCHESTRATOR] Recovery failed too many times. Escalating!")
+                else:
+                    print("[ORCHESTRATOR] High CPU detected, but in cooldown or already recovering.")
+            elif cpu < 70 and self.system_state["status"] == "recovering":
+                print("[ORCHESTRATOR] System recovered. Marking as healthy.")
+                self.system_state["status"] = "healthy"
+                self.recovery_failures = 0
+
+    async def run_all(self):
+        await asyncio.gather(*(agent.run() for agent in self.agents))

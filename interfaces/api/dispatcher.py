@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
-from interfaces.api.node_monitor import check_node_health
-from interfaces.api.node_scoring import score_node
+from andie_backend.interfaces.api.node_monitor import check_node_health
+from andie_backend.interfaces.api.node_scoring import score_node
 
 
 def classify_task(task_text: str, params: Dict[str, Any] | None = None) -> str:

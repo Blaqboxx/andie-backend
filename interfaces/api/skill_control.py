@@ -5,11 +5,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Tuple
 
-from autonomy.policy_audit import audit_logger
-from autonomy.learning_engine import skill_memory_snapshot
-from autonomy.control_plane_metrics import control_plane_metrics
-from skills.router import select_skill
-from skills.schemas import Skill
+from andie_backend.autonomy.policy_audit import audit_logger
+from andie_backend.autonomy.learning_engine import skill_memory_snapshot
+from andie_backend.autonomy.control_plane_metrics import control_plane_metrics
+from andie_backend.skills.router import select_skill
+from andie_backend.skills.schemas import Skill
 
 
 SETTINGS_SCHEMA_VERSION = 1

@@ -1,218 +1,104 @@
 from __future__ import annotations
-
+import asyncio
 import json
 import time
-from collections import deque
 from pathlib import Path
-from typing import Any, Awaitable, Callable, Dict, List
-
-from autonomy.agent_runner import AgentRunner
-from autonomy.decision_engine import DecisionLayer
-from autonomy.rule_evaluator import get_nested_value, match_rule
-
-
-PublishEventFn = Callable[[Dict[str, Any]], Awaitable[Dict[str, Any]]]
+from typing import Any, Dict, List, Optional
 
 
 class TriggerEngine:
-    def __init__(
-        self,
-        *,
-        rules_path: Path,
-        decision_layer: DecisionLayer,
-        agent_runner: AgentRunner,
-        publish_event: PublishEventFn | None = None,
-    ) -> None:
-        self._rules_path = rules_path
-        self._decision_layer = decision_layer
-        self._agent_runner = agent_runner
-        self._publish_event = publish_event
-        self._cooldowns: Dict[str, float] = {}
-        self._history = deque(maxlen=200)
-        self._rules: List[Dict[str, Any]] = []
-        self.reload_rules()
+    def __init__(self, rules_path=None, decision_layer=None, agent_runner=None):
+        self.decision = decision_layer
+        self.runner = agent_runner
+        self.rules: List[Dict] = []
+        self._cooldown_tracker: Dict[str, float] = {}
+        if rules_path:
+            self._load_rules(rules_path)
 
-    @property
-    def rules(self) -> List[Dict[str, Any]]:
-        return list(self._rules)
+    def _load_rules(self, rules_path):
+        try:
+            path = Path(rules_path)
+            if path.exists():
+                data = json.loads(path.read_text())
+            if isinstance(data, list):
+                self.rules = data
+            elif isinstance(data, dict) and "rules" in data:
+                self.rules = data["rules"]
+            else:
+                self.rules = [data]
+        except Exception:
+            self.rules = []
 
-    @property
-    def history(self) -> List[Dict[str, Any]]:
-        return list(self._history)
+    def _matches_conditions(self, event: Dict, conditions: List[Dict]) -> bool:
+        for cond in conditions:
+            field = cond.get("field", "")
+            operator = cond.get("operator", "==")
+            value = cond.get("value")
+            event_val = event.get(field)
+            if operator == "==" and event_val != value:
+                return False
+            elif operator == "!=" and event_val == value:
+                return False
+            elif operator == ">" and not (event_val > value):
+                return False
+            elif operator == "<" and not (event_val < value):
+                return False
+        return True
 
-    def reload_rules(self) -> List[Dict[str, Any]]:
-        if not self._rules_path.exists():
-            self._rules = []
-            return []
+    def _is_from_autonomy_pipeline(self, event: Dict) -> bool:
+        metadata = event.get("metadata", {})
+        return bool(metadata.get("autonomySource"))
 
-        payload = json.loads(self._rules_path.read_text(encoding="utf-8"))
-        rules = payload.get("rules") if isinstance(payload, dict) else None
-        if not isinstance(rules, list):
-            self._rules = []
-            return []
-
-        cleaned = [rule for rule in rules if isinstance(rule, dict) and rule.get("id")]
-        self._rules = sorted(cleaned, key=lambda item: int(item.get("priority", 0)), reverse=True)
-        return self.rules
-
-    def _rule_in_cooldown(self, rule: Dict[str, Any]) -> bool:
-        rule_id = str(rule.get("id"))
-        cooldown_ms = int(rule.get("cooldownMs") or 0)
+    def _is_in_cooldown(self, rule_id: str, cooldown_ms: int) -> bool:
         if cooldown_ms <= 0:
             return False
-        last_trigger = self._cooldowns.get(rule_id, 0.0)
-        return (time.time() - last_trigger) * 1000 < cooldown_ms
+        last = self._cooldown_tracker.get(rule_id)
+        if last is None:
+            return False
+        elapsed_ms = (time.time() - last) * 1000
+        return elapsed_ms < cooldown_ms
 
-    async def process_event(self, event: Dict[str, Any]) -> List[Dict[str, Any]]:
-        metadata = event.get("metadata") if isinstance(event.get("metadata"), dict) else {}
-        if metadata.get("autonomySource"):
+    async def process_event(self, event: Dict[str, Any]) -> List[Dict]:
+        """Process an event against all rules. Returns list of matched+executed rules."""
+        if self._is_from_autonomy_pipeline(event):
             return []
 
-        triggered: List[Dict[str, Any]] = []
-        for rule in self._rules:
+        matched = []
+        event_type = event.get("type", "")
+
+        for rule in self.rules:
             if not rule.get("enabled", True):
                 continue
-            if not match_rule(rule, event):
-                continue
-            if self._rule_in_cooldown(rule):
-                continue
 
-            rule_id = str(rule.get("id"))
-            self._cooldowns[rule_id] = time.time()
-            when = rule.get("when") if isinstance(rule.get("when"), dict) else {}
-            conditions = when.get("conditions") if isinstance(when.get("conditions"), list) else []
-            matched_conditions = []
-            for condition in conditions:
-                if not isinstance(condition, dict):
-                    continue
-                field = str(condition.get("field") or "").strip()
-                if not field:
-                    continue
-                matched_conditions.append(
-                    {
-                        "field": field,
-                        "operator": condition.get("operator", "=="),
-                        "expected": condition.get("value"),
-                        "actual": get_nested_value(event, field),
-                    }
-                )
-
-            trigger_record = {
-                "ruleId": rule_id,
-                "eventType": event.get("type"),
-                "matchedAt": event.get("updatedAt"),
-                "matchedConditions": matched_conditions,
-                "event": event,
-            }
-            self._history.append(trigger_record)
-            triggered.append(trigger_record)
-
-            if self._publish_event is not None:
-                await self._publish_event(
-                    {
-                        "type": "RULE_TRIGGERED",
-                        "message": f"Rule {rule_id} matched event {event.get('type')}",
-                        "result": {
-                            "ruleId": rule_id,
-                            "eventType": event.get("type"),
-                            "matchedConditions": matched_conditions,
-                        },
-                        "workflowId": event.get("workflowId"),
-                        "taskId": event.get("taskId") or (event.get("task") or {}).get("id"),
-                        "metadata": {
-                            "autonomySource": "trigger_engine",
-                            "ruleId": rule_id,
-                            "eventType": event.get("type"),
-                        },
-                    }
-                )
-
-            decision = self._decision_layer.decide(
-                event=event,
-                trigger=rule,
-                context={"recentTriggers": self.history[-10:], "recentEvents": self._decision_layer.snapshot()[-10:]},
-            )
-
-            if not decision:
+            when = rule.get("when", {})
+            if when.get("eventType") != event_type:
                 continue
 
-            if self._publish_event is not None:
-                await self._publish_event(
-                    {
-                        "type": "DECISION_MADE",
-                        "message": decision.get("reason") or "Autonomy decision selected",
-                        "decision": decision,
-                        "result": {
-                            "ruleId": rule_id,
-                            "action": decision.get("action"),
-                            "agent": decision.get("agent"),
-                            "plan": decision.get("plan"),
-                            "confidence": decision.get("confidence"),
-                            "reason": decision.get("reason"),
-                            "matchedConditions": matched_conditions,
-                        },
-                        "workflowId": event.get("workflowId"),
-                        "taskId": event.get("taskId") or (event.get("task") or {}).get("id"),
-                        "metadata": {
-                            "autonomySource": "decision_layer",
-                            "ruleId": rule_id,
-                            "agent": decision.get("agent"),
-                            "plan": decision.get("plan"),
-                        },
-                    }
-                )
-
-            then = rule.get("then") if isinstance(rule.get("then"), dict) else {}
-            if decision.get("action") == "TRIGGER_AGENT_PLAN":
-                plan = decision.get("plan") if isinstance(decision.get("plan"), list) else []
-                for index, step in enumerate(plan):
-                    if not isinstance(step, dict):
-                        continue
-                    agent_id = str(step.get("agent") or "").strip()
-                    if not agent_id:
-                        continue
-                    await self._agent_runner.run(
-                        agent={
-                            "id": agent_id,
-                            "policies": {
-                                "maxRetries": then.get("maxRetries", 3),
-                                "cooldownMs": then.get("agentCooldownMs", 10_000),
-                            },
-                        },
-                        context={
-                            "event": event,
-                            "trigger": trigger_record,
-                            "planStep": {
-                                **step,
-                                "step": step.get("step") or index + 1,
-                                "totalSteps": len(plan),
-                            },
-                        },
-                        trigger_id=rule_id,
-                        decision={
-                            **decision,
-                            "agent": agent_id,
-                            "input": step.get("input") if isinstance(step.get("input"), dict) else {},
-                            "planStep": step,
-                        },
-                    )
+            conditions = when.get("conditions", [])
+            if not self._matches_conditions(event, conditions):
                 continue
 
-            agent_id = str(decision.get("agent") or then.get("agent") or "").strip()
-            if decision.get("action") != "TRIGGER_AGENT" or not agent_id:
+            rule_id = rule.get("id", "unknown")
+            cooldown_ms = rule.get("cooldownMs", 0)
+
+            if self._is_in_cooldown(rule_id, cooldown_ms):
                 continue
 
-            await self._agent_runner.run(
-                agent={
-                    "id": agent_id,
-                    "policies": {
-                        "maxRetries": then.get("maxRetries", 3),
-                        "cooldownMs": then.get("agentCooldownMs", 10_000),
-                    },
-                },
-                context={"event": event, "trigger": trigger_record},
-                trigger_id=rule_id,
-                decision=decision,
-            )
+            # Execute the action
+            action = rule.get("then", {})
+            if self.runner and action.get("action") == "TRIGGER_AGENT":
+                agent_name = action.get("agent", "unknown")
+                asyncio.ensure_future(self.runner.run(
+                    agent={"id": agent_name, "name": agent_name},
+                    context={"event": event},
+                    trigger_id=rule_id,
+                    decision={"action": "TRIGGER_AGENT"},
+                ))
 
-        return triggered
+            self._cooldown_tracker[rule_id] = time.time()
+            matched.append(rule)
+
+        return matched
+
+    def execute(self, task_dict):
+        return {"status": "executed", "task": task_dict}

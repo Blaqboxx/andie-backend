@@ -1,7 +1,7 @@
 
 import inspect
 import sys
-from andie.brain import llm_router
+from andie_backend.brain import llm_router
 print("LLM ROUTER FILE:", inspect.getfile(llm_router))
 for path in sys.path:
     print("PATH:", path)
@@ -10,6 +10,7 @@ import json
 import requests
 from brain.llm_engine import think
 from tools.executor import execute
+from interfaces.api.identity import ANDIE_SYSTEM_PROMPT
 
 MEMORY_API_URL = "http://localhost:8000/memory"
 
@@ -32,6 +33,7 @@ def normalize_llm_output(parsed):
     return {"type": "text", "content": parsed if isinstance(parsed, str) else str(parsed)}
 
 def run_agent(task):
+    print("[AGENT] START agent_alpha.run_agent")
     # Query memory from centralized API
     try:
         resp = requests.post(f"{MEMORY_API_URL}/query", json={"query": "recent", "top_k": 10})
@@ -42,17 +44,18 @@ def run_agent(task):
 
     llm_input = {
         "prompt": task,
-        "system": "You are an AI agent executing a task.",
+        "system": ANDIE_SYSTEM_PROMPT,
         "context": str(memory),
         "metadata": {"agent": "agent_alpha"}
     }
 
+    print("[AGENT] THINK CALLED")
     raw_output = think(llm_input)
-    print(f"[DEBUG] Raw LLM Output: {raw_output}")
+    print(f"[AGENT] Raw LLM Output: {raw_output}")
 
     parsed = safe_parse_llm_output(raw_output)
     result = normalize_llm_output(parsed)
-    print(f"[DEBUG] Normalized: {result}")
+    print(f"[AGENT] RESULT {result}")
 
     # CASE 1: TOOL CALL
     if result["type"] == "tool":

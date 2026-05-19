@@ -1,7 +1,7 @@
 import threading
 import time
 import subprocess
-from andie_core.patch_engine import (
+from ...core.patch_engine import (
     safe_apply_patch, log_task, load_memory, recall_fix,
     create_task, plan_task, execute_task, verify_system, extract_error_context, has_actionable_error
 )

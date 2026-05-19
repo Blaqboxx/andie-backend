@@ -5,7 +5,7 @@ import os
 import time
 from typing import Any, Dict, List
 
-from knowledge.config import BASE_PATH
+from andie_backend.knowledge.config import BASE_PATH
 
 
 LEARNING_LOG = os.environ.get(

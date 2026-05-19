@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List
 
-from autonomy.learning_engine import score_skill
+from .learning_engine import score_skill
 
 
 DECISION_PROFILES: Dict[str, Dict[str, float]] = {

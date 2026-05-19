@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from autonomy.learning_engine import memory, score_skill
+from .learning_engine import memory, score_skill
 
 
 def compute_trust(skill_name: str, context_key: str | None = None, replaced_from: str | None = None) -> float:

@@ -7,9 +7,9 @@ from typing import Any, Dict, Iterable, List
 
 import psutil
 
-from andie_core.logger import Logger
-from interfaces.api.event_bus import emit_event
-from scheduler.queue import queue_metrics, recent_tasks
+from andie_backend.andie.core.logger import Logger
+from andie_backend.interfaces.api.event_bus import emit_event
+from andie_backend.scheduler.queue import queue_metrics, recent_tasks
 
 
 DEFAULT_WORKFLOW_STEPS = [

@@ -9,21 +9,21 @@ from typing import Any, Dict
 
 import psutil
 
-from interfaces.api.event_bus import emit_event, recent_events
-from interfaces.api.guardrails import (
+from andie_backend.interfaces.api.event_bus import emit_event, recent_events
+from andie_backend.interfaces.api.guardrails import (
     validate as guardrail_validate,
     record_decision as guardrail_record_decision,
     record_error as guardrail_record_error,
     reset_all as guardrail_reset_all,
     guardrail_status,
 )
-from interfaces.api.node_monitor import check_node_health
-from interfaces.api.self_healing import detect_issues, recover, recovery_task_for_issue, verify_recovery
-from interfaces.api.workflow_engine import workflow_engine
-from scheduler.queue import queue_metrics
+from andie_backend.interfaces.api.node_monitor import check_node_health
+from andie_backend.interfaces.api.self_healing import detect_issues, recover, recovery_task_for_issue, verify_recovery
+from andie_backend.interfaces.api.workflow_engine import workflow_engine
+from andie_backend.scheduler.queue import queue_metrics
 
 try:
-    from interfaces.api.outcome_tracking import record_skill_outcome_internal as _record_outcome
+    from andie_backend.interfaces.api.outcome_tracking import record_skill_outcome_internal as _record_outcome
     _OUTCOME_TRACKING = True
 except Exception:
     _OUTCOME_TRACKING = False
@@ -409,7 +409,7 @@ def stop_autonomy() -> Dict[str, Any]:
 
 def disable_autonomy(reason: str = "operator_request") -> Dict[str, Any]:
     """Operator hard kill-switch — blocks all decision execution without stopping the loop."""
-    from interfaces.api.guardrails import enable_hard_kill
+    from andie_backend.interfaces.api.guardrails import enable_hard_kill
     enable_hard_kill()
     _emit({"type": "autonomy_disabled", "reason": reason})
     with STATE_LOCK:
@@ -418,7 +418,7 @@ def disable_autonomy(reason: str = "operator_request") -> Dict[str, Any]:
 
 def enable_autonomy() -> Dict[str, Any]:
     """Re-enable after hard kill or auto-disable."""
-    from interfaces.api.guardrails import clear_hard_kill, reset_auto_disable
+    from andie_backend.interfaces.api.guardrails import clear_hard_kill, reset_auto_disable
     clear_hard_kill()
     reset_auto_disable()
     _emit({"type": "autonomy_enabled"})

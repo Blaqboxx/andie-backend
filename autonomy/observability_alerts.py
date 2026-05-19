@@ -6,8 +6,8 @@ import time
 from pathlib import Path
 from typing import Any, Dict
 
-from autonomy.control_plane_metrics import control_plane_metrics
-from autonomy.runtime_config import get_runtime_config
+from .control_plane_metrics import control_plane_metrics
+from .runtime_config import get_runtime_config
 
 
 ALERT_METRIC_KEYS = {

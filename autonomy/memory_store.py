@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict
 
-from autonomy.observability_alerts import emit_observability_alert
+from .observability_alerts import emit_observability_alert
 
 
 ALLOW_BACKFILL = os.environ.get("ANDIE_ALLOW_BACKFILL", "false").strip().lower() in {"1", "true", "yes", "on"}

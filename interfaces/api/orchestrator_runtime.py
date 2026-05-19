@@ -10,24 +10,23 @@ from uuid import uuid4
 
 import requests
 
-from interfaces.api.dispatcher import classify_task, dispatch_task
-from interfaces.api.outcome_tracking import derive_replaced_from, record_skill_outcome_internal
-from interfaces.api.security_sentinel import audit_security_event, signed_headers
-from interfaces.api.skill_control import blocked_primary_skill, get_skill_control_state, list_routable_skills
-from interfaces.api.workflow_engine import workflow_engine
-from autonomy.runtime_config import get_runtime_config
-from scheduler.queue import cancel_task, queue_metrics, recent_tasks, request_manual_retry
-from autonomy.confidence_engine import evaluate_plan
+from andie_backend.interfaces.api.dispatcher import classify_task, dispatch_task
+from andie_backend.andie.brain.system_prompt import build_system_prompt
+from andie_backend.interfaces.api.outcome_tracking import derive_replaced_from, record_skill_outcome_internal
+from andie_backend.interfaces.api.security_sentinel import audit_security_event, signed_headers
+from andie_backend.interfaces.api.skill_control import blocked_primary_skill, get_skill_control_state, list_routable_skills
+from andie_backend.interfaces.api.workflow_engine import workflow_engine
+from andie_backend.autonomy.runtime_config import get_runtime_config
+from andie_backend.scheduler.queue import cancel_task, queue_metrics, recent_tasks, request_manual_retry
+from andie_backend.autonomy.confidence_engine import evaluate_plan
 from skills import register_builtin_skills
-from skills.executor import execute_skill_plan
-from skills.registry import registry
-from skills.router import build_execution_plan
+from andie_backend.skills.executor import execute_skill_plan
+from andie_backend.skills.registry import registry
+from andie_backend.skills.router import build_execution_plan
 
 
-SYSTEM_PROMPT = (
-    "You are ANDIE, the operator control surface for a distributed AI system. "
-    "Respond concisely, operationally, and with concrete next actions."
-)
+def _system_prompt_with_memory() -> str:
+    return build_system_prompt()
 
 register_builtin_skills()
 
@@ -83,12 +82,12 @@ def invoke_llm(task_text: str, context: str, snapshot: Dict[str, Any]) -> str | 
         return None
 
     try:
-        from brain.llm_engine import think
+        from andie_backend.brain.llm_engine import think
 
         return think(
             {
                 "prompt": task_text,
-                "system": SYSTEM_PROMPT,
+                "system": _system_prompt_with_memory(),
                 "context": (
                     f"Operator context:\n{context}\n\n"
                     f"Runtime snapshot:\n{format_queue_summary(snapshot)}"
@@ -102,7 +101,7 @@ def invoke_llm(task_text: str, context: str, snapshot: Dict[str, Any]) -> str | 
 
 def query_local_knowledge(task_text: str, top_k: int = 3) -> Dict[str, Any] | None:
     try:
-        from knowledge.answer import answer_with_knowledge
+        from andie_backend.knowledge.answer import answer_with_knowledge
 
         response = answer_with_knowledge(task_text, mode="answer", k=top_k)
         if response.get("status") != "ok":
