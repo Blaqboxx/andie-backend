@@ -9,6 +9,9 @@ import json as py_json
 import time
 
 from andie_backend.inference.router import chat as _ollama_chat
+from andie_backend.andie.brain.system_prompt import build_system_prompt
+from andie_backend.andie.action.action_router import route as _action_route
+from andie_backend.andie.memory.observer import observe as _observe
 
 router = APIRouter()
 # --- ANDIE API: MCP + Sentinel integration ---
@@ -252,14 +255,11 @@ async def chat(request: Request):
         user_message = data.get("message", "")
 
 
-        result = await _ollama_chat(
-            messages=[{"role": "user", "content": user_message}],
-        )
-        result = {
-            "response": result["response"],
-            "confidence": 0.92,
-            "meta": {"source": "ollama", "model": result["model"], "node": result["node"], "latency_ms": result["latency_ms"]}
-        }
+        _sys = build_system_prompt()
+        result = await _action_route(user_message, _ollama_chat, _sys)
+        if "meta" not in result:
+            result["meta"] = {"source": "ollama", "intent": result.get("intent", "CHAT_RESPONSE")}
+        result.setdefault("confidence", 0.92)
 
 
         # Store structured memory (user + assistant) — optional
@@ -278,12 +278,13 @@ async def chat(request: Request):
         except AttributeError:
             pass
 
-        return {
-            "status": "ok",
-            "response": result.get("response", ""),
-            "confidence": result.get("confidence"),
-            "meta": result.get("meta")
-        }
+        out = {k: v for k, v in result.items() if v is not None}
+        out["status"] = "ok"
+        if "response" not in out:
+            out["response"] = ""
+        # Non-blocking observation — never affects chat response
+        asyncio.create_task(_observe(user_message, out.get("response", "")))
+        return out
 
     except Exception as e:
         import traceback
@@ -824,3 +825,58 @@ async def skills_feedback():
         return {"feedback": feedback, "count": len(feedback)}
     except Exception as e:
         return {"feedback": [], "count": 0, "error": str(e)}
+
+
+# ── Artifact browser endpoints ────────────────────────────────────────────────
+from pathlib import Path as _APath
+import mimetypes as _mimetypes
+
+_ARTIFACTS_ROOT = _APath("/app/workspace/artifacts")
+
+
+@router.get("/artifacts")
+async def list_artifacts():
+    """List all artifact builds. Returns metadata from ANDIE_BUILD.json if present."""
+    if not _ARTIFACTS_ROOT.exists():
+        return {"artifacts": []}
+    results = []
+    for job_dir in sorted(_ARTIFACTS_ROOT.iterdir(), reverse=True):
+        if not job_dir.is_dir():
+            continue
+        meta_path = job_dir / "ANDIE_BUILD.json"
+        if meta_path.exists():
+            try:
+                import json as _jj
+                meta = _jj.loads(meta_path.read_text())
+            except Exception:
+                meta = {}
+        else:
+            meta = {}
+        files = [f.relative_to(job_dir).as_posix() for f in job_dir.rglob("*") if f.is_file() and f.name != "ANDIE_BUILD.json"]
+        results.append({
+            "job_id": job_dir.name,
+            "project": meta.get("project", job_dir.name),
+            "target": meta.get("target", "unknown"),
+            "built_at": meta.get("built_at", ""),
+            "files": files,
+        })
+    return {"artifacts": results}
+
+
+@router.get("/artifacts/{job_id}/file/{filepath:path}")
+async def get_artifact_file(job_id: str, filepath: str):
+    """Serve a single artifact file as plain text."""
+    from fastapi.responses import PlainTextResponse, Response
+    # Sanitize — prevent path traversal
+    job_dir = _ARTIFACTS_ROOT / job_id
+    target = (job_dir / filepath).resolve()
+    if not str(target).startswith(str(job_dir.resolve())):
+        from fastapi import HTTPException
+        raise HTTPException(status_code=403, detail="Access denied")
+    if not target.exists() or not target.is_file():
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="File not found")
+    content = target.read_text(errors="replace")
+    mime, _ = _mimetypes.guess_type(str(target))
+    return Response(content=content, media_type=mime or "text/plain")
+
