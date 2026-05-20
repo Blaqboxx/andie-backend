@@ -962,3 +962,78 @@ async def ui_rebuild():
     result = await loop.run_in_executor(None, _ui_rebuild)
     return result
 
+
+
+# ── Observation loop endpoints ────────────────────────────────────────────────
+from andie_backend.andie.observation import loop as _obs_loop
+from andie_backend.andie.observation.diagnosis import diagnose as _diagnose
+
+
+@router.on_event("startup")
+async def _observation_loop_startup():
+    """Start the continuous background observation loop on backend startup."""
+    try:
+        _obs_loop.start(interval=30)
+    except Exception:
+        pass
+
+
+@router.get("/observe/status")
+async def observe_status():
+    """Latest cached observation snapshot across all domains."""
+    snap = _obs_loop.get_latest()
+    if snap is None:
+        from andie_backend.andie.diagnostics.probe_runner import run_all
+        result = await run_all()
+        return result
+    return {
+        "overall": snap.overall,
+        "wall_time": snap.wall_time,
+        "domains": {
+            name: {
+                "status": ds.status,
+                "checks": ds.checks,
+                "elapsed_ms": ds.elapsed_ms,
+            }
+            for name, ds in snap.domains.items()
+        },
+    }
+
+
+@router.get("/observe/diagnose")
+async def observe_diagnose():
+    """Correlated diagnosis with causes and recommended actions."""
+    snap = _obs_loop.get_latest()
+    if snap is None:
+        from andie_backend.andie.diagnostics.probe_runner import run_all
+        import time, datetime
+        result = await run_all()
+        from andie_backend.andie.observation.loop import ObservationSnapshot, DomainSnapshot
+        now = time.monotonic()
+        wall = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+        domains = {
+            d: DomainSnapshot(domain=d, status=v.get("status","unknown"),
+                              checks=v.get("checks",[]), elapsed_ms=v.get("elapsed_ms",0),
+                              captured_at=now)
+            for d, v in result.get("domains", {}).items()
+        }
+        snap = ObservationSnapshot(overall=result.get("status","unknown"),
+                                   domains=domains, captured_at=now, wall_time=wall)
+    return _diagnose(snap)
+
+
+@router.get("/observe/history")
+async def observe_history(n: int = 20):
+    """Last N observation snapshots (ring buffer, max 60)."""
+    snaps = _obs_loop.get_history(n)
+    return {
+        "count": len(snaps),
+        "snapshots": [
+            {
+                "overall": s.overall,
+                "wall_time": s.wall_time,
+                "domain_statuses": {name: ds.status for name, ds in s.domains.items()},
+            }
+            for s in snaps
+        ],
+    }

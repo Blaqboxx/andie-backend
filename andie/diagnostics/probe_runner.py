@@ -14,6 +14,7 @@ DOMAIN_MAP = {
     "gpu":        "andie_backend.andie.diagnostics.probes.gpu",
     "storage":    "andie_backend.andie.diagnostics.probes.storage",
     "models":     "andie_backend.andie.diagnostics.probes.models",
+    "workers":    "andie_backend.andie.diagnostics.probes.workers",
 }
 
 ALL_DOMAINS = list(DOMAIN_MAP.keys())
