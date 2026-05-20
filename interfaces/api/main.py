@@ -927,3 +927,38 @@ async def refresh_registry():
     results = await _check_all()
     return {"refreshed": True, "results": results, "registry": _registry_snapshot()}
 
+
+# ── UI Integrity Endpoints ────────────────────────────────────────────────────
+from andie_backend.andie.trainstation.ui_health import run_checks as _ui_checks
+from andie_backend.andie.trainstation.ui_recovery import recover as _ui_recover, rebuild_assets as _ui_rebuild
+
+
+@router.get("/ui/health")
+async def ui_health():
+    """Full frontend visibility health sweep with composite visibility_score."""
+    import asyncio
+    loop = asyncio.get_event_loop()
+    result = await loop.run_in_executor(None, _ui_checks)
+    return result
+
+
+@router.post("/ui/recover")
+async def ui_recover(max_actions: int = 2):
+    """
+    Run UI recovery pipeline.
+    max_actions: 1=restart_only, 2=restart+rebuild (default), 3=+node_modules, 4=+rollback
+    """
+    import asyncio
+    loop = asyncio.get_event_loop()
+    result = await loop.run_in_executor(None, lambda: _ui_recover(max_actions=max_actions))
+    return result
+
+
+@router.post("/ui/rebuild")
+async def ui_rebuild():
+    """Trigger Vite asset rebuild inside the andie-ui container."""
+    import asyncio
+    loop = asyncio.get_event_loop()
+    result = await loop.run_in_executor(None, _ui_rebuild)
+    return result
+
