@@ -969,6 +969,9 @@ async def ui_rebuild():
 # ── Observation loop endpoints ────────────────────────────────────────────────
 from andie_backend.andie.media.router import router as _media_router
 router.include_router(_media_router)
+
+from andie_backend.andie.audio.router import router as _audio_router
+router.include_router(_audio_router)
 from andie_backend.andie.observation import loop as _obs_loop
 from andie_backend.andie.observation.diagnosis import diagnose as _diagnose
 
