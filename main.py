@@ -47,19 +47,61 @@ def _save_memory(memory: list[dict[str, Any]]) -> None:
     MEMORY_PATH.write_text(json.dumps(memory[-20:], indent=2), encoding="utf-8")
 
 
+def _build_event_envelope(
+    *,
+    event_type: str,
+    source: str,
+    payload: dict[str, Any],
+    execution_id: str | None = None,
+    workspace_id: str = "andie-default",
+    correlation_id: str | None = None,
+    sequence: int | None = None,
+) -> dict[str, Any]:
+    envelope: dict[str, Any] = {
+        "event_id": str(uuid4()),
+        "event_type": event_type,
+        "timestamp": _utc_now(),
+        "source": source,
+        "version": 1,
+        "workspace_id": workspace_id,
+        "payload": payload,
+    }
+
+    if execution_id is not None:
+        envelope["execution_id"] = execution_id
+    if correlation_id is not None:
+        envelope["correlation_id"] = correlation_id
+    if sequence is not None:
+        envelope["sequence"] = sequence
+
+    # Compatibility alias for consumers that still expect `type`.
+    envelope["type"] = event_type
+    return envelope
+
+
 class EventStore:
     def __init__(self) -> None:
         self._events: list[dict[str, Any]] = []
         self._next_seq = 1
 
-    def append(self, event_type: str, payload: dict[str, Any], execution_id: str | None = None) -> dict[str, Any]:
-        event = {
-            "seq": self._next_seq,
-            "type": event_type,
-            "timestamp": _utc_now(),
-            "execution_id": execution_id,
-            "payload": payload,
-        }
+    def append(
+        self,
+        event_type: str,
+        payload: dict[str, Any],
+        execution_id: str | None = None,
+        source: str = "runtime",
+        workspace_id: str = "andie-default",
+        correlation_id: str | None = None,
+    ) -> dict[str, Any]:
+        event = _build_event_envelope(
+            event_type=event_type,
+            source=source,
+            payload=payload,
+            execution_id=execution_id,
+            workspace_id=workspace_id,
+            correlation_id=correlation_id,
+            sequence=self._next_seq,
+        )
         self._next_seq += 1
         self._events.append(event)
         with EVENT_LOG_PATH.open("a", encoding="utf-8") as f:
@@ -98,25 +140,29 @@ class EventPublishRequest(BaseModel):
     type: str
     payload: dict[str, Any] = {}
     execution_id: str | None = None
+    source: str = "runtime"
+    workspace_id: str = "andie-default"
+    correlation_id: str | None = None
 
 
 async def _send_bootstrap(ws: WebSocket) -> None:
     conn_id = str(uuid4())
 
-    ready_frame = {
-        "type": "connection.ready",
-        "timestamp": _utc_now(),
-        "connection_id": conn_id,
-        "seq": EVENTS.latest_seq() + 1,
-    }
+    ready_frame = _build_event_envelope(
+        event_type="connection.ready",
+        source="transport",
+        payload={"connection_id": conn_id},
+        sequence=EVENTS.latest_seq() + 1,
+    )
     await ws.send_json(ready_frame)
 
-    snapshot_frame = {
-        "type": "workspace.snapshot",
-        "timestamp": _utc_now(),
-        "seq": EVENTS.latest_seq() + 2,
-        "snapshot": WORKSPACE_SNAPSHOT,
-    }
+    snapshot_frame = _build_event_envelope(
+        event_type="workspace.snapshot",
+        source="workspace",
+        payload={"snapshot": WORKSPACE_SNAPSHOT},
+        workspace_id=str(WORKSPACE_SNAPSHOT.get("workspace_id", "andie-default")),
+        sequence=EVENTS.latest_seq() + 2,
+    )
     await ws.send_json(snapshot_frame)
 
 
@@ -131,33 +177,45 @@ async def _stream_handler(ws: WebSocket) -> None:
             msg = await ws.receive_json()
             action = str(msg.get("action") or "").lower()
             if action == "ping":
-                await ws.send_json({"type": "connection.pong", "timestamp": _utc_now()})
+                await ws.send_json(
+                    _build_event_envelope(
+                        event_type="connection.pong",
+                        source="transport",
+                        payload={"ok": True},
+                        sequence=EVENTS.latest_seq() + 1,
+                    )
+                )
             elif action == "publish":
                 ev_type = str(msg.get("type") or "workspace.event")
                 payload = msg.get("payload") or {}
                 execution_id = msg.get("execution_id")
-                event = EVENTS.append(ev_type, payload, execution_id=execution_id)
-                # Stream is temporal delta; snapshot remains authoritative.
-                frame = {
-                    "type": "workspace.event",
-                    "timestamp": _utc_now(),
-                    "event": event,
-                }
+                source = str(msg.get("source") or "runtime")
+                workspace_id = str(msg.get("workspace_id") or WORKSPACE_SNAPSHOT.get("workspace_id", "andie-default"))
+                correlation_id = msg.get("correlation_id")
+                event = EVENTS.append(
+                    ev_type,
+                    payload,
+                    execution_id=execution_id,
+                    source=source,
+                    workspace_id=workspace_id,
+                    correlation_id=correlation_id,
+                )
                 dead: list[WebSocket] = []
                 for conn in ACTIVE_CONNECTIONS:
                     try:
-                        await conn.send_json(frame)
+                        await conn.send_json(event)
                     except Exception:
                         dead.append(conn)
                 for conn in dead:
                     ACTIVE_CONNECTIONS.discard(conn)
             else:
                 await ws.send_json(
-                    {
-                        "type": "connection.error",
-                        "timestamp": _utc_now(),
-                        "message": f"unsupported action: {action}",
-                    }
+                    _build_event_envelope(
+                        event_type="connection.error",
+                        source="transport",
+                        payload={"message": f"unsupported action: {action}"},
+                        sequence=EVENTS.latest_seq() + 1,
+                    )
                 )
     except WebSocketDisconnect:
         pass
@@ -172,11 +230,13 @@ def home() -> dict[str, str]:
 
 @app.get("/api/workspace/snapshot")
 def workspace_snapshot() -> dict[str, Any]:
-    return {
-        "type": "workspace.snapshot",
-        "timestamp": _utc_now(),
-        "snapshot": WORKSPACE_SNAPSHOT,
-    }
+    return _build_event_envelope(
+        event_type="workspace.snapshot",
+        source="workspace",
+        payload={"snapshot": WORKSPACE_SNAPSHOT},
+        workspace_id=str(WORKSPACE_SNAPSHOT.get("workspace_id", "andie-default")),
+        sequence=EVENTS.latest_seq() + 1,
+    )
 
 
 @app.post("/agents/run")
@@ -208,18 +268,15 @@ async def publish_event(request: EventPublishRequest) -> dict[str, Any]:
         event_type=request.type,
         payload=request.payload,
         execution_id=request.execution_id,
+        source=request.source,
+        workspace_id=request.workspace_id,
+        correlation_id=request.correlation_id,
     )
-
-    frame = {
-        "type": "workspace.event",
-        "timestamp": _utc_now(),
-        "event": event,
-    }
 
     dead: list[WebSocket] = []
     for conn in ACTIVE_CONNECTIONS:
         try:
-            await conn.send_json(frame)
+            await conn.send_json(event)
         except Exception:
             dead.append(conn)
     for conn in dead:
