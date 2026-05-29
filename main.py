@@ -128,6 +128,12 @@ EVENT_FAMILIES: dict[str, set[str]] = {
         "coordinator.intent_promotion_denied",
         "coordinator.intent_promotion_approved",
     },
+    "supervisor": {
+        "supervisor.intent_received",
+        "supervisor.intent_acknowledged",
+        "supervisor.intent_rejected",
+        "supervisor.intent_expired",
+    },
 }
 
 
@@ -463,8 +469,13 @@ COORDINATOR_STATE_BY_WORKSPACE: dict[str, dict[str, Any]] = {
         "portfolio_suppressed_recommendations": [],
         "intent_candidates": [],
         "intent_promotions": [],
+        "supervisor_intents": [],
         "updated_at": _utc_now(),
     }
+}
+
+SUPERVISOR_INTENTS_BY_WORKSPACE: dict[str, dict[str, dict[str, Any]]] = {
+    "andie-default": {},
 }
 
 
@@ -657,6 +668,17 @@ class CoordinatorAnalyzeRequest(BaseModel):
     actor: str = "runtime-coordinator"
     execution_id: str | None = None
     source: str = "runtime-coordinator"
+    workspace_id: str = "andie-default"
+    correlation_id: str | None = None
+
+
+class SupervisorIntentStatusRequest(BaseModel):
+    status: str
+    reason_code: str | None = None
+    reason: str | None = None
+    actor: str = "workflow-supervisor"
+    execution_id: str | None = None
+    source: str = "workflow-supervisor"
     workspace_id: str = "andie-default"
     correlation_id: str | None = None
 
@@ -902,9 +924,16 @@ def _get_coordinator_state(workspace_id: str) -> dict[str, Any]:
             "portfolio_suppressed_recommendations": [],
             "intent_candidates": [],
             "intent_promotions": [],
+            "supervisor_intents": [],
             "updated_at": _utc_now(),
         }
     return COORDINATOR_STATE_BY_WORKSPACE[workspace_id]
+
+
+def _get_supervisor_intents(workspace_id: str) -> dict[str, dict[str, Any]]:
+    if workspace_id not in SUPERVISOR_INTENTS_BY_WORKSPACE:
+        SUPERVISOR_INTENTS_BY_WORKSPACE[workspace_id] = {}
+    return SUPERVISOR_INTENTS_BY_WORKSPACE[workspace_id]
 
 
 def _portfolio_policy_overlay(profile: str, governance_band: str) -> dict[str, Any]:
@@ -1779,17 +1808,46 @@ def _run_coordinator_analysis(
             )
         )
 
+    supervisor_intents = _get_supervisor_intents(workspace_id)
     for decision in intent_promotions:
         event_type = "coordinator.intent_promotion_approved" if decision["status"] == "approved" else "coordinator.intent_promotion_denied"
+        promotion_event = EVENTS.append(
+            event_type,
+            {
+                "workspace_id": workspace_id,
+                "decision": decision,
+            },
+            execution_id=execution_id,
+            source=source,
+            workspace_id=workspace_id,
+            correlation_id=correlation_id,
+        )
+        emitted.append(promotion_event)
+
+        if decision["status"] != "approved":
+            continue
+
+        intake = {
+            "intent_id": decision["intent_id"],
+            "intent_type": decision["intent"],
+            "source": "coordinator",
+            "portfolio_id": decision["portfolio_id"],
+            "workspace_id": workspace_id,
+            "promotion_event_id": promotion_event["event_id"],
+            "created_at": _utc_now(),
+            "status": "pending",
+        }
+        supervisor_intents[intake["intent_id"]] = intake
         emitted.append(
             EVENTS.append(
-                event_type,
+                "supervisor.intent_received",
                 {
                     "workspace_id": workspace_id,
-                    "decision": decision,
+                    "intent": intake,
+                    "promotion_event_id": intake["promotion_event_id"],
                 },
                 execution_id=execution_id,
-                source=source,
+                source="workflow-supervisor",
                 workspace_id=workspace_id,
                 correlation_id=correlation_id,
             )
@@ -1861,6 +1919,7 @@ def _run_coordinator_analysis(
             "portfolio_suppressed_recommendations": suppressed_recommendations,
             "intent_candidates": intent_candidates,
             "intent_promotions": intent_promotions,
+            "supervisor_intents": list(supervisor_intents.values()),
             "updated_at": _utc_now(),
         }
     )
@@ -4442,10 +4501,81 @@ async def analyze_coordinator(request: CoordinatorAnalyzeRequest) -> dict[str, A
         "portfolio_suppressed_recommendations": state.get("portfolio_suppressed_recommendations") or [],
         "intent_candidates": state.get("intent_candidates") or [],
         "intent_promotions": state.get("intent_promotions") or [],
+        "supervisor_intents": state.get("supervisor_intents") or [],
         "blocked_objectives": state.get("blocked_objectives") or [],
         "merge_candidates": state.get("merge_candidates") or [],
         "recommended_actions": state.get("coordination_recommendations") or [],
         "emitted_events": emitted_events,
+    }
+
+
+@app.get("/api/supervisor/intents")
+async def list_supervisor_intents(workspace_id: str = "andie-default") -> dict[str, Any]:
+    intents = _get_supervisor_intents(workspace_id)
+    return {
+        "status": "ok",
+        "workspace_id": workspace_id,
+        "intents": list(intents.values()),
+    }
+
+
+@app.post("/api/supervisor/intents/{intent_id}/status")
+async def update_supervisor_intent_status(intent_id: str, request: SupervisorIntentStatusRequest) -> dict[str, Any]:
+    intents = _get_supervisor_intents(request.workspace_id)
+    if intent_id not in intents:
+        raise HTTPException(status_code=404, detail=f"unknown intent_id: {intent_id}")
+
+    intent = intents[intent_id]
+    current = str(intent.get("status", "pending"))
+    if current != "pending":
+        raise HTTPException(status_code=400, detail=f"intent already finalized: {current}")
+
+    status_value = request.status.strip().lower()
+    event_map = {
+        "acknowledged": "supervisor.intent_acknowledged",
+        "rejected": "supervisor.intent_rejected",
+        "expired": "supervisor.intent_expired",
+    }
+    if status_value not in event_map:
+        raise HTTPException(status_code=400, detail=f"unsupported supervisor intent status: {request.status}")
+
+    reason_code = (request.reason_code or "").strip() or None
+    if status_value == "rejected" and not reason_code:
+        raise HTTPException(status_code=400, detail="reason_code is required for rejected intents")
+
+    intent.update(
+        {
+            "status": status_value,
+            "updated_at": _utc_now(),
+            "reason_code": reason_code,
+            "reason": request.reason,
+            "actor": request.actor,
+        }
+    )
+
+    event = EVENTS.append(
+        event_map[status_value],
+        {
+            "workspace_id": request.workspace_id,
+            "intent": intent,
+            "intent_id": intent_id,
+            "promotion_event_id": intent.get("promotion_event_id"),
+            "reason_code": reason_code,
+            "reason": request.reason,
+            "actor": request.actor,
+        },
+        execution_id=request.execution_id,
+        source=request.source,
+        workspace_id=request.workspace_id,
+        correlation_id=request.correlation_id,
+    )
+
+    await _fanout_event(event)
+    return {
+        "status": "ok",
+        "workspace_id": request.workspace_id,
+        "intent": intent,
+        "event": event,
     }
 
 

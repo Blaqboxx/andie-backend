@@ -9,6 +9,7 @@ from main import (
     GOVERNANCE_STATE,
     OBJECTIVES,
     OBJECTIVE_SIGNALS,
+    SUPERVISOR_INTENTS_BY_WORKSPACE,
     TRUST_STATE,
     TRUST_STATES,
     app,
@@ -2613,3 +2614,299 @@ def test_coordinator_intent_promotion_approved_for_governance_review_action() ->
 
     emitted_types = [event["event_type"] for event in body["emitted_events"]]
     assert "coordinator.intent_promotion_approved" in emitted_types
+
+
+def test_supervisor_intake_acknowledges_approved_intent() -> None:
+    OBJECTIVES.clear()
+    OBJECTIVE_SIGNALS["blocked"] = {}
+    OBJECTIVE_SIGNALS["pressure"] = {}
+    OBJECTIVE_SIGNALS["objective_pressure_score"] = {}
+    OBJECTIVE_SIGNALS["critical_path"] = {}
+
+    workspace_id = "ws-supervisor-intent-1"
+    AGENT_TASKS_BY_WORKSPACE.pop(workspace_id, None)
+    AGENT_WORKFLOWS_BY_WORKSPACE.pop(workspace_id, None)
+    SUPERVISOR_INTENTS_BY_WORKSPACE.pop(workspace_id, None)
+
+    client = TestClient(app)
+    execution_id = "exec-supervisor-intent-1"
+
+    for payload in [
+        {
+            "objective_id": "si-beta",
+            "title": "beta",
+            "priority": 8,
+            "salience": 8.0,
+            "portfolio_group": "beta",
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+        },
+        {
+            "objective_id": "si-alpha",
+            "title": "alpha",
+            "priority": 6,
+            "salience": 6.0,
+            "depends_on": ["si-beta"],
+            "portfolio_group": "alpha",
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+        },
+    ]:
+        assert client.post("/api/objectives", json=payload).status_code == 200
+
+    analyze = client.post(
+        "/api/coordinator/analyze",
+        json={
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+            "reason": "supervisor intake ack",
+        },
+    )
+    assert analyze.status_code == 200
+    body = analyze.json()
+
+    emitted_types = [event["event_type"] for event in body["emitted_events"]]
+    assert "supervisor.intent_received" in emitted_types
+
+    pending = [intent for intent in body["supervisor_intents"] if intent.get("status") == "pending"]
+    assert len(pending) >= 1
+
+    ack = client.post(
+        f"/api/supervisor/intents/{pending[0]['intent_id']}/status",
+        json={
+            "status": "acknowledged",
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+            "reason": "accepted for intake queue",
+        },
+    )
+    assert ack.status_code == 200
+    assert ack.json()["event"]["event_type"] == "supervisor.intent_acknowledged"
+
+
+def test_supervisor_intake_reject_requires_reason_code() -> None:
+    OBJECTIVES.clear()
+    OBJECTIVE_SIGNALS["blocked"] = {}
+    OBJECTIVE_SIGNALS["pressure"] = {}
+    OBJECTIVE_SIGNALS["objective_pressure_score"] = {}
+    OBJECTIVE_SIGNALS["critical_path"] = {}
+
+    workspace_id = "ws-supervisor-intent-2"
+    AGENT_TASKS_BY_WORKSPACE.pop(workspace_id, None)
+    AGENT_WORKFLOWS_BY_WORKSPACE.pop(workspace_id, None)
+    SUPERVISOR_INTENTS_BY_WORKSPACE.pop(workspace_id, None)
+
+    client = TestClient(app)
+    execution_id = "exec-supervisor-intent-2"
+
+    for payload in [
+        {
+            "objective_id": "sr-beta",
+            "title": "beta",
+            "priority": 8,
+            "salience": 8.0,
+            "portfolio_group": "beta",
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+        },
+        {
+            "objective_id": "sr-alpha",
+            "title": "alpha",
+            "priority": 6,
+            "salience": 6.0,
+            "depends_on": ["sr-beta"],
+            "portfolio_group": "alpha",
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+        },
+    ]:
+        assert client.post("/api/objectives", json=payload).status_code == 200
+
+    analyze = client.post(
+        "/api/coordinator/analyze",
+        json={
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+            "reason": "supervisor intake reject",
+        },
+    )
+    assert analyze.status_code == 200
+    pending = [intent for intent in analyze.json()["supervisor_intents"] if intent.get("status") == "pending"]
+    assert len(pending) >= 1
+
+    reject_missing_code = client.post(
+        f"/api/supervisor/intents/{pending[0]['intent_id']}/status",
+        json={
+            "status": "rejected",
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+            "reason": "missing code",
+        },
+    )
+    assert reject_missing_code.status_code == 400
+
+    reject = client.post(
+        f"/api/supervisor/intents/{pending[0]['intent_id']}/status",
+        json={
+            "status": "rejected",
+            "reason_code": "portfolio_conflict",
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+            "reason": "portfolio overlap",
+        },
+    )
+    assert reject.status_code == 200
+    assert reject.json()["event"]["event_type"] == "supervisor.intent_rejected"
+
+
+def test_supervisor_intake_expiry_transition_emits_event() -> None:
+    OBJECTIVES.clear()
+    OBJECTIVE_SIGNALS["blocked"] = {}
+    OBJECTIVE_SIGNALS["pressure"] = {}
+    OBJECTIVE_SIGNALS["objective_pressure_score"] = {}
+    OBJECTIVE_SIGNALS["critical_path"] = {}
+
+    workspace_id = "ws-supervisor-intent-3"
+    AGENT_TASKS_BY_WORKSPACE.pop(workspace_id, None)
+    AGENT_WORKFLOWS_BY_WORKSPACE.pop(workspace_id, None)
+    SUPERVISOR_INTENTS_BY_WORKSPACE.pop(workspace_id, None)
+
+    client = TestClient(app)
+    execution_id = "exec-supervisor-intent-3"
+
+    for payload in [
+        {
+            "objective_id": "se-beta",
+            "title": "beta",
+            "priority": 8,
+            "salience": 8.0,
+            "portfolio_group": "beta",
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+        },
+        {
+            "objective_id": "se-alpha",
+            "title": "alpha",
+            "priority": 6,
+            "salience": 6.0,
+            "depends_on": ["se-beta"],
+            "portfolio_group": "alpha",
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+        },
+    ]:
+        assert client.post("/api/objectives", json=payload).status_code == 200
+
+    analyze = client.post(
+        "/api/coordinator/analyze",
+        json={
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+            "reason": "supervisor intake expiry",
+        },
+    )
+    assert analyze.status_code == 200
+    pending = [intent for intent in analyze.json()["supervisor_intents"] if intent.get("status") == "pending"]
+    assert len(pending) >= 1
+
+    expire = client.post(
+        f"/api/supervisor/intents/{pending[0]['intent_id']}/status",
+        json={
+            "status": "expired",
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+            "reason": "timed out",
+        },
+    )
+    assert expire.status_code == 200
+    assert expire.json()["event"]["event_type"] == "supervisor.intent_expired"
+
+
+def test_supervisor_intake_replay_integrity_links_promotion_event() -> None:
+    OBJECTIVES.clear()
+    OBJECTIVE_SIGNALS["blocked"] = {}
+    OBJECTIVE_SIGNALS["pressure"] = {}
+    OBJECTIVE_SIGNALS["objective_pressure_score"] = {}
+    OBJECTIVE_SIGNALS["critical_path"] = {}
+
+    workspace_id = "ws-supervisor-intent-4"
+    AGENT_TASKS_BY_WORKSPACE.pop(workspace_id, None)
+    AGENT_WORKFLOWS_BY_WORKSPACE.pop(workspace_id, None)
+    SUPERVISOR_INTENTS_BY_WORKSPACE.pop(workspace_id, None)
+
+    client = TestClient(app)
+    execution_id = "exec-supervisor-intent-4"
+
+    for payload in [
+        {
+            "objective_id": "sl-beta",
+            "title": "beta",
+            "priority": 8,
+            "salience": 8.0,
+            "portfolio_group": "beta",
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+        },
+        {
+            "objective_id": "sl-alpha",
+            "title": "alpha",
+            "priority": 6,
+            "salience": 6.0,
+            "depends_on": ["sl-beta"],
+            "portfolio_group": "alpha",
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+        },
+    ]:
+        assert client.post("/api/objectives", json=payload).status_code == 200
+
+    analyze = client.post(
+        "/api/coordinator/analyze",
+        json={
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+            "reason": "replay linkage",
+        },
+    )
+    assert analyze.status_code == 200
+    pending = [intent for intent in analyze.json()["supervisor_intents"] if intent.get("status") == "pending"]
+    assert len(pending) >= 1
+    promotion_event_id = str(pending[0]["promotion_event_id"])
+
+    ack = client.post(
+        f"/api/supervisor/intents/{pending[0]['intent_id']}/status",
+        json={
+            "status": "acknowledged",
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+            "reason": "ready",
+        },
+    )
+    assert ack.status_code == 200
+
+    replay = client.get(f"/api/replay/{execution_id}")
+    assert replay.status_code == 200
+    events = replay.json()["events"]
+
+    approved_matches = [
+        event
+        for event in events
+        if event.get("event_type") == "coordinator.intent_promotion_approved" and event.get("event_id") == promotion_event_id
+    ]
+    assert len(approved_matches) == 1
+
+    received_matches = [
+        event
+        for event in events
+        if event.get("event_type") == "supervisor.intent_received"
+        and str(event.get("payload", {}).get("promotion_event_id", "")) == promotion_event_id
+    ]
+    assert len(received_matches) >= 1
+
+    replay_types = [event["event_type"] for event in events]
+    assert "coordinator.recommendation_created" in replay_types
+    assert "coordinator.intent_candidate_created" in replay_types
+    assert "coordinator.intent_promotion_requested" in replay_types
+    assert "coordinator.intent_promotion_approved" in replay_types
+    assert "supervisor.intent_received" in replay_types
+    assert "supervisor.intent_acknowledged" in replay_types

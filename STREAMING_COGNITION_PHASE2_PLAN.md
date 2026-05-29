@@ -81,6 +81,8 @@ Never allow event frames to become the system of record.
 	- portfolio governance overlay
 - Phase 5E: bootstrap started
 	- coordinator recommendation promotion
+- Phase 5F: bootstrap started
+	- supervisor intent integration
 
 ## Current Runtime Additions (Phase 2E Bootstrap)
 - Governance policy overlay layer is now active with profile-driven coefficients.
@@ -333,6 +335,27 @@ Never allow event frames to become the system of record.
 	- `coordinator.intent_promotion_denied`
 	- `coordinator.intent_promotion_approved`
 - Intent promotion remains governance-gated and advisory; no direct supervisor command authority is introduced.
+
+## Current Runtime Additions (Phase 5F Bootstrap)
+- Supervisor intake contract now receives approved advisory intents as pending intake records.
+- Supervisor intake fields include promotion linkage:
+	- intent_id
+	- intent_type
+	- source
+	- portfolio_id
+	- workspace_id
+	- promotion_event_id
+	- created_at
+	- status
+- Supervisor intake API surface is available:
+	- `GET /api/supervisor/intents`
+	- `POST /api/supervisor/intents/{intent_id}/status`
+- Phase 5F event family is replay-visible:
+	- `supervisor.intent_received`
+	- `supervisor.intent_acknowledged`
+	- `supervisor.intent_rejected`
+	- `supervisor.intent_expired`
+- Rejected intent transitions require `reason_code` for auditability.
 
 ## Priority Workstreams
 
