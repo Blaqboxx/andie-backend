@@ -8,7 +8,7 @@ from typing import Any
 from collections import defaultdict
 from uuid import uuid4
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
 
 try:
@@ -45,6 +45,7 @@ EVENT_FAMILIES: dict[str, set[str]] = {
         "governance.cooldown",
         "governance.recovery",
         "governance.stability",
+        "governance.profile_applied",
     },
     "execution": {
         "execution.started",
@@ -212,6 +213,112 @@ GOVERNANCE_STATE: dict[str, Any] = {
     "confidence": 1.0,
 }
 
+# Balanced is the frozen bootstrap baseline from Phase 2D coupling.
+GOVERNANCE_PROFILES: dict[str, dict[str, float]] = {
+    "balanced": {
+        "interrupt_base": 1.0,
+        "interrupt_trust_w": -0.65,
+        "interrupt_failure_w": 0.15,
+        "escalation_base": 0.2,
+        "escalation_failure_w": 0.55,
+        "escalation_blocked_w": 0.25,
+        "cooldown_base": 0.75,
+        "cooldown_critical_w": -0.3,
+        "cooldown_pressure_w": -0.25,
+        "cooldown_failure_w": 0.1,
+        "posture_base": 0.2,
+        "posture_critical_w": 0.45,
+        "posture_pressure_w": 0.35,
+        "posture_trust_w": 0.1,
+        "attention_base": 0.15,
+        "attention_blocked_w": 0.45,
+        "attention_pressure_w": 0.4,
+        "confidence_base": 1.0,
+        "confidence_failure_w": -0.5,
+        "confidence_blocked_w": -0.2,
+        "band_escalated_threshold": 0.8,
+        "band_warning_threshold": 0.5,
+    },
+    "conservative": {
+        "interrupt_base": 1.0,
+        "interrupt_trust_w": -0.5,
+        "interrupt_failure_w": 0.25,
+        "escalation_base": 0.35,
+        "escalation_failure_w": 0.65,
+        "escalation_blocked_w": 0.35,
+        "cooldown_base": 0.55,
+        "cooldown_critical_w": -0.2,
+        "cooldown_pressure_w": -0.15,
+        "cooldown_failure_w": 0.2,
+        "posture_base": 0.25,
+        "posture_critical_w": 0.5,
+        "posture_pressure_w": 0.4,
+        "posture_trust_w": 0.08,
+        "attention_base": 0.2,
+        "attention_blocked_w": 0.55,
+        "attention_pressure_w": 0.45,
+        "confidence_base": 1.0,
+        "confidence_failure_w": -0.55,
+        "confidence_blocked_w": -0.25,
+        "band_escalated_threshold": 0.72,
+        "band_warning_threshold": 0.42,
+    },
+    "aggressive": {
+        "interrupt_base": 0.95,
+        "interrupt_trust_w": -0.8,
+        "interrupt_failure_w": 0.1,
+        "escalation_base": 0.1,
+        "escalation_failure_w": 0.45,
+        "escalation_blocked_w": 0.2,
+        "cooldown_base": 0.9,
+        "cooldown_critical_w": -0.35,
+        "cooldown_pressure_w": -0.3,
+        "cooldown_failure_w": 0.05,
+        "posture_base": 0.1,
+        "posture_critical_w": 0.35,
+        "posture_pressure_w": 0.25,
+        "posture_trust_w": 0.2,
+        "attention_base": 0.1,
+        "attention_blocked_w": 0.35,
+        "attention_pressure_w": 0.35,
+        "confidence_base": 1.0,
+        "confidence_failure_w": -0.45,
+        "confidence_blocked_w": -0.15,
+        "band_escalated_threshold": 0.9,
+        "band_warning_threshold": 0.6,
+    },
+    "mission_critical": {
+        "interrupt_base": 1.0,
+        "interrupt_trust_w": -0.55,
+        "interrupt_failure_w": 0.2,
+        "escalation_base": 0.3,
+        "escalation_failure_w": 0.6,
+        "escalation_blocked_w": 0.35,
+        "cooldown_base": 0.6,
+        "cooldown_critical_w": -0.25,
+        "cooldown_pressure_w": -0.2,
+        "cooldown_failure_w": 0.15,
+        "posture_base": 0.35,
+        "posture_critical_w": 0.6,
+        "posture_pressure_w": 0.5,
+        "posture_trust_w": 0.05,
+        "attention_base": 0.25,
+        "attention_blocked_w": 0.6,
+        "attention_pressure_w": 0.5,
+        "confidence_base": 1.0,
+        "confidence_failure_w": -0.6,
+        "confidence_blocked_w": -0.25,
+        "band_escalated_threshold": 0.68,
+        "band_warning_threshold": 0.4,
+    },
+}
+
+GOVERNANCE_PROFILE_STATE: dict[str, Any] = {
+    "active": "balanced",
+    "overrides": {},
+    "updated_at": _utc_now(),
+}
+
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 CLIENT = Groq(api_key=GROQ_API_KEY) if (Groq and GROQ_API_KEY) else None
@@ -265,6 +372,15 @@ class TrustRecomputeRequest(BaseModel):
 class GovernanceRecomputeRequest(BaseModel):
     execution_id: str | None = None
     source: str = "governance-engine"
+    workspace_id: str = "andie-default"
+    correlation_id: str | None = None
+
+
+class GovernanceProfileApplyRequest(BaseModel):
+    profile: str
+    overrides: dict[str, float] = Field(default_factory=dict)
+    execution_id: str | None = None
+    source: str = "governance-policy"
     workspace_id: str = "andie-default"
     correlation_id: str | None = None
 
@@ -463,16 +579,48 @@ def _recompute_governance_state(
     max_pressure_score = float(objective_ctx["max_pressure_score"])
     critical_active = 1.0 if bool(objective_ctx["critical_path_active"]) else 0.0
 
-    interrupt_sensitivity = _clamp01(1.0 - (0.65 * trust_score) + (0.15 * failure_score))
-    escalation_readiness = _clamp01(0.2 + (0.55 * failure_score) + (0.25 * blocked_ratio))
-    cooldown_aggressiveness = _clamp01(0.75 - (0.3 * critical_active) - (0.25 * max_pressure_score) + (0.1 * failure_score))
-    posture_persistence = _clamp01(0.2 + (0.45 * critical_active) + (0.35 * max_pressure_score) + (0.1 * trust_score))
-    governance_attention = _clamp01(0.15 + (0.45 * blocked_ratio) + (0.4 * max_pressure_score))
-    confidence = _clamp01(1.0 - (0.5 * failure_score) - (0.2 * blocked_ratio))
+    profile_name = str(GOVERNANCE_PROFILE_STATE.get("active") or "balanced")
+    profile = dict(GOVERNANCE_PROFILES.get(profile_name, GOVERNANCE_PROFILES["balanced"]))
+    for key, value in (GOVERNANCE_PROFILE_STATE.get("overrides") or {}).items():
+        if key in profile:
+            profile[key] = float(value)
 
-    if escalation_readiness >= 0.8:
+    interrupt_sensitivity = _clamp01(
+        profile["interrupt_base"]
+        + (profile["interrupt_trust_w"] * trust_score)
+        + (profile["interrupt_failure_w"] * failure_score)
+    )
+    escalation_readiness = _clamp01(
+        profile["escalation_base"]
+        + (profile["escalation_failure_w"] * failure_score)
+        + (profile["escalation_blocked_w"] * blocked_ratio)
+    )
+    cooldown_aggressiveness = _clamp01(
+        profile["cooldown_base"]
+        + (profile["cooldown_critical_w"] * critical_active)
+        + (profile["cooldown_pressure_w"] * max_pressure_score)
+        + (profile["cooldown_failure_w"] * failure_score)
+    )
+    posture_persistence = _clamp01(
+        profile["posture_base"]
+        + (profile["posture_critical_w"] * critical_active)
+        + (profile["posture_pressure_w"] * max_pressure_score)
+        + (profile["posture_trust_w"] * trust_score)
+    )
+    governance_attention = _clamp01(
+        profile["attention_base"]
+        + (profile["attention_blocked_w"] * blocked_ratio)
+        + (profile["attention_pressure_w"] * max_pressure_score)
+    )
+    confidence = _clamp01(
+        profile["confidence_base"]
+        + (profile["confidence_failure_w"] * failure_score)
+        + (profile["confidence_blocked_w"] * blocked_ratio)
+    )
+
+    if escalation_readiness >= profile["band_escalated_threshold"]:
         band = "escalated"
-    elif escalation_readiness >= 0.5:
+    elif escalation_readiness >= profile["band_warning_threshold"]:
         band = "warning"
     else:
         band = "stable"
@@ -487,10 +635,12 @@ def _recompute_governance_state(
             "posture_persistence": round(posture_persistence, 3),
             "governance_attention": round(governance_attention, 3),
             "confidence": round(confidence, 3),
+            "profile": profile_name,
             "inputs": {
                 "trust_score": round(trust_score, 3),
                 "failure_pattern_score": round(failure_score, 3),
                 "objective_context": objective_ctx,
+                "profile": profile_name,
             },
         }
     )
@@ -502,6 +652,7 @@ def _recompute_governance_state(
         "cooldown_aggressiveness": round(cooldown_aggressiveness, 3),
         "interrupt_sensitivity": round(interrupt_sensitivity, 3),
         "governance_attention": round(governance_attention, 3),
+        "profile": profile_name,
         "updated_at": GOVERNANCE_STATE["updated_at"],
     }
 
@@ -632,6 +783,46 @@ def _signal_delta_events(
         )
     )
     return emitted
+
+
+def _apply_governance_profile(
+    profile_name: str,
+    overrides: dict[str, float],
+    execution_id: str | None,
+    source: str,
+    workspace_id: str,
+    correlation_id: str | None,
+) -> dict[str, Any]:
+    if profile_name not in GOVERNANCE_PROFILES:
+        raise ValueError(f"unknown governance profile: {profile_name}")
+
+    known_keys = set(GOVERNANCE_PROFILES["balanced"].keys())
+    sanitized: dict[str, float] = {}
+    for key, value in overrides.items():
+        if key in known_keys:
+            sanitized[key] = float(value)
+
+    previous_profile = str(GOVERNANCE_PROFILE_STATE.get("active") or "balanced")
+    GOVERNANCE_PROFILE_STATE.update(
+        {
+            "active": profile_name,
+            "overrides": sanitized,
+            "updated_at": _utc_now(),
+        }
+    )
+
+    return EVENTS.append(
+        "governance.profile_applied",
+        {
+            "previous_profile": previous_profile,
+            "profile": profile_name,
+            "overrides": sanitized,
+        },
+        execution_id=execution_id,
+        source=source,
+        workspace_id=workspace_id,
+        correlation_id=correlation_id,
+    )
 
 
 async def _send_bootstrap(ws: WebSocket) -> None:
@@ -766,6 +957,48 @@ def get_governance_state() -> dict[str, Any]:
         "status": "ok",
         "governance": GOVERNANCE_STATE,
         "trust": TRUST_STATE,
+        "profile": GOVERNANCE_PROFILE_STATE,
+    }
+
+
+@app.get("/api/governance/profiles")
+def list_governance_profiles() -> dict[str, Any]:
+    return {
+        "status": "ok",
+        "active_profile": GOVERNANCE_PROFILE_STATE,
+        "profiles": GOVERNANCE_PROFILES,
+    }
+
+
+@app.post("/api/governance/profile/apply")
+async def apply_governance_profile(request: GovernanceProfileApplyRequest) -> dict[str, Any]:
+    try:
+        profile_event = _apply_governance_profile(
+            profile_name=request.profile,
+            overrides=request.overrides,
+            execution_id=request.execution_id,
+            source=request.source,
+            workspace_id=request.workspace_id,
+            correlation_id=request.correlation_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    await _fanout_event(profile_event)
+
+    governance, governance_events = _recompute_governance_state(
+        execution_id=request.execution_id,
+        source="governance-engine",
+        workspace_id=request.workspace_id,
+        correlation_id=request.correlation_id,
+    )
+    for event in governance_events:
+        await _fanout_event(event)
+
+    return {
+        "status": "ok",
+        "profile": GOVERNANCE_PROFILE_STATE,
+        "governance": governance,
+        "emitted_events": [profile_event] + governance_events,
     }
 
 

@@ -1,6 +1,6 @@
 from fastapi.testclient import TestClient
 
-from main import GOVERNANCE_STATE, OBJECTIVES, OBJECTIVE_SIGNALS, TRUST_STATE, app
+from main import GOVERNANCE_PROFILE_STATE, GOVERNANCE_STATE, OBJECTIVES, OBJECTIVE_SIGNALS, TRUST_STATE, app
 
 
 REQUIRED_KEYS = {
@@ -311,3 +311,79 @@ def test_trust_changed_emits_when_score_delta_is_material() -> None:
     assert replay.status_code == 200
     event_types = [event["event_type"] for event in replay.json()["events"]]
     assert "trust.changed" in event_types
+
+
+def test_governance_profile_apply_emits_profile_event_and_recompute() -> None:
+    client = TestClient(app)
+    execution_id = "exec-profile-1"
+
+    res = client.post(
+        "/api/governance/profile/apply",
+        json={"profile": "conservative", "execution_id": execution_id},
+    )
+    assert res.status_code == 200
+    body = res.json()
+
+    assert body["profile"]["active"] == "conservative"
+    assert body["governance"]["profile"] == "conservative"
+
+    emitted_types = [event["event_type"] for event in body["emitted_events"]]
+    assert "governance.profile_applied" in emitted_types
+    assert "governance.stability" in emitted_types
+
+    replay = client.get(f"/api/replay/{execution_id}")
+    assert replay.status_code == 200
+    event_types = [event["event_type"] for event in replay.json()["events"]]
+    assert "governance.profile_applied" in event_types
+
+
+def test_governance_profile_overlay_changes_runtime_behavior() -> None:
+    OBJECTIVES.clear()
+    OBJECTIVE_SIGNALS["blocked"] = {}
+    OBJECTIVE_SIGNALS["pressure"] = {}
+    OBJECTIVE_SIGNALS["objective_pressure_score"] = {}
+    OBJECTIVE_SIGNALS["critical_path"] = {}
+    TRUST_STATE["score"] = 0.5
+
+    client = TestClient(app)
+    execution_id = "exec-profile-2"
+
+    assert (
+        client.post(
+            "/api/objectives",
+            json={
+                "objective_id": "gpu-upgrade",
+                "title": "GPU Upgrade",
+                "priority": 5,
+                "salience": 5.0,
+                "execution_id": execution_id,
+            },
+        ).status_code
+        == 200
+    )
+
+    aggressive = client.post(
+        "/api/governance/profile/apply",
+        json={"profile": "aggressive", "execution_id": execution_id},
+    )
+    assert aggressive.status_code == 200
+    aggressive_cooldown = aggressive.json()["governance"]["cooldown_aggressiveness"]
+
+    conservative = client.post(
+        "/api/governance/profile/apply",
+        json={"profile": "conservative", "execution_id": execution_id},
+    )
+    assert conservative.status_code == 200
+    conservative_cooldown = conservative.json()["governance"]["cooldown_aggressiveness"]
+
+    assert aggressive_cooldown > conservative_cooldown
+    assert GOVERNANCE_PROFILE_STATE["active"] == "conservative"
+
+
+def test_governance_profile_apply_rejects_unknown_profile() -> None:
+    client = TestClient(app)
+    res = client.post(
+        "/api/governance/profile/apply",
+        json={"profile": "does-not-exist", "execution_id": "exec-profile-unknown"},
+    )
+    assert res.status_code == 400

@@ -41,8 +41,22 @@ Never allow event frames to become the system of record.
 	- event taxonomy scaffold
 - Phase 2C: bootstrap complete
 	- initial objective graph influence
-- Phase 2D: in progress
+- Phase 2D: bootstrap complete
 	- memory/trust/objective-pressure coupling into governance posture
+- Phase 2E: bootstrap complete
+	- governance policy overlay layer + profile application events
+
+## Current Runtime Additions (Phase 2E Bootstrap)
+- Governance policy overlay layer is now active with profile-driven coefficients.
+- Supported runtime profiles:
+	- balanced (frozen bootstrap baseline)
+	- conservative
+	- aggressive
+	- mission_critical
+- Governance profile APIs are available:
+	- `GET /api/governance/profiles`
+	- `POST /api/governance/profile/apply`
+- Profile changes are replay-visible via `governance.profile_applied`.
 
 ## Priority Workstreams
 
