@@ -1394,3 +1394,95 @@ def test_scheduler_policy_adapts_under_starvation_pressure() -> None:
     )
     assert policy.status_code == 200
     assert policy.json()["policy"]["scheduler_profile"] in {"fair", "mission_critical"}
+
+
+def test_scheduler_optimization_emits_confidence_effectiveness_and_decay() -> None:
+    workspace_id = "ws-scheduler-optimization-1"
+    AGENT_TASKS_BY_WORKSPACE.pop(workspace_id, None)
+    AGENT_WORKFLOWS_BY_WORKSPACE.pop(workspace_id, None)
+
+    client = TestClient(app)
+    execution_id = "exec-scheduler-optimization-1"
+
+    applied = client.post(
+        "/api/agents/scheduler/policy",
+        json={
+            "scheduler_profile": "balanced",
+            "adaptive_mode": True,
+            "fairness_window": 2,
+            "starvation_threshold": 2,
+            "optimization_decay_cycles": 2,
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+            "reason": "enable optimization telemetry",
+        },
+    )
+    assert applied.status_code == 200
+
+    for workflow_id in ("wf-opt-a", "wf-opt-b", "wf-opt-c"):
+        response = client.post(
+            "/api/agents/arbitrate",
+            json={
+                "task_id": workflow_id,
+                "operator_forced_role": "execution",
+                "workspace_id": workspace_id,
+                "execution_id": execution_id,
+            },
+        )
+        assert response.status_code == 200
+
+    for _ in range(3):
+        arbitration = client.post(
+            "/api/agents/supervisor/arbitrate",
+            json={
+                "workspace_id": workspace_id,
+                "available_slots": 1,
+                "execution_id": execution_id,
+                "reason": "optimization escalation sweep",
+            },
+        )
+        assert arbitration.status_code == 200
+
+    for workflow_id in ("wf-opt-b", "wf-opt-c"):
+        completed = client.post(
+            f"/api/agents/workflows/{workflow_id}/update",
+            json={
+                "status": "completed",
+                "workspace_id": workspace_id,
+                "execution_id": execution_id,
+                "reason": "reduce contention for decay",
+            },
+        )
+        assert completed.status_code == 200
+
+    for _ in range(3):
+        arbitration = client.post(
+            "/api/agents/supervisor/arbitrate",
+            json={
+                "workspace_id": workspace_id,
+                "available_slots": 1,
+                "execution_id": execution_id,
+                "reason": "optimization decay sweep",
+            },
+        )
+        assert arbitration.status_code == 200
+
+    replay = client.get(f"/api/replay/{execution_id}")
+    assert replay.status_code == 200
+    replay_types = [event["event_type"] for event in replay.json()["events"]]
+    assert "agent.scheduler_confidence" in replay_types
+    assert "agent.scheduler_effectiveness_scored" in replay_types
+    assert "agent.scheduler_contention_smoothed" in replay_types
+    assert "agent.scheduler_decay_applied" in replay_types
+
+    policy = client.get(
+        "/api/agents/scheduler/policy",
+        params={"workspace_id": workspace_id},
+    )
+    assert policy.status_code == 200
+    optimization = policy.json()["policy"]["optimization"]
+    assert optimization["decay_cycles"] == 2
+    assert 0.0 <= float(optimization["confidence"]) <= 1.0
+    assert 0.0 <= float(optimization["effectiveness_score"]) <= 1.0
+    assert isinstance(optimization["optimization_history"], list)
+    assert len(optimization["optimization_history"]) <= 25

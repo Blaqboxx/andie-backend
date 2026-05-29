@@ -93,6 +93,10 @@ EVENT_FAMILIES: dict[str, set[str]] = {
         "agent.scheduler_policy_escalated",
         "agent.scheduler_policy_relaxed",
         "agent.scheduler_policy_recommended",
+        "agent.scheduler_confidence",
+        "agent.scheduler_effectiveness_scored",
+        "agent.scheduler_decay_applied",
+        "agent.scheduler_contention_smoothed",
         "agent.assigned",
         "agent.completed",
         "agent.blocked",
@@ -401,6 +405,15 @@ SCHEDULER_POLICY_BY_WORKSPACE: dict[str, dict[str, Any]] = {
         "fairness_window": 3,
         "starvation_threshold": 3,
         "adaptive_mode": False,
+        "optimization": {
+            "last_escalation_cycle": 0,
+            "last_relaxation_cycle": 0,
+            "effectiveness_score": 0.0,
+            "optimization_history": [],
+            "decay_cycles": 5,
+            "confidence": 0.0,
+            "last_average_pressure": 0.0,
+        },
         "updated_at": _utc_now(),
     }
 }
@@ -578,6 +591,7 @@ class AgentSchedulerPolicyApplyRequest(BaseModel):
     preemption_policy: str | None = None
     fairness_window: int | None = None
     starvation_threshold: int | None = None
+    optimization_decay_cycles: int | None = None
     adaptive_mode: bool | None = None
     overrides: dict[str, Any] = Field(default_factory=dict)
     actor: str = "operator"
@@ -672,6 +686,15 @@ def _scheduler_policy_defaults(profile: str) -> dict[str, Any]:
             "fairness_window": 6,
             "starvation_threshold": 6,
             "adaptive_mode": False,
+            "optimization": {
+                "last_escalation_cycle": 0,
+                "last_relaxation_cycle": 0,
+                "effectiveness_score": 0.0,
+                "optimization_history": [],
+                "decay_cycles": 5,
+                "confidence": 0.0,
+                "last_average_pressure": 0.0,
+            },
         },
         "balanced": {
             "scheduler_profile": "balanced",
@@ -681,6 +704,15 @@ def _scheduler_policy_defaults(profile: str) -> dict[str, Any]:
             "fairness_window": 3,
             "starvation_threshold": 3,
             "adaptive_mode": False,
+            "optimization": {
+                "last_escalation_cycle": 0,
+                "last_relaxation_cycle": 0,
+                "effectiveness_score": 0.0,
+                "optimization_history": [],
+                "decay_cycles": 5,
+                "confidence": 0.0,
+                "last_average_pressure": 0.0,
+            },
         },
         "fair": {
             "scheduler_profile": "fair",
@@ -690,6 +722,15 @@ def _scheduler_policy_defaults(profile: str) -> dict[str, Any]:
             "fairness_window": 2,
             "starvation_threshold": 2,
             "adaptive_mode": False,
+            "optimization": {
+                "last_escalation_cycle": 0,
+                "last_relaxation_cycle": 0,
+                "effectiveness_score": 0.0,
+                "optimization_history": [],
+                "decay_cycles": 5,
+                "confidence": 0.0,
+                "last_average_pressure": 0.0,
+            },
         },
         "mission_critical": {
             "scheduler_profile": "mission_critical",
@@ -699,6 +740,15 @@ def _scheduler_policy_defaults(profile: str) -> dict[str, Any]:
             "fairness_window": 4,
             "starvation_threshold": 2,
             "adaptive_mode": True,
+            "optimization": {
+                "last_escalation_cycle": 0,
+                "last_relaxation_cycle": 0,
+                "effectiveness_score": 0.0,
+                "optimization_history": [],
+                "decay_cycles": 5,
+                "confidence": 0.0,
+                "last_average_pressure": 0.0,
+            },
         },
     }
     if profile_value not in profiles:
@@ -712,7 +762,21 @@ def _get_scheduler_policy(workspace_id: str) -> dict[str, Any]:
             **_scheduler_policy_defaults("balanced"),
             "updated_at": _utc_now(),
         }
-    return SCHEDULER_POLICY_BY_WORKSPACE[workspace_id]
+    policy = SCHEDULER_POLICY_BY_WORKSPACE[workspace_id]
+    optimization = policy.get("optimization") or {}
+    if not isinstance(optimization, dict):
+        optimization = {}
+    optimization.setdefault("last_escalation_cycle", 0)
+    optimization.setdefault("last_relaxation_cycle", 0)
+    optimization.setdefault("effectiveness_score", 0.0)
+    optimization.setdefault("optimization_history", [])
+    optimization.setdefault("decay_cycles", 5)
+    optimization.setdefault("confidence", 0.0)
+    optimization.setdefault("last_average_pressure", 0.0)
+    history = optimization.get("optimization_history")
+    optimization["optimization_history"] = history[-25:] if isinstance(history, list) else []
+    policy["optimization"] = optimization
+    return policy
 
 
 def _apply_scheduler_policy(request: AgentSchedulerPolicyApplyRequest) -> dict[str, Any]:
@@ -743,6 +807,11 @@ def _apply_scheduler_policy(request: AgentSchedulerPolicyApplyRequest) -> dict[s
     if request.starvation_threshold is not None:
         defaults["starvation_threshold"] = max(1, int(request.starvation_threshold))
 
+    optimization = defaults.get("optimization") if isinstance(defaults.get("optimization"), dict) else {}
+    if request.optimization_decay_cycles is not None:
+        optimization["decay_cycles"] = max(1, int(request.optimization_decay_cycles))
+    defaults["optimization"] = optimization
+
     if request.adaptive_mode is not None:
         defaults["adaptive_mode"] = bool(request.adaptive_mode)
 
@@ -750,6 +819,7 @@ def _apply_scheduler_policy(request: AgentSchedulerPolicyApplyRequest) -> dict[s
     defaults["updated_at"] = _utc_now()
     policy.clear()
     policy.update(defaults)
+    _ = _get_scheduler_policy(request.workspace_id)
     return policy
 
 
@@ -788,6 +858,7 @@ def _apply_scheduler_policy_profile(
             **defaults,
             "adaptive_mode": bool(policy.get("adaptive_mode", False)),
             "overrides": dict(policy.get("overrides", {})),
+            "optimization": dict(policy.get("optimization", {})),
             "updated_at": _utc_now(),
         }
     )
@@ -839,6 +910,8 @@ def _maybe_adapt_scheduler_policy(
     actor: str,
 ) -> list[dict[str, Any]]:
     policy = _get_scheduler_policy(workspace_id)
+    optimization = policy.get("optimization") if isinstance(policy.get("optimization"), dict) else {}
+    cycle = int(runtime.get("cycle", 0))
     if not bool(policy.get("adaptive_mode", False)):
         return [
             EVENTS.append(
@@ -858,7 +931,6 @@ def _maybe_adapt_scheduler_policy(
             )
         ]
 
-    active_workflows = list(runtime.get("active_workflows") or [])
     if not ranked:
         return []
 
@@ -869,14 +941,145 @@ def _maybe_adapt_scheduler_policy(
 
     wait_times = [int(workflow.get("workflow_wait_time", 0)) for workflow in observed]
     starvation_scores = [float(workflow.get("starvation_score", 0.0)) for workflow in observed]
+    pressure_scores = [float(score) for _, score in ranked]
     average_wait = sum(wait_times) / float(len(wait_times))
     max_wait = max(wait_times)
     max_starvation = max(starvation_scores)
-    contention = max(0, len(workflows) - len(active_workflows))
+    average_pressure = sum(pressure_scores) / float(len(pressure_scores)) if pressure_scores else 0.0
+    available_slots = max(1, int(runtime.get("available_slots", 1)))
+    contention = max(0, len(ranked) - available_slots)
+    contention_ratio = float(contention) / float(max(1, len(ranked)))
+
+    top_gap = 0.0
+    if len(ranked) >= 2:
+        top_gap = max(0.0, float(ranked[0][1]) - float(ranked[1][1]))
+    smoothed_gap = round(top_gap, 3)
+
+    emitted: list[dict[str, Any]] = []
+    if top_gap > 0.2:
+        smoothed_gap = round(top_gap * 0.65, 3)
+        emitted.append(
+            EVENTS.append(
+                "agent.scheduler_contention_smoothed",
+                {
+                    "workspace_id": workspace_id,
+                    "cycle": cycle,
+                    "top_priority_gap": round(top_gap, 3),
+                    "smoothed_gap": smoothed_gap,
+                    "reason": "gap_dampening",
+                },
+                execution_id=execution_id,
+                source=source,
+                workspace_id=workspace_id,
+                correlation_id=correlation_id,
+            )
+        )
+
+    starvation_threshold = max(1, int(policy.get("starvation_threshold", 3)))
+    wait_ratio = min(1.0, float(max_wait) / float(starvation_threshold))
+    confidence = _clamp01((0.5 * max_starvation) + (0.3 * wait_ratio) + (0.2 * contention_ratio))
+    optimization["confidence"] = round(confidence, 3)
+
+    emitted.append(
+        EVENTS.append(
+            "agent.scheduler_confidence",
+            {
+                "workspace_id": workspace_id,
+                "cycle": cycle,
+                "scheduler_profile": str(policy.get("scheduler_profile", "balanced")),
+                "confidence": optimization["confidence"],
+                "signal_components": {
+                    "max_starvation": round(max_starvation, 3),
+                    "wait_ratio": round(wait_ratio, 3),
+                    "contention_ratio": round(contention_ratio, 3),
+                },
+            },
+            execution_id=execution_id,
+            source=source,
+            workspace_id=workspace_id,
+            correlation_id=correlation_id,
+        )
+    )
+
+    before_pressure = float(optimization.get("last_average_pressure", average_pressure))
+    effectiveness = _clamp01(before_pressure - average_pressure)
+    optimization["effectiveness_score"] = round(effectiveness, 3)
+    optimization["last_average_pressure"] = round(average_pressure, 3)
+    emitted.append(
+        EVENTS.append(
+            "agent.scheduler_effectiveness_scored",
+            {
+                "workspace_id": workspace_id,
+                "cycle": cycle,
+                "before_pressure": round(before_pressure, 3),
+                "after_pressure": round(average_pressure, 3),
+                "effectiveness": optimization["effectiveness_score"],
+            },
+            execution_id=execution_id,
+            source=source,
+            workspace_id=workspace_id,
+            correlation_id=correlation_id,
+        )
+    )
 
     current_profile = str(policy.get("scheduler_profile", "balanced"))
     next_profile = current_profile
     direction = None
+
+    cycles_since_escalation = max(0, cycle - int(optimization.get("last_escalation_cycle", 0)))
+    decay_cycles = max(1, int(optimization.get("decay_cycles", 5)))
+    if (
+        current_profile != "balanced"
+        and contention == 0
+        and max_starvation <= 0.6
+        and confidence < 0.4
+        and cycles_since_escalation >= decay_cycles
+    ):
+        decayed_profile = _scheduler_profile_neighbor(current_profile, "relax")
+        if decayed_profile != current_profile:
+            policy, changed_event, profile_event = _apply_scheduler_policy_profile(
+                workspace_id=workspace_id,
+                next_profile=decayed_profile,
+                reason="bounded_decay",
+                execution_id=execution_id,
+                source=source,
+                correlation_id=correlation_id,
+                actor=actor,
+            )
+            optimization["last_relaxation_cycle"] = cycle
+            history = optimization.get("optimization_history") if isinstance(optimization.get("optimization_history"), list) else []
+            history.append(
+                {
+                    "cycle": cycle,
+                    "change": "decay_relaxed",
+                    "from_profile": current_profile,
+                    "to_profile": decayed_profile,
+                    "effectiveness": optimization["effectiveness_score"],
+                }
+            )
+            optimization["optimization_history"] = history[-25:]
+            policy["optimization"] = optimization
+
+            emitted.append(
+                EVENTS.append(
+                    "agent.scheduler_decay_applied",
+                    {
+                        "workspace_id": workspace_id,
+                        "cycle": cycle,
+                        "from_profile": current_profile,
+                        "to_profile": decayed_profile,
+                        "cycles_since_escalation": cycles_since_escalation,
+                        "decay_cycles": decay_cycles,
+                    },
+                    execution_id=execution_id,
+                    source=source,
+                    workspace_id=workspace_id,
+                    correlation_id=correlation_id,
+                )
+            )
+            emitted.extend([changed_event, profile_event])
+            return emitted
+
     if max_wait >= int(policy.get("starvation_threshold", 3)) or max_starvation >= 0.8:
         direction = "escalate"
         next_profile = _scheduler_profile_neighbor(current_profile, "escalate")
@@ -885,7 +1088,7 @@ def _maybe_adapt_scheduler_policy(
         next_profile = _scheduler_profile_neighbor(current_profile, "relax")
 
     if direction is None or next_profile == current_profile:
-        return [
+        emitted.append(
             EVENTS.append(
                 "agent.scheduler_policy_recommended",
                 {
@@ -895,11 +1098,13 @@ def _maybe_adapt_scheduler_policy(
                     "reason": "policy_stable",
                     "trigger": trigger,
                     "recommendation": current_profile,
+                    "confidence": optimization["confidence"],
                     "observed": {
                         "average_wait": round(average_wait, 3),
                         "max_wait": max_wait,
                         "max_starvation": round(max_starvation, 3),
                         "contention": contention,
+                        "smoothed_gap": smoothed_gap,
                     },
                 },
                 execution_id=execution_id,
@@ -907,7 +1112,9 @@ def _maybe_adapt_scheduler_policy(
                 workspace_id=workspace_id,
                 correlation_id=correlation_id,
             )
-        ]
+        )
+        policy["optimization"] = optimization
+        return emitted
 
     policy, changed_event, profile_event = _apply_scheduler_policy_profile(
         workspace_id=workspace_id,
@@ -919,6 +1126,23 @@ def _maybe_adapt_scheduler_policy(
         actor=actor,
     )
 
+    if direction == "escalate":
+        optimization["last_escalation_cycle"] = cycle
+    else:
+        optimization["last_relaxation_cycle"] = cycle
+    history = optimization.get("optimization_history") if isinstance(optimization.get("optimization_history"), list) else []
+    history.append(
+        {
+            "cycle": cycle,
+            "change": "escalated" if direction == "escalate" else "relaxed",
+            "from_profile": current_profile,
+            "to_profile": next_profile,
+            "effectiveness": optimization["effectiveness_score"],
+        }
+    )
+    optimization["optimization_history"] = history[-25:]
+    policy["optimization"] = optimization
+
     recommendation_event = EVENTS.append(
         "agent.scheduler_policy_recommended",
         {
@@ -928,11 +1152,13 @@ def _maybe_adapt_scheduler_policy(
             "reason": reason,
             "trigger": trigger,
             "recommendation": next_profile,
+            "confidence": optimization["confidence"],
             "observed": {
                 "average_wait": round(average_wait, 3),
                 "max_wait": max_wait,
                 "max_starvation": round(max_starvation, 3),
                 "contention": contention,
+                "smoothed_gap": smoothed_gap,
             },
         },
         execution_id=execution_id,
@@ -941,7 +1167,8 @@ def _maybe_adapt_scheduler_policy(
         correlation_id=correlation_id,
     )
 
-    return [recommendation_event, changed_event, profile_event]
+    emitted.extend([recommendation_event, changed_event, profile_event])
+    return emitted
 
 
 def _normalize_agent_role(role: str) -> str:
@@ -1397,6 +1624,12 @@ def _run_supervisor_arbitration(
             "preemption_policy": preemption_policy,
             "fairness_window": int(runtime["fairness_window"]),
             "starvation_threshold": int(runtime["starvation_threshold"]),
+            "adaptive_mode": bool(scheduler_policy.get("adaptive_mode", False)),
+            "optimization": {
+                "decay_cycles": int((scheduler_policy.get("optimization") or {}).get("decay_cycles", 5)),
+                "confidence": float((scheduler_policy.get("optimization") or {}).get("confidence", 0.0)),
+                "effectiveness_score": float((scheduler_policy.get("optimization") or {}).get("effectiveness_score", 0.0)),
+            },
             "available_slots": int(runtime["available_slots"]),
             "cycle": cycle,
         },
@@ -1538,9 +1771,10 @@ def _run_supervisor_arbitration(
     activated = sorted(target_set - prev_set)
     for workflow_id in preempted:
         workflow = workflows.get(workflow_id)
-        if workflow is not None:
-            workflow["status"] = "preempted"
-            workflow["updated_at"] = _utc_now()
+        if workflow is None or str(workflow.get("status", "")).lower() == "completed":
+            continue
+        workflow["status"] = "preempted"
+        workflow["updated_at"] = _utc_now()
         emitted.append(
             EVENTS.append(
                 "agent.supervisor_preempted",
@@ -1558,12 +1792,13 @@ def _run_supervisor_arbitration(
 
     for workflow_id in activated:
         workflow = workflows.get(workflow_id)
-        if workflow is not None:
-            workflow["status"] = "active"
-            workflow["workflow_wait_time"] = 0
-            workflow["workflow_age"] = 0
-            workflow["scheduler_cycle_last_scheduled"] = cycle
-            workflow["updated_at"] = _utc_now()
+        if workflow is None or str(workflow.get("status", "")).lower() == "completed":
+            continue
+        workflow["status"] = "active"
+        workflow["workflow_wait_time"] = 0
+        workflow["workflow_age"] = 0
+        workflow["scheduler_cycle_last_scheduled"] = cycle
+        workflow["updated_at"] = _utc_now()
         emitted.append(
             EVENTS.append(
                 "agent.supervisor_reallocated",
@@ -3093,6 +3328,7 @@ async def apply_scheduler_policy(request: AgentSchedulerPolicyApplyRequest) -> d
             "fairness_window": policy["fairness_window"],
             "starvation_threshold": policy["starvation_threshold"],
             "adaptive_mode": bool(policy.get("adaptive_mode", False)),
+            "optimization": dict(policy.get("optimization", {})),
             "overrides": dict(request.overrides),
             "actor": request.actor,
             "reason": request.reason,

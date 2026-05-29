@@ -69,6 +69,8 @@ Never allow event frames to become the system of record.
 	- runtime scheduling policy profiles
 - Phase 4E: bootstrap started
 	- adaptive scheduler policies
+- Phase 4F: bootstrap started
+	- runtime optimization telemetry and bounded decay
 
 ## Current Runtime Additions (Phase 2E Bootstrap)
 - Governance policy overlay layer is now active with profile-driven coefficients.
@@ -244,6 +246,16 @@ Never allow event frames to become the system of record.
 	- `agent.scheduler_policy_relaxed`
 	- `agent.scheduler_policy_recommended`
 - Arbitration can now promote policy changes under starvation pressure and emit the resulting policy transition for replay and audit.
+
+## Current Runtime Additions (Phase 4F Bootstrap)
+- Scheduler optimization state is now policy-scoped and workspace-scoped.
+- Optimization telemetry events are replay-visible:
+	- `agent.scheduler_confidence`
+	- `agent.scheduler_effectiveness_scored`
+	- `agent.scheduler_decay_applied`
+	- `agent.scheduler_contention_smoothed`
+- Adaptive scheduling now records bounded optimization history and effectiveness scores.
+- Bounded decay now relaxes elevated scheduler profiles after quiet arbitration cycles.
 
 ## Priority Workstreams
 
