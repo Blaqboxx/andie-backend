@@ -76,6 +76,10 @@ EVENT_FAMILIES: dict[str, set[str]] = {
         "agent.consensus_started",
         "agent.consensus_reached",
         "agent.consensus_failed",
+        "agent.supervisor_invoked",
+        "agent.supervisor_replanned",
+        "agent.supervisor_redelegated",
+        "agent.supervisor_resumed",
         "agent.assigned",
         "agent.completed",
         "agent.blocked",
@@ -508,6 +512,17 @@ class AgentWorkflowConsensusRequest(BaseModel):
     correlation_id: str | None = None
 
 
+class AgentWorkflowSupervisionRequest(BaseModel):
+    trigger: str = "manual"
+    reason: str = "supervisor review"
+    payload: dict[str, Any] = Field(default_factory=dict)
+    actor: str = "workflow-supervisor"
+    execution_id: str | None = None
+    source: str = "workflow-supervisor"
+    workspace_id: str = "andie-default"
+    correlation_id: str | None = None
+
+
 class AgentArbitrationRequest(BaseModel):
     task_id: str
     objective_id: str | None = None
@@ -792,6 +807,7 @@ def _build_workflow(
         "current_step_index": 0,
         "blocked_steps": 0,
         "replan_count": 0,
+        "supervisor_actions": 0,
         "history": [
             {
                 "at": now,
@@ -818,6 +834,7 @@ def _workflow_health_payload(workspace_id: str, workflow: dict[str, Any]) -> dic
         "workflow_pressure_score": workflow.get("workflow_pressure_score"),
         "blocked_steps": int(workflow.get("blocked_steps", 0)),
         "replan_count": int(workflow.get("replan_count", 0)),
+        "supervisor_actions": int(workflow.get("supervisor_actions", 0)),
         "governance_band": governance_band,
         "status": workflow.get("status"),
     }
@@ -837,6 +854,46 @@ def _replan_workflow_roles(workflow: dict[str, Any], profile: str) -> tuple[list
         return (replanned, "blocked_replan_governance_injection")
 
     return (current_roles + ["planner"], "blocked_replan_planner_tail")
+
+
+def _ensure_role_front(workflow_roles: list[str], role: str) -> list[str]:
+    normalized = [str(r) for r in workflow_roles if str(r) != role]
+    return [role] + normalized
+
+
+def _supervisor_apply(
+    *,
+    workflow: dict[str, Any],
+    workspace_id: str,
+    trigger: str,
+) -> tuple[str, str]:
+    profile = str(_get_governance_profile_binding(workspace_id).get("active", "balanced"))
+    governance_band = str(_get_governance_state(workspace_id).get("band", "stable"))
+    pressure = float(workflow.get("workflow_pressure_score", 0.0))
+    workflow_roles = [str(r) for r in workflow.get("workflow", [])]
+
+    if governance_band == "escalated" or trigger == "consensus_failed":
+        workflow["workflow"] = _ensure_role_front(workflow_roles, "governance")
+        workflow["status"] = "supervisor_replanned"
+        return ("agent.supervisor_replanned", "supervisor_escalation_gate")
+
+    if profile == "mission_critical" and pressure >= 0.6:
+        workflow["workflow"] = _ensure_role_front(_ensure_role_front(workflow_roles, "planner"), "governance")
+        workflow["status"] = "supervisor_replanned"
+        return ("agent.supervisor_replanned", "supervisor_mission_critical_chain")
+
+    if trigger in {"workflow_blocked", "blocked"} or int(workflow.get("blocked_steps", 0)) >= 2:
+        workflow["workflow"] = _ensure_role_front(workflow_roles, "memory")
+        workflow["status"] = "supervisor_redelegated"
+        return ("agent.supervisor_redelegated", "supervisor_blocked_memory_redelegation")
+
+    if pressure >= 0.85:
+        workflow["workflow"] = _ensure_role_front(workflow_roles, "planner")
+        workflow["status"] = "supervisor_replanned"
+        return ("agent.supervisor_replanned", "supervisor_high_pressure_replan")
+
+    workflow["status"] = "supervisor_resumed"
+    return ("agent.supervisor_resumed", "supervisor_continue_current_plan")
 
 
 async def _fanout_event(event: dict[str, Any]) -> None:
@@ -1764,6 +1821,50 @@ async def update_agent_workflow(workflow_id: str, request: AgentWorkflowUpdateRe
         )
         emitted.append(replanned_event)
 
+        supervisor_invoked = EVENTS.append(
+            "agent.supervisor_invoked",
+            {
+                "workflow_id": workflow_id,
+                "trigger": "workflow_blocked",
+                "workspace_id": request.workspace_id,
+                "reason": request.reason,
+            },
+            execution_id=request.execution_id,
+            source="workflow-supervisor",
+            workspace_id=request.workspace_id,
+            correlation_id=request.correlation_id,
+        )
+        emitted.append(supervisor_invoked)
+
+        supervisor_event_type, supervisor_reason = _supervisor_apply(
+            workflow=workflow,
+            workspace_id=request.workspace_id,
+            trigger="workflow_blocked",
+        )
+        workflow["supervisor_actions"] = int(workflow.get("supervisor_actions", 0)) + 1
+        workflow["history"].append(
+            {
+                "at": _utc_now(),
+                "status": supervisor_event_type,
+                "reason": supervisor_reason,
+                "trigger": "workflow_blocked",
+            }
+        )
+
+        supervisor_event = EVENTS.append(
+            supervisor_event_type,
+            {
+                "workflow": workflow,
+                "workspace_id": request.workspace_id,
+                "reason": supervisor_reason,
+            },
+            execution_id=request.execution_id,
+            source="workflow-supervisor",
+            workspace_id=request.workspace_id,
+            correlation_id=request.correlation_id,
+        )
+        emitted.append(supervisor_event)
+
     elif status_value in {"updated", "in_progress"}:
         workflow["status"] = "in_progress"
         workflow["workflow_pressure_score"] = _workflow_pressure_score(
@@ -2012,6 +2113,52 @@ async def consensus_agent_workflow(workflow_id: str, request: AgentWorkflowConse
         correlation_id=request.correlation_id,
     )
 
+    supervisor_events: list[dict[str, Any]] = []
+    if not request.reached:
+        supervisor_invoked = EVENTS.append(
+            "agent.supervisor_invoked",
+            {
+                "workflow_id": workflow_id,
+                "trigger": "consensus_failed",
+                "workspace_id": request.workspace_id,
+                "reason": request.reason,
+            },
+            execution_id=request.execution_id,
+            source="workflow-supervisor",
+            workspace_id=request.workspace_id,
+            correlation_id=request.correlation_id,
+        )
+        supervisor_events.append(supervisor_invoked)
+
+        supervisor_event_type, supervisor_reason = _supervisor_apply(
+            workflow=workflow,
+            workspace_id=request.workspace_id,
+            trigger="consensus_failed",
+        )
+        workflow["supervisor_actions"] = int(workflow.get("supervisor_actions", 0)) + 1
+        workflow["history"].append(
+            {
+                "at": _utc_now(),
+                "status": supervisor_event_type,
+                "reason": supervisor_reason,
+                "trigger": "consensus_failed",
+            }
+        )
+
+        supervisor_event = EVENTS.append(
+            supervisor_event_type,
+            {
+                "workflow": workflow,
+                "workspace_id": request.workspace_id,
+                "reason": supervisor_reason,
+            },
+            execution_id=request.execution_id,
+            source="workflow-supervisor",
+            workspace_id=request.workspace_id,
+            correlation_id=request.correlation_id,
+        )
+        supervisor_events.append(supervisor_event)
+
     health_event = EVENTS.append(
         "agent.workflow_health",
         {
@@ -2026,12 +2173,90 @@ async def consensus_agent_workflow(workflow_id: str, request: AgentWorkflowConse
 
     await _fanout_event(started_event)
     await _fanout_event(outcome_event)
+    for event in supervisor_events:
+        await _fanout_event(event)
     await _fanout_event(health_event)
 
     return {
         "status": "ok",
         "workflow": workflow,
-        "emitted_events": [started_event, outcome_event, health_event],
+        "emitted_events": [started_event, outcome_event] + supervisor_events + [health_event],
+    }
+
+
+@app.post("/api/agents/workflows/{workflow_id}/supervise")
+async def supervise_agent_workflow(workflow_id: str, request: AgentWorkflowSupervisionRequest) -> dict[str, Any]:
+    workflows = _get_workspace_workflows(request.workspace_id)
+    if workflow_id not in workflows:
+        raise HTTPException(status_code=404, detail=f"unknown workflow_id: {workflow_id}")
+
+    workflow = workflows[workflow_id]
+    workflow["updated_at"] = _utc_now()
+
+    invoked_event = EVENTS.append(
+        "agent.supervisor_invoked",
+        {
+            "workflow_id": workflow_id,
+            "trigger": request.trigger,
+            "workspace_id": request.workspace_id,
+            "reason": request.reason,
+            "payload": request.payload,
+        },
+        execution_id=request.execution_id,
+        source=request.source,
+        workspace_id=request.workspace_id,
+        correlation_id=request.correlation_id,
+    )
+
+    supervisor_event_type, supervisor_reason = _supervisor_apply(
+        workflow=workflow,
+        workspace_id=request.workspace_id,
+        trigger=request.trigger,
+    )
+    workflow["supervisor_actions"] = int(workflow.get("supervisor_actions", 0)) + 1
+    workflow["history"].append(
+        {
+            "at": _utc_now(),
+            "status": supervisor_event_type,
+            "trigger": request.trigger,
+            "reason": supervisor_reason,
+            "payload": request.payload,
+        }
+    )
+
+    supervisor_event = EVENTS.append(
+        supervisor_event_type,
+        {
+            "workflow": workflow,
+            "workspace_id": request.workspace_id,
+            "reason": supervisor_reason,
+            "trigger": request.trigger,
+        },
+        execution_id=request.execution_id,
+        source=request.source,
+        workspace_id=request.workspace_id,
+        correlation_id=request.correlation_id,
+    )
+
+    health_event = EVENTS.append(
+        "agent.workflow_health",
+        {
+            "health": _workflow_health_payload(request.workspace_id, workflow),
+            "workspace_id": request.workspace_id,
+        },
+        execution_id=request.execution_id,
+        source=request.source,
+        workspace_id=request.workspace_id,
+        correlation_id=request.correlation_id,
+    )
+
+    for event in [invoked_event, supervisor_event, health_event]:
+        await _fanout_event(event)
+
+    return {
+        "status": "ok",
+        "workflow": workflow,
+        "emitted_events": [invoked_event, supervisor_event, health_event],
     }
 
 

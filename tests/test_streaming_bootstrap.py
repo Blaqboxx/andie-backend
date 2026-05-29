@@ -979,3 +979,80 @@ def test_workflow_review_chain_events_and_consensus_events() -> None:
     assert "agent.consensus_started" in emitted_types
     assert "agent.consensus_reached" in emitted_types
     assert "agent.workflow_health" in emitted_types
+
+
+def test_workflow_consensus_failed_triggers_supervisor_events() -> None:
+    workspace_id = "ws-workflow-5"
+    AGENT_TASKS_BY_WORKSPACE.pop(workspace_id, None)
+    AGENT_WORKFLOWS_BY_WORKSPACE.pop(workspace_id, None)
+
+    client = TestClient(app)
+    execution_id = "exec-workflow-5"
+
+    arb = client.post(
+        "/api/agents/arbitrate",
+        json={
+            "task_id": "wf-task-5",
+            "operator_forced_role": "planner",
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+        },
+    )
+    assert arb.status_code == 200
+
+    failed = client.post(
+        "/api/agents/workflows/wf-task-5/consensus",
+        json={
+            "participants": ["planner", "governance"],
+            "reached": False,
+            "resolution": "conflict",
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+        },
+    )
+    assert failed.status_code == 200
+    body = failed.json()
+    emitted_types = [event["event_type"] for event in body["emitted_events"]]
+    assert "agent.consensus_failed" in emitted_types
+    assert "agent.supervisor_invoked" in emitted_types
+    assert ("agent.supervisor_replanned" in emitted_types) or ("agent.supervisor_redelegated" in emitted_types)
+    assert "agent.workflow_health" in emitted_types
+
+
+def test_workflow_manual_supervision_endpoint_emits_supervisor_events() -> None:
+    workspace_id = "ws-workflow-6"
+    AGENT_TASKS_BY_WORKSPACE.pop(workspace_id, None)
+    AGENT_WORKFLOWS_BY_WORKSPACE.pop(workspace_id, None)
+
+    client = TestClient(app)
+    execution_id = "exec-workflow-6"
+
+    arb = client.post(
+        "/api/agents/arbitrate",
+        json={
+            "task_id": "wf-task-6",
+            "operator_forced_role": "execution",
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+        },
+    )
+    assert arb.status_code == 200
+
+    supervised = client.post(
+        "/api/agents/workflows/wf-task-6/supervise",
+        json={
+            "trigger": "manual",
+            "reason": "operator intervention",
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+        },
+    )
+    assert supervised.status_code == 200
+    emitted_types = [event["event_type"] for event in supervised.json()["emitted_events"]]
+    assert "agent.supervisor_invoked" in emitted_types
+    assert (
+        ("agent.supervisor_replanned" in emitted_types)
+        or ("agent.supervisor_redelegated" in emitted_types)
+        or ("agent.supervisor_resumed" in emitted_types)
+    )
+    assert "agent.workflow_health" in emitted_types

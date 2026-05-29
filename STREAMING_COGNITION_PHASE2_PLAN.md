@@ -59,6 +59,8 @@ Never allow event frames to become the system of record.
 	- dynamic workflow adaptation
 - Phase 3F: bootstrap complete
 	- delegation, review chains, and consensus scaffolding
+- Phase 4: foundation started
+	- workflow supervisor layer
 
 ## Current Runtime Additions (Phase 2E Bootstrap)
 - Governance policy overlay layer is now active with profile-driven coefficients.
@@ -168,6 +170,20 @@ Never allow event frames to become the system of record.
 	- `POST /api/agents/workflows/{workflow_id}/delegate`
 	- `POST /api/agents/workflows/{workflow_id}/review`
 	- `POST /api/agents/workflows/{workflow_id}/consensus`
+
+## Current Runtime Additions (Phase 4 Foundation)
+- Supervisor events are now available:
+	- `agent.supervisor_invoked`
+	- `agent.supervisor_replanned`
+	- `agent.supervisor_redelegated`
+	- `agent.supervisor_resumed`
+- Automatic supervisor hooks run on:
+	- workflow blocked transitions
+	- consensus failure outcomes
+- Manual supervisor control endpoint:
+	- `POST /api/agents/workflows/{workflow_id}/supervise`
+- Workflow health snapshots now include:
+	- `supervisor_actions`
 
 ## Priority Workstreams
 
