@@ -11,6 +11,24 @@ Never allow event frames to become the system of record.
 - Alias route normalization (`/ws/events`, `/ws/backlog` -> canonical stream behavior)
 - Initial sequencing discipline via event sequence IDs
 - Replay drilldown API (`GET /api/replay/{execution_id}`)
+- Canonical event envelope across snapshot, stream, and replay (Phase 2A)
+
+## Current Runtime Additions (Phase 2B/2C Bootstrap)
+- Event taxonomy families are now represented in runtime validation:
+	- objectives
+	- governance
+	- execution
+	- trust
+	- recovery
+- Objective graph influence is active through derived runtime signals:
+	- `objective.pressure`
+	- `objective.critical_path`
+	- `objective.blocked`
+	- `objective.unblocked`
+- Objective graph API surface is available:
+	- `POST /api/objectives`
+	- `POST /api/objectives/{objective_id}/status`
+	- `GET /api/objectives/graph`
 
 ## Priority Workstreams
 

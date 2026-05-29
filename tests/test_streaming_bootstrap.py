@@ -1,6 +1,6 @@
 from fastapi.testclient import TestClient
 
-from main import app
+from main import OBJECTIVES, OBJECTIVE_SIGNALS, app
 
 
 REQUIRED_KEYS = {
@@ -106,3 +106,103 @@ def test_websocket_clean_close() -> None:
         _ = ws.receive_json()
         _ = ws.receive_json()
         ws.close()
+
+
+def test_objective_graph_influence_emits_pressure_and_critical_path() -> None:
+    OBJECTIVES.clear()
+    OBJECTIVE_SIGNALS["blocked"] = {}
+    OBJECTIVE_SIGNALS["pressure"] = {}
+    OBJECTIVE_SIGNALS["critical_path"] = {}
+
+    client = TestClient(app)
+    execution_id = "exec-graph-1"
+
+    seed = [
+        {
+            "objective_id": "gpu-upgrade",
+            "title": "GPU Upgrade",
+            "priority": 5,
+            "salience": 5.0,
+            "enables": ["local-training"],
+            "execution_id": execution_id,
+        },
+        {
+            "objective_id": "local-training",
+            "title": "Local Training",
+            "priority": 4,
+            "salience": 4.0,
+            "blocked_by": ["gpu-upgrade"],
+            "enables": ["agent-expansion"],
+            "execution_id": execution_id,
+        },
+        {
+            "objective_id": "agent-expansion",
+            "title": "Agent Expansion",
+            "priority": 3,
+            "salience": 3.0,
+            "depends_on": ["local-training"],
+            "execution_id": execution_id,
+        },
+    ]
+
+    for payload in seed:
+        res = client.post("/api/objectives", json=payload)
+        assert res.status_code == 200
+        assert res.json()["status"] == "ok"
+
+    graph = client.get("/api/objectives/graph")
+    assert graph.status_code == 200
+    signals = graph.json()["signals"]
+
+    assert signals["blocked"]["local-training"] is True
+    assert signals["blocked"]["agent-expansion"] is True
+    assert signals["pressure"]["gpu-upgrade"] > signals["pressure"]["agent-expansion"]
+    assert signals["critical_path"]["gpu-upgrade"] >= 2
+
+    replay = client.get(f"/api/replay/{execution_id}")
+    assert replay.status_code == 200
+    event_types = [event["event_type"] for event in replay.json()["events"]]
+    assert "objective.pressure" in event_types
+    assert "objective.critical_path" in event_types
+
+
+def test_objective_unblocked_signal_emitted_after_dependency_completion() -> None:
+    OBJECTIVES.clear()
+    OBJECTIVE_SIGNALS["blocked"] = {}
+    OBJECTIVE_SIGNALS["pressure"] = {}
+    OBJECTIVE_SIGNALS["critical_path"] = {}
+
+    client = TestClient(app)
+    execution_id = "exec-graph-2"
+
+    parent = {
+        "objective_id": "gpu-upgrade",
+        "title": "GPU Upgrade",
+        "priority": 5,
+        "salience": 5.0,
+        "execution_id": execution_id,
+    }
+    child = {
+        "objective_id": "local-training",
+        "title": "Local Training",
+        "priority": 4,
+        "salience": 4.0,
+        "blocked_by": ["gpu-upgrade"],
+        "execution_id": execution_id,
+    }
+
+    assert client.post("/api/objectives", json=parent).status_code == 200
+    assert client.post("/api/objectives", json=child).status_code == 200
+
+    status = client.post(
+        "/api/objectives/gpu-upgrade/status",
+        json={"status": "completed", "execution_id": execution_id},
+    )
+    assert status.status_code == 200
+    assert status.json()["signals"]["blocked"]["local-training"] is False
+
+    replay = client.get(f"/api/replay/{execution_id}")
+    assert replay.status_code == 200
+    event_types = [event["event_type"] for event in replay.json()["events"]]
+    assert "objective.completed" in event_types
+    assert "objective.unblocked" in event_types
