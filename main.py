@@ -109,6 +109,11 @@ EVENT_FAMILIES: dict[str, set[str]] = {
         "coordinator.merge_candidate_detected",
         "coordinator.suspension_recommended",
         "coordinator.escalation_recommended",
+        "coordinator.portfolio_created",
+        "coordinator.portfolio_ranked",
+        "coordinator.portfolio_blocked",
+        "coordinator.portfolio_risk_detected",
+        "coordinator.portfolio_health_updated",
     },
 }
 
@@ -435,6 +440,9 @@ COORDINATOR_STATE_BY_WORKSPACE: dict[str, dict[str, Any]] = {
         "priority_ranking": [],
         "coordination_recommendations": [],
         "merge_candidates": [],
+        "objective_portfolios": [],
+        "portfolio_ranking": [],
+        "portfolio_health": [],
         "updated_at": _utc_now(),
     }
 }
@@ -863,6 +871,9 @@ def _get_coordinator_state(workspace_id: str) -> dict[str, Any]:
             "priority_ranking": [],
             "coordination_recommendations": [],
             "merge_candidates": [],
+            "objective_portfolios": [],
+            "portfolio_ranking": [],
+            "portfolio_health": [],
             "updated_at": _utc_now(),
         }
     return COORDINATOR_STATE_BY_WORKSPACE[workspace_id]
@@ -1028,6 +1039,112 @@ def _run_coordinator_analysis(
                 }
             )
 
+    # Build portfolio clusters over active objectives using dependency links.
+    active_ids = {str(item["objective_id"]) for item in active_objectives}
+    adjacency: dict[str, set[str]] = {objective_id: set() for objective_id in active_ids}
+    for objective_id, objective in OBJECTIVES.items():
+        if objective_id not in active_ids:
+            continue
+        for ref in objective.get("depends_on", []) + objective.get("blocked_by", []) + objective.get("enables", []):
+            ref_id = str(ref)
+            if ref_id not in active_ids:
+                continue
+            adjacency[objective_id].add(ref_id)
+            adjacency.setdefault(ref_id, set()).add(objective_id)
+
+    visited: set[str] = set()
+    objective_portfolios: list[dict[str, Any]] = []
+    workflow_by_objective: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for workflow in workflow_assignments:
+        objective_id = str(workflow.get("objective_id") or "")
+        if objective_id:
+            workflow_by_objective[objective_id].append(workflow)
+
+    for seed in sorted(active_ids):
+        if seed in visited:
+            continue
+
+        stack = [seed]
+        component: list[str] = []
+        while stack:
+            current = stack.pop()
+            if current in visited:
+                continue
+            visited.add(current)
+            component.append(current)
+            for nxt in adjacency.get(current, set()):
+                if nxt not in visited:
+                    stack.append(nxt)
+
+        objective_ids = sorted(component)
+        blocked_ids = [objective_id for objective_id in objective_ids if bool(blocked_map.get(objective_id, False))]
+        pressures = [float(pressure_scores.get(objective_id, 0.0)) for objective_id in objective_ids]
+        workflow_ids = sorted(
+            {
+                str(workflow["workflow_id"])
+                for objective_id in objective_ids
+                for workflow in workflow_by_objective.get(objective_id, [])
+            }
+        )
+        blocked_ratio = (len(blocked_ids) / float(len(objective_ids))) if objective_ids else 0.0
+        avg_pressure = (sum(pressures) / float(len(pressures))) if pressures else 0.0
+        governance_bias = 0.15 if governance_band == "escalated" else (0.08 if governance_band == "warning" else 0.0)
+        portfolio_risk = round(_clamp01((0.55 * blocked_ratio) + (0.35 * avg_pressure) + governance_bias), 3)
+        portfolio_health = round(_clamp01(1.0 - portfolio_risk), 3)
+        portfolio_pressure = round(avg_pressure, 3)
+
+        portfolio_id = f"portfolio-{objective_ids[0]}"
+        objective_portfolios.append(
+            {
+                "portfolio_id": portfolio_id,
+                "objective_ids": objective_ids,
+                "blocked_objectives": blocked_ids,
+                "workflow_ids": workflow_ids,
+                "portfolio_pressure": portfolio_pressure,
+                "portfolio_risk": portfolio_risk,
+                "portfolio_health": portfolio_health,
+                "resource_load": len(workflow_ids),
+                "governance_band": governance_band,
+            }
+        )
+
+    objective_portfolios.sort(
+        key=lambda item: (item["portfolio_pressure"], item["portfolio_risk"], item["resource_load"]),
+        reverse=True,
+    )
+    portfolio_ranking = [
+        {
+            "rank": index + 1,
+            "portfolio_id": portfolio["portfolio_id"],
+            "portfolio_pressure": portfolio["portfolio_pressure"],
+            "portfolio_risk": portfolio["portfolio_risk"],
+            "portfolio_health": portfolio["portfolio_health"],
+            "resource_load": portfolio["resource_load"],
+        }
+        for index, portfolio in enumerate(objective_portfolios)
+    ]
+    portfolio_health = [
+        {
+            "portfolio_id": portfolio["portfolio_id"],
+            "portfolio_health": portfolio["portfolio_health"],
+            "portfolio_risk": portfolio["portfolio_risk"],
+            "blocked_count": len(portfolio["blocked_objectives"]),
+        }
+        for portfolio in objective_portfolios
+    ]
+
+    for portfolio in objective_portfolios:
+        if portfolio["portfolio_risk"] >= 0.5:
+            coordination_recommendations.append(
+                {
+                    "type": "portfolio_risk_detected",
+                    "action": "governance_review_portfolio" if governance_band == "escalated" else "mitigate_portfolio_risk",
+                    "portfolio_id": portfolio["portfolio_id"],
+                    "portfolio_risk": portfolio["portfolio_risk"],
+                    "reason": "elevated portfolio risk",
+                }
+            )
+
     emitted: list[dict[str, Any]] = []
     emitted.append(
         EVENTS.append(
@@ -1074,6 +1191,83 @@ def _run_coordinator_analysis(
                 correlation_id=correlation_id,
             )
         )
+
+    for portfolio in objective_portfolios:
+        emitted.append(
+            EVENTS.append(
+                "coordinator.portfolio_created",
+                {
+                    "workspace_id": workspace_id,
+                    "portfolio": portfolio,
+                },
+                execution_id=execution_id,
+                source=source,
+                workspace_id=workspace_id,
+                correlation_id=correlation_id,
+            )
+        )
+
+        if portfolio["blocked_objectives"]:
+            emitted.append(
+                EVENTS.append(
+                    "coordinator.portfolio_blocked",
+                    {
+                        "workspace_id": workspace_id,
+                        "portfolio_id": portfolio["portfolio_id"],
+                        "blocked_objectives": portfolio["blocked_objectives"],
+                    },
+                    execution_id=execution_id,
+                    source=source,
+                    workspace_id=workspace_id,
+                    correlation_id=correlation_id,
+                )
+            )
+
+        if float(portfolio["portfolio_risk"]) >= 0.5:
+            emitted.append(
+                EVENTS.append(
+                    "coordinator.portfolio_risk_detected",
+                    {
+                        "workspace_id": workspace_id,
+                        "portfolio_id": portfolio["portfolio_id"],
+                        "portfolio_risk": portfolio["portfolio_risk"],
+                    },
+                    execution_id=execution_id,
+                    source=source,
+                    workspace_id=workspace_id,
+                    correlation_id=correlation_id,
+                )
+            )
+
+        emitted.append(
+            EVENTS.append(
+                "coordinator.portfolio_health_updated",
+                {
+                    "workspace_id": workspace_id,
+                    "portfolio_id": portfolio["portfolio_id"],
+                    "portfolio_health": portfolio["portfolio_health"],
+                    "portfolio_risk": portfolio["portfolio_risk"],
+                },
+                execution_id=execution_id,
+                source=source,
+                workspace_id=workspace_id,
+                correlation_id=correlation_id,
+            )
+        )
+
+    emitted.append(
+        EVENTS.append(
+            "coordinator.portfolio_ranked",
+            {
+                "workspace_id": workspace_id,
+                "portfolio_ranking": portfolio_ranking,
+            },
+            execution_id=execution_id,
+            source=source,
+            workspace_id=workspace_id,
+            correlation_id=correlation_id,
+        )
+    )
 
     for rec in coordination_recommendations:
         rec_type = str(rec.get("type", ""))
@@ -1127,6 +1321,9 @@ def _run_coordinator_analysis(
             "priority_ranking": priority_ranking,
             "coordination_recommendations": coordination_recommendations,
             "merge_candidates": merge_candidates,
+            "objective_portfolios": objective_portfolios,
+            "portfolio_ranking": portfolio_ranking,
+            "portfolio_health": portfolio_health,
             "updated_at": _utc_now(),
         }
     )
@@ -3697,6 +3894,9 @@ async def analyze_coordinator(request: CoordinatorAnalyzeRequest) -> dict[str, A
         "status": "ok",
         "workspace_id": request.workspace_id,
         "priority_ranking": state.get("priority_ranking") or [],
+        "objective_portfolios": state.get("objective_portfolios") or [],
+        "portfolio_ranking": state.get("portfolio_ranking") or [],
+        "portfolio_health": state.get("portfolio_health") or [],
         "blocked_objectives": state.get("blocked_objectives") or [],
         "merge_candidates": state.get("merge_candidates") or [],
         "recommended_actions": state.get("coordination_recommendations") or [],

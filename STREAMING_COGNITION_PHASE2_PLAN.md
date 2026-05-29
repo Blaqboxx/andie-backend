@@ -73,6 +73,8 @@ Never allow event frames to become the system of record.
 	- runtime optimization telemetry and bounded decay
 - Phase 5A: bootstrap started
 	- runtime coordinator read-only analysis layer
+- Phase 5B: bootstrap started
+	- objective portfolio management
 
 ## Current Runtime Additions (Phase 2E Bootstrap)
 - Governance policy overlay layer is now active with profile-driven coefficients.
@@ -273,6 +275,20 @@ Never allow event frames to become the system of record.
 	- `GET /api/coordinator/recommendations`
 	- `POST /api/coordinator/analyze`
 - Coordinator analysis consumes objective signals, workflow health, scheduler policy context, governance state, and trust state to produce recommendations without invoking execution actions.
+
+## Current Runtime Additions (Phase 5B Bootstrap)
+- Coordinator analysis now builds objective portfolios from dependency-connected objective clusters.
+- Portfolio state is now available in coordinator output:
+	- objective_portfolios
+	- portfolio_ranking
+	- portfolio_health
+- Portfolio event family is replay-visible:
+	- `coordinator.portfolio_created`
+	- `coordinator.portfolio_ranked`
+	- `coordinator.portfolio_blocked`
+	- `coordinator.portfolio_risk_detected`
+	- `coordinator.portfolio_health_updated`
+- Portfolio recommendations remain read-only and governance-aware.
 
 ## Priority Workstreams
 

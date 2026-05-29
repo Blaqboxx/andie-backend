@@ -1730,3 +1730,239 @@ def test_coordinator_governance_aware_recommendations_in_escalated_band() -> Non
     governance_reviews = [a for a in actions if a.get("action") == "governance_review"]
     assert len(governance_reviews) >= 1
     assert not any(a.get("action") == "accelerate" for a in actions)
+
+
+def test_coordinator_portfolio_created_and_ranked() -> None:
+    OBJECTIVES.clear()
+    OBJECTIVE_SIGNALS["blocked"] = {}
+    OBJECTIVE_SIGNALS["pressure"] = {}
+    OBJECTIVE_SIGNALS["objective_pressure_score"] = {}
+    OBJECTIVE_SIGNALS["critical_path"] = {}
+
+    workspace_id = "ws-coordinator-5"
+    AGENT_TASKS_BY_WORKSPACE.pop(workspace_id, None)
+    AGENT_WORKFLOWS_BY_WORKSPACE.pop(workspace_id, None)
+
+    client = TestClient(app)
+    execution_id = "exec-coordinator-5"
+
+    seed = [
+        {
+            "objective_id": "p1-a",
+            "title": "program one anchor",
+            "priority": 9,
+            "salience": 9.0,
+            "enables": ["p1-b"],
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+        },
+        {
+            "objective_id": "p1-b",
+            "title": "program one dependency",
+            "priority": 8,
+            "salience": 8.0,
+            "depends_on": ["p1-a"],
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+        },
+        {
+            "objective_id": "p2-a",
+            "title": "program two",
+            "priority": 3,
+            "salience": 3.0,
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+        },
+    ]
+
+    for payload in seed:
+        assert client.post("/api/objectives", json=payload).status_code == 200
+
+    analyze = client.post(
+        "/api/coordinator/analyze",
+        json={
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+            "reason": "portfolio ranking pass",
+        },
+    )
+    assert analyze.status_code == 200
+    body = analyze.json()
+
+    assert len(body["objective_portfolios"]) >= 2
+    assert len(body["portfolio_ranking"]) >= 2
+    top_portfolio_id = body["portfolio_ranking"][0]["portfolio_id"]
+    top_portfolio = [p for p in body["objective_portfolios"] if p["portfolio_id"] == top_portfolio_id][0]
+    assert set(top_portfolio["objective_ids"]) >= {"p1-a", "p1-b"}
+
+    emitted_types = [event["event_type"] for event in body["emitted_events"]]
+    assert "coordinator.portfolio_created" in emitted_types
+    assert "coordinator.portfolio_ranked" in emitted_types
+
+
+def test_coordinator_portfolio_blocked_and_risk_detected() -> None:
+    OBJECTIVES.clear()
+    OBJECTIVE_SIGNALS["blocked"] = {}
+    OBJECTIVE_SIGNALS["pressure"] = {}
+    OBJECTIVE_SIGNALS["objective_pressure_score"] = {}
+    OBJECTIVE_SIGNALS["critical_path"] = {}
+
+    workspace_id = "ws-coordinator-6"
+    AGENT_TASKS_BY_WORKSPACE.pop(workspace_id, None)
+    AGENT_WORKFLOWS_BY_WORKSPACE.pop(workspace_id, None)
+
+    client = TestClient(app)
+    execution_id = "exec-coordinator-6"
+
+    seed = [
+        {
+            "objective_id": "pb-a",
+            "title": "blocked source",
+            "priority": 8,
+            "salience": 8.0,
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+        },
+        {
+            "objective_id": "pb-b",
+            "title": "blocked dependent",
+            "priority": 9,
+            "salience": 9.0,
+            "depends_on": ["pb-a"],
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+        },
+    ]
+    for payload in seed:
+        assert client.post("/api/objectives", json=payload).status_code == 200
+
+    analyze = client.post(
+        "/api/coordinator/analyze",
+        json={
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+            "reason": "portfolio blocked risk pass",
+        },
+    )
+    assert analyze.status_code == 200
+
+    emitted_types = [event["event_type"] for event in analyze.json()["emitted_events"]]
+    assert "coordinator.portfolio_blocked" in emitted_types
+    assert "coordinator.portfolio_risk_detected" in emitted_types
+
+
+def test_coordinator_portfolio_health_updated_contains_normalized_scores() -> None:
+    OBJECTIVES.clear()
+    OBJECTIVE_SIGNALS["blocked"] = {}
+    OBJECTIVE_SIGNALS["pressure"] = {}
+    OBJECTIVE_SIGNALS["objective_pressure_score"] = {}
+    OBJECTIVE_SIGNALS["critical_path"] = {}
+
+    workspace_id = "ws-coordinator-7"
+    AGENT_TASKS_BY_WORKSPACE.pop(workspace_id, None)
+    AGENT_WORKFLOWS_BY_WORKSPACE.pop(workspace_id, None)
+
+    client = TestClient(app)
+    execution_id = "exec-coordinator-7"
+
+    for payload in [
+        {
+            "objective_id": "ph-a",
+            "title": "portfolio health a",
+            "priority": 5,
+            "salience": 5.0,
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+        },
+        {
+            "objective_id": "ph-b",
+            "title": "portfolio health b",
+            "priority": 4,
+            "salience": 4.0,
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+        },
+    ]:
+        assert client.post("/api/objectives", json=payload).status_code == 200
+
+    analyze = client.post(
+        "/api/coordinator/analyze",
+        json={
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+            "reason": "portfolio health calculation",
+        },
+    )
+    assert analyze.status_code == 200
+
+    health_rows = analyze.json()["portfolio_health"]
+    assert len(health_rows) >= 1
+    for row in health_rows:
+        assert 0.0 <= float(row["portfolio_health"]) <= 1.0
+        assert 0.0 <= float(row["portfolio_risk"]) <= 1.0
+
+
+def test_coordinator_portfolio_recommends_governance_review_when_escalated() -> None:
+    OBJECTIVES.clear()
+    OBJECTIVE_SIGNALS["blocked"] = {}
+    OBJECTIVE_SIGNALS["pressure"] = {}
+    OBJECTIVE_SIGNALS["objective_pressure_score"] = {}
+    OBJECTIVE_SIGNALS["critical_path"] = {}
+
+    workspace_id = "ws-coordinator-8"
+    AGENT_TASKS_BY_WORKSPACE.pop(workspace_id, None)
+    AGENT_WORKFLOWS_BY_WORKSPACE.pop(workspace_id, None)
+
+    client = TestClient(app)
+    execution_id = "exec-coordinator-8"
+
+    for payload in [
+        {
+            "objective_id": "pg-a",
+            "title": "portfolio governance a",
+            "priority": 8,
+            "salience": 8.0,
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+        },
+        {
+            "objective_id": "pg-b",
+            "title": "portfolio governance b",
+            "priority": 8,
+            "salience": 8.0,
+            "depends_on": ["pg-a"],
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+        },
+    ]:
+        assert client.post("/api/objectives", json=payload).status_code == 200
+
+    GOVERNANCE_STATES[workspace_id] = {
+        "updated_at": "2026-01-01T00:00:00+00:00",
+        "band": "escalated",
+        "interrupt_sensitivity": 0.8,
+        "escalation_readiness": 0.9,
+        "cooldown_aggressiveness": 0.3,
+        "posture_persistence": 0.8,
+        "governance_attention": 0.9,
+        "confidence": 0.7,
+        "profile": "mission_critical",
+    }
+
+    analyze = client.post(
+        "/api/coordinator/analyze",
+        json={
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+            "reason": "portfolio governance recommendation",
+        },
+    )
+    assert analyze.status_code == 200
+
+    actions = analyze.json()["recommended_actions"]
+    portfolio_governance = [
+        action
+        for action in actions
+        if action.get("type") == "portfolio_risk_detected" and action.get("action") == "governance_review_portfolio"
+    ]
+    assert len(portfolio_governance) >= 1
