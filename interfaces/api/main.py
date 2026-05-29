@@ -1343,6 +1343,56 @@ async def autonomy_outcome(request: Request):
         return {"status": "error", "error": str(e)}
 
 
+@router.get("/autonomy/effectiveness/portfolio/{portfolio_group}")
+async def autonomy_effectiveness_portfolio(portfolio_group: str):
+    try:
+        try:
+            from andie_backend.autonomy.learning_engine import memory
+        except ModuleNotFoundError:
+            from autonomy.learning_engine import memory
+        rollup = memory.get_effectiveness_portfolio_rollup(portfolio_group)
+        return {
+            "status": "ok",
+            "portfolio_group": rollup.get("portfolio_group"),
+            "rollup": rollup,
+        }
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+@router.get("/autonomy/effectiveness/governance/{governance_profile}")
+async def autonomy_effectiveness_governance(governance_profile: str):
+    try:
+        try:
+            from andie_backend.autonomy.learning_engine import memory
+        except ModuleNotFoundError:
+            from autonomy.learning_engine import memory
+        rollup = memory.get_effectiveness_governance_rollup(governance_profile)
+        return {
+            "status": "ok",
+            "governance_profile": rollup.get("governance_profile"),
+            "rollup": rollup,
+        }
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+@router.get("/autonomy/effectiveness/summary")
+async def autonomy_effectiveness_summary():
+    try:
+        try:
+            from andie_backend.autonomy.learning_engine import memory
+        except ModuleNotFoundError:
+            from autonomy.learning_engine import memory
+        summary = memory.get_effectiveness_summary()
+        return {
+            "status": "ok",
+            "summary": summary,
+        }
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
 # ── Autonomy control endpoints ────────────────────────────────────────────────
 _autonomy_state = {"running": False, "enabled": True, "iteration": 0}
 

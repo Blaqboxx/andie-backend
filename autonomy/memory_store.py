@@ -311,6 +311,128 @@ class MemoryStore:
             "last_updated": bucket.get("last_updated"),
         }
 
+    def _trend_state(self, current: float, baseline: float, threshold: float = 0.01) -> str:
+        delta = float(current) - float(baseline)
+        if delta > threshold:
+            return "improving"
+        if delta < -threshold:
+            return "declining"
+        return "stable"
+
+    def _compute_rollup(self, rows: list[Dict[str, Any]], scope_key: str, scope_value: str) -> Dict[str, Any]:
+        sample_30 = 0
+        sample_90 = 0
+        weighted_30 = 0.0
+        weighted_90 = 0.0
+        last_updated = None
+        intents: set[str] = set()
+        portfolios: set[str] = set()
+        governances: set[str] = set()
+
+        for row in rows:
+            window_30d = row.get("window_30d") or {}
+            window_90d = row.get("window_90d") or {}
+            c30 = int(window_30d.get("sample_count", 0) or 0)
+            c90 = int(window_90d.get("sample_count", 0) or 0)
+            a30 = float(window_30d.get("avg_effectiveness", 0.0) or 0.0)
+            a90 = float(window_90d.get("avg_effectiveness", 0.0) or 0.0)
+
+            sample_30 += c30
+            sample_90 += c90
+            weighted_30 += a30 * c30
+            weighted_90 += a90 * c90
+
+            intent = str(row.get("intent_type") or "").strip()
+            governance = str(row.get("governance_profile") or "").strip()
+            portfolio = str(row.get("portfolio_group") or "").strip()
+            if intent:
+                intents.add(intent)
+            if governance:
+                governances.add(governance)
+            if portfolio:
+                portfolios.add(portfolio)
+
+            ts = row.get("last_updated")
+            if isinstance(ts, str) and ts and (last_updated is None or ts > last_updated):
+                last_updated = ts
+
+        avg_30 = (weighted_30 / sample_30) if sample_30 else 0.0
+        avg_90 = (weighted_90 / sample_90) if sample_90 else 0.0
+        delta = round(avg_30 - avg_90, 4)
+
+        return {
+            scope_key: scope_value,
+            "window_30d": {
+                "sample_count": sample_30,
+                "avg_effectiveness": round(avg_30, 4),
+            },
+            "window_90d": {
+                "sample_count": sample_90,
+                "avg_effectiveness": round(avg_90, 4),
+            },
+            "comparative_baseline": {
+                "delta_30d_vs_90d": delta,
+                "trend": self._trend_state(avg_30, avg_90),
+            },
+            "coverage": {
+                "intent_types": sorted(intents),
+                "governance_profiles": sorted(governances),
+                "portfolio_groups": sorted(portfolios),
+            },
+            "available": sample_90 > 0,
+            "last_updated": last_updated,
+        }
+
+    def get_effectiveness_portfolio_rollup(self, portfolio_group: str | None) -> Dict[str, Any]:
+        normalized_portfolio = self._normalize_outcome_registry_field(portfolio_group)
+        if not normalized_portfolio:
+            return self._compute_rollup([], "portfolio_group", normalized_portfolio or "")
+
+        registry = self._effectiveness_registry()
+        rows = [
+            row for row in registry.values()
+            if self._normalize_outcome_registry_field(row.get("portfolio_group")) == normalized_portfolio
+        ]
+        return self._compute_rollup(rows, "portfolio_group", normalized_portfolio)
+
+    def get_effectiveness_governance_rollup(self, governance_profile: str | None) -> Dict[str, Any]:
+        normalized_governance = self._normalize_outcome_registry_field(governance_profile)
+        if not normalized_governance:
+            return self._compute_rollup([], "governance_profile", normalized_governance or "")
+
+        registry = self._effectiveness_registry()
+        rows = [
+            row for row in registry.values()
+            if self._normalize_outcome_registry_field(row.get("governance_profile")) == normalized_governance
+        ]
+        return self._compute_rollup(rows, "governance_profile", normalized_governance)
+
+    def get_effectiveness_summary(self) -> Dict[str, Any]:
+        registry = self._effectiveness_registry()
+        rows = list(registry.values())
+
+        portfolios = sorted({
+            self._normalize_outcome_registry_field(row.get("portfolio_group"))
+            for row in rows
+            if self._normalize_outcome_registry_field(row.get("portfolio_group"))
+        })
+        governances = sorted({
+            self._normalize_outcome_registry_field(row.get("governance_profile"))
+            for row in rows
+            if self._normalize_outcome_registry_field(row.get("governance_profile"))
+        })
+
+        portfolio_rollups = [self.get_effectiveness_portfolio_rollup(group) for group in portfolios]
+        governance_rollups = [self.get_effectiveness_governance_rollup(profile) for profile in governances]
+        overall = self._compute_rollup(rows, "scope", "overall")
+
+        return {
+            "portfolio_rollups": portfolio_rollups,
+            "governance_rollups": governance_rollups,
+            "overall": overall,
+            "registry_entries": len(rows),
+        }
+
     def record_outcome_weight(
         self,
         *,
