@@ -137,6 +137,13 @@ EVENT_FAMILIES: dict[str, set[str]] = {
         "supervisor.intent_rejected",
         "supervisor.intent_expired",
     },
+    "intent": {
+        "intent.executed",
+        "intent.completed",
+        "intent.failed",
+        "intent.rolled_back",
+        "intent.effectiveness_scored",
+    },
 }
 
 
@@ -474,11 +481,17 @@ COORDINATOR_STATE_BY_WORKSPACE: dict[str, dict[str, Any]] = {
         "intent_promotions": [],
         "supervisor_intents": [],
         "governance_intent_reviews": [],
+        "intent_outcomes": [],
+        "outcome_memory": [],
         "updated_at": _utc_now(),
     }
 }
 
 SUPERVISOR_INTENTS_BY_WORKSPACE: dict[str, dict[str, dict[str, Any]]] = {
+    "andie-default": {},
+}
+
+INTENT_OUTCOMES_BY_WORKSPACE: dict[str, dict[str, dict[str, Any]]] = {
     "andie-default": {},
 }
 
@@ -679,6 +692,17 @@ class CoordinatorAnalyzeRequest(BaseModel):
 class SupervisorIntentStatusRequest(BaseModel):
     status: str
     reason_code: str | None = None
+    reason: str | None = None
+    actor: str = "workflow-supervisor"
+    execution_id: str | None = None
+    source: str = "workflow-supervisor"
+    workspace_id: str = "andie-default"
+    correlation_id: str | None = None
+
+
+class IntentOutcomeUpdateRequest(BaseModel):
+    status: str
+    effectiveness_score: float | None = None
     reason: str | None = None
     actor: str = "workflow-supervisor"
     execution_id: str | None = None
@@ -930,6 +954,8 @@ def _get_coordinator_state(workspace_id: str) -> dict[str, Any]:
             "intent_promotions": [],
             "supervisor_intents": [],
             "governance_intent_reviews": [],
+            "intent_outcomes": [],
+            "outcome_memory": [],
             "updated_at": _utc_now(),
         }
     return COORDINATOR_STATE_BY_WORKSPACE[workspace_id]
@@ -939,6 +965,23 @@ def _get_supervisor_intents(workspace_id: str) -> dict[str, dict[str, Any]]:
     if workspace_id not in SUPERVISOR_INTENTS_BY_WORKSPACE:
         SUPERVISOR_INTENTS_BY_WORKSPACE[workspace_id] = {}
     return SUPERVISOR_INTENTS_BY_WORKSPACE[workspace_id]
+
+
+def _get_intent_outcomes(workspace_id: str) -> dict[str, dict[str, Any]]:
+    if workspace_id not in INTENT_OUTCOMES_BY_WORKSPACE:
+        INTENT_OUTCOMES_BY_WORKSPACE[workspace_id] = {}
+    return INTENT_OUTCOMES_BY_WORKSPACE[workspace_id]
+
+
+def _default_effectiveness_for_status(status: str) -> float:
+    status_value = status.strip().lower()
+    if status_value == "completed":
+        return 0.85
+    if status_value == "failed":
+        return 0.2
+    if status_value == "rolled_back":
+        return 0.1
+    return 0.5
 
 
 def _portfolio_policy_overlay(profile: str, governance_band: str) -> dict[str, Any]:
@@ -1996,6 +2039,12 @@ def _run_coordinator_analysis(
         )
     )
 
+    intent_outcomes = _get_intent_outcomes(workspace_id)
+    outcome_memory = sorted(
+        [dict(value) for value in intent_outcomes.values()],
+        key=lambda row: str(row.get("updated_at", "")),
+    )[-50:]
+
     coordinator_state = _get_coordinator_state(workspace_id)
     coordinator_state.update(
         {
@@ -2018,6 +2067,8 @@ def _run_coordinator_analysis(
             "intent_promotions": intent_promotions,
             "supervisor_intents": list(supervisor_intents.values()),
             "governance_intent_reviews": governance_intent_reviews,
+            "intent_outcomes": list(intent_outcomes.values()),
+            "outcome_memory": outcome_memory,
             "updated_at": _utc_now(),
         }
     )
@@ -4601,6 +4652,8 @@ async def analyze_coordinator(request: CoordinatorAnalyzeRequest) -> dict[str, A
         "intent_promotions": state.get("intent_promotions") or [],
         "supervisor_intents": state.get("supervisor_intents") or [],
         "governance_intent_reviews": state.get("governance_intent_reviews") or [],
+        "intent_outcomes": state.get("intent_outcomes") or [],
+        "outcome_memory": state.get("outcome_memory") or [],
         "blocked_objectives": state.get("blocked_objectives") or [],
         "merge_candidates": state.get("merge_candidates") or [],
         "recommended_actions": state.get("coordination_recommendations") or [],
@@ -4675,6 +4728,128 @@ async def update_supervisor_intent_status(intent_id: str, request: SupervisorInt
         "workspace_id": request.workspace_id,
         "intent": intent,
         "event": event,
+    }
+
+
+@app.get("/api/intents/outcomes")
+async def list_intent_outcomes(workspace_id: str = "andie-default") -> dict[str, Any]:
+    outcomes = _get_intent_outcomes(workspace_id)
+    return {
+        "status": "ok",
+        "workspace_id": workspace_id,
+        "outcomes": list(outcomes.values()),
+    }
+
+
+@app.post("/api/intents/{intent_id}/outcome")
+async def update_intent_outcome(intent_id: str, request: IntentOutcomeUpdateRequest) -> dict[str, Any]:
+    intents = _get_supervisor_intents(request.workspace_id)
+    if intent_id not in intents:
+        raise HTTPException(status_code=404, detail=f"unknown intent_id: {intent_id}")
+
+    intent = intents[intent_id]
+    outcomes = _get_intent_outcomes(request.workspace_id)
+    outcome = outcomes.get(intent_id)
+    status_value = request.status.strip().lower()
+    event_map = {
+        "executed": "intent.executed",
+        "completed": "intent.completed",
+        "failed": "intent.failed",
+        "rolled_back": "intent.rolled_back",
+    }
+    if status_value not in event_map:
+        raise HTTPException(status_code=400, detail=f"unsupported intent outcome status: {request.status}")
+
+    if outcome is None:
+        if status_value != "executed":
+            raise HTTPException(status_code=400, detail="first outcome status must be executed")
+        if str(intent.get("status", "")) != "acknowledged":
+            raise HTTPException(status_code=400, detail="intent must be acknowledged before execution outcome")
+
+        outcome = {
+            "intent_id": intent_id,
+            "portfolio_id": intent.get("portfolio_id"),
+            "workspace_id": request.workspace_id,
+            "governance_profile": str(_get_governance_profile_binding(request.workspace_id).get("active", "balanced")),
+            "promotion_event_id": intent.get("promotion_event_id"),
+            "status": "executed",
+            "result": "executed",
+            "effectiveness_score": None,
+            "history": [],
+            "created_at": _utc_now(),
+            "updated_at": _utc_now(),
+        }
+        outcomes[intent_id] = outcome
+    else:
+        current_status = str(outcome.get("status", "executed"))
+        if current_status != "executed":
+            raise HTTPException(status_code=400, detail=f"intent outcome already finalized: {current_status}")
+        if status_value not in {"completed", "failed", "rolled_back"}:
+            raise HTTPException(status_code=400, detail=f"invalid outcome transition from {current_status} to {status_value}")
+
+    outcome_event = EVENTS.append(
+        event_map[status_value],
+        {
+            "workspace_id": request.workspace_id,
+            "intent_id": intent_id,
+            "portfolio_id": intent.get("portfolio_id"),
+            "promotion_event_id": intent.get("promotion_event_id"),
+            "reason": request.reason,
+            "actor": request.actor,
+        },
+        execution_id=request.execution_id,
+        source=request.source,
+        workspace_id=request.workspace_id,
+        correlation_id=request.correlation_id,
+    )
+
+    outcome["status"] = status_value
+    outcome["result"] = status_value
+    outcome["updated_at"] = _utc_now()
+    outcome.setdefault("history", []).append(
+        {
+            "at": _utc_now(),
+            "status": status_value,
+            "reason": request.reason,
+            "event_id": outcome_event["event_id"],
+        }
+    )
+
+    emitted_events: list[dict[str, Any]] = [outcome_event]
+    if status_value in {"completed", "failed", "rolled_back"}:
+        score = request.effectiveness_score
+        if score is None:
+            score = _default_effectiveness_for_status(status_value)
+        scored = round(_clamp01(float(score)), 3)
+        outcome["effectiveness_score"] = scored
+
+        score_event = EVENTS.append(
+            "intent.effectiveness_scored",
+            {
+                "workspace_id": request.workspace_id,
+                "intent_id": intent_id,
+                "portfolio_id": intent.get("portfolio_id"),
+                "promotion_event_id": intent.get("promotion_event_id"),
+                "result": status_value,
+                "effectiveness_score": scored,
+                "actor": request.actor,
+            },
+            execution_id=request.execution_id,
+            source=request.source,
+            workspace_id=request.workspace_id,
+            correlation_id=request.correlation_id,
+        )
+        emitted_events.append(score_event)
+
+    for event in emitted_events:
+        await _fanout_event(event)
+
+    return {
+        "status": "ok",
+        "workspace_id": request.workspace_id,
+        "intent": intent,
+        "outcome": outcome,
+        "emitted_events": emitted_events,
     }
 
 

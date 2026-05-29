@@ -85,6 +85,8 @@ Never allow event frames to become the system of record.
 	- supervisor intent integration
 - Phase 5G: bootstrap started
 	- governance intent review
+- Phase 5H: bootstrap started
+	- intent outcome tracking and effectiveness memory
 
 ## Current Runtime Additions (Phase 2E Bootstrap)
 - Governance policy overlay layer is now active with profile-driven coefficients.
@@ -368,6 +370,22 @@ Never allow event frames to become the system of record.
 	- `governance.intent_review_approved`
 	- `governance.intent_review_denied`
 - Review-denied intents do not emit `supervisor.intent_received`, preserving governance-first handoff integrity.
+
+## Current Runtime Additions (Phase 5H Bootstrap)
+- Supervisor intent outcomes are now lifecycle-tracked after acknowledgment.
+- Outcome telemetry is now available in coordinator analysis:
+	- intent_outcomes
+	- outcome_memory
+- Outcome API surface is available:
+	- `GET /api/intents/outcomes`
+	- `POST /api/intents/{intent_id}/outcome`
+- Phase 5H event family is replay-visible:
+	- `intent.executed`
+	- `intent.completed`
+	- `intent.failed`
+	- `intent.rolled_back`
+	- `intent.effectiveness_scored`
+- Outcome transitions are lifecycle-gated and remain audit-only telemetry; no execution authority is introduced.
 
 ## Priority Workstreams
 

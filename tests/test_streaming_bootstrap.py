@@ -7,6 +7,7 @@ from main import (
     GOVERNANCE_PROFILE_BINDINGS,
     GOVERNANCE_PROFILE_STATE,
     GOVERNANCE_STATE,
+    INTENT_OUTCOMES_BY_WORKSPACE,
     OBJECTIVES,
     OBJECTIVE_SIGNALS,
     SUPERVISOR_INTENTS_BY_WORKSPACE,
@@ -3054,3 +3055,351 @@ def test_governance_review_denied_blocks_supervisor_intake() -> None:
         and str(event.get("payload", {}).get("intent", {}).get("intent_id", "")) in denied_intent_ids
     ]
     assert len(received_for_denied) == 0
+
+
+def test_intent_outcome_execution_and_completion_with_effectiveness() -> None:
+    OBJECTIVES.clear()
+    OBJECTIVE_SIGNALS["blocked"] = {}
+    OBJECTIVE_SIGNALS["pressure"] = {}
+    OBJECTIVE_SIGNALS["objective_pressure_score"] = {}
+    OBJECTIVE_SIGNALS["critical_path"] = {}
+
+    workspace_id = "ws-intent-outcome-1"
+    AGENT_TASKS_BY_WORKSPACE.pop(workspace_id, None)
+    AGENT_WORKFLOWS_BY_WORKSPACE.pop(workspace_id, None)
+    SUPERVISOR_INTENTS_BY_WORKSPACE.pop(workspace_id, None)
+    INTENT_OUTCOMES_BY_WORKSPACE.pop(workspace_id, None)
+    GOVERNANCE_PROFILE_BINDINGS[workspace_id] = {
+        "active": "conservative",
+        "overrides": {},
+        "updated_at": "2026-01-01T00:00:00+00:00",
+    }
+
+    client = TestClient(app)
+    execution_id = "exec-intent-outcome-1"
+
+    for payload in [
+        {
+            "objective_id": "io1-anchor",
+            "title": "anchor",
+            "priority": 10,
+            "salience": 10.0,
+            "portfolio_group": "core",
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+        },
+        {
+            "objective_id": "io1-risk",
+            "title": "risk",
+            "priority": 10,
+            "salience": 10.0,
+            "depends_on": ["io1-anchor"],
+            "portfolio_group": "compliance",
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+        },
+    ]:
+        assert client.post("/api/objectives", json=payload).status_code == 200
+
+    analyze = client.post(
+        "/api/coordinator/analyze",
+        json={
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+            "reason": "phase 5h outcome path",
+        },
+    )
+    assert analyze.status_code == 200
+    pending = [intent for intent in analyze.json()["supervisor_intents"] if intent.get("status") == "pending"]
+    assert len(pending) >= 1
+
+    intent_id = str(pending[0]["intent_id"])
+    ack = client.post(
+        f"/api/supervisor/intents/{intent_id}/status",
+        json={
+            "status": "acknowledged",
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+            "reason": "ready",
+        },
+    )
+    assert ack.status_code == 200
+
+    executed = client.post(
+        f"/api/intents/{intent_id}/outcome",
+        json={
+            "status": "executed",
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+            "reason": "started",
+        },
+    )
+    assert executed.status_code == 200
+    assert executed.json()["outcome"]["status"] == "executed"
+    assert executed.json()["emitted_events"][0]["event_type"] == "intent.executed"
+
+    completed = client.post(
+        f"/api/intents/{intent_id}/outcome",
+        json={
+            "status": "completed",
+            "effectiveness_score": 0.93,
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+            "reason": "completed successfully",
+        },
+    )
+    assert completed.status_code == 200
+    completed_body = completed.json()
+    assert completed_body["outcome"]["status"] == "completed"
+    assert completed_body["outcome"]["effectiveness_score"] == 0.93
+    emitted_types = [event["event_type"] for event in completed_body["emitted_events"]]
+    assert "intent.completed" in emitted_types
+    assert "intent.effectiveness_scored" in emitted_types
+
+    outcomes = client.get(f"/api/intents/outcomes?workspace_id={workspace_id}")
+    assert outcomes.status_code == 200
+    rows = outcomes.json()["outcomes"]
+    assert any(row.get("intent_id") == intent_id and row.get("status") == "completed" for row in rows)
+
+    follow_up_analyze = client.post(
+        "/api/coordinator/analyze",
+        json={
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+            "reason": "phase 5h snapshot",
+        },
+    )
+    assert follow_up_analyze.status_code == 200
+    follow_up_body = follow_up_analyze.json()
+    assert any(row.get("intent_id") == intent_id for row in follow_up_body["intent_outcomes"])
+    assert any(row.get("intent_id") == intent_id for row in follow_up_body["outcome_memory"])
+
+
+def test_intent_outcome_invalid_transition_rejected() -> None:
+    OBJECTIVES.clear()
+    OBJECTIVE_SIGNALS["blocked"] = {}
+    OBJECTIVE_SIGNALS["pressure"] = {}
+    OBJECTIVE_SIGNALS["objective_pressure_score"] = {}
+    OBJECTIVE_SIGNALS["critical_path"] = {}
+
+    workspace_id = "ws-intent-outcome-2"
+    AGENT_TASKS_BY_WORKSPACE.pop(workspace_id, None)
+    AGENT_WORKFLOWS_BY_WORKSPACE.pop(workspace_id, None)
+    SUPERVISOR_INTENTS_BY_WORKSPACE.pop(workspace_id, None)
+    INTENT_OUTCOMES_BY_WORKSPACE.pop(workspace_id, None)
+    GOVERNANCE_PROFILE_BINDINGS[workspace_id] = {
+        "active": "conservative",
+        "overrides": {},
+        "updated_at": "2026-01-01T00:00:00+00:00",
+    }
+
+    client = TestClient(app)
+    execution_id = "exec-intent-outcome-2"
+
+    for payload in [
+        {
+            "objective_id": "io2-anchor",
+            "title": "anchor",
+            "priority": 10,
+            "salience": 10.0,
+            "portfolio_group": "core",
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+        },
+        {
+            "objective_id": "io2-risk",
+            "title": "risk",
+            "priority": 10,
+            "salience": 10.0,
+            "depends_on": ["io2-anchor"],
+            "portfolio_group": "compliance",
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+        },
+    ]:
+        assert client.post("/api/objectives", json=payload).status_code == 200
+
+    analyze = client.post(
+        "/api/coordinator/analyze",
+        json={
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+            "reason": "phase 5h transition rejection",
+        },
+    )
+    assert analyze.status_code == 200
+    pending = [intent for intent in analyze.json()["supervisor_intents"] if intent.get("status") == "pending"]
+    assert len(pending) >= 1
+    intent_id = str(pending[0]["intent_id"])
+
+    ack = client.post(
+        f"/api/supervisor/intents/{intent_id}/status",
+        json={
+            "status": "acknowledged",
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+            "reason": "ready",
+        },
+    )
+    assert ack.status_code == 200
+
+    invalid_first = client.post(
+        f"/api/intents/{intent_id}/outcome",
+        json={
+            "status": "completed",
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+        },
+    )
+    assert invalid_first.status_code == 400
+    assert "first outcome status must be executed" in invalid_first.json()["detail"]
+
+    execute = client.post(
+        f"/api/intents/{intent_id}/outcome",
+        json={
+            "status": "executed",
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+            "reason": "started",
+        },
+    )
+    assert execute.status_code == 200
+
+    fail = client.post(
+        f"/api/intents/{intent_id}/outcome",
+        json={
+            "status": "failed",
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+            "reason": "runtime check failed",
+        },
+    )
+    assert fail.status_code == 200
+
+    invalid_after_final = client.post(
+        f"/api/intents/{intent_id}/outcome",
+        json={
+            "status": "rolled_back",
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+        },
+    )
+    assert invalid_after_final.status_code == 400
+    assert "already finalized" in invalid_after_final.json()["detail"]
+
+
+def test_intent_outcome_events_preserve_replay_chain() -> None:
+    OBJECTIVES.clear()
+    OBJECTIVE_SIGNALS["blocked"] = {}
+    OBJECTIVE_SIGNALS["pressure"] = {}
+    OBJECTIVE_SIGNALS["objective_pressure_score"] = {}
+    OBJECTIVE_SIGNALS["critical_path"] = {}
+
+    workspace_id = "ws-intent-outcome-3"
+    AGENT_TASKS_BY_WORKSPACE.pop(workspace_id, None)
+    AGENT_WORKFLOWS_BY_WORKSPACE.pop(workspace_id, None)
+    SUPERVISOR_INTENTS_BY_WORKSPACE.pop(workspace_id, None)
+    INTENT_OUTCOMES_BY_WORKSPACE.pop(workspace_id, None)
+    GOVERNANCE_PROFILE_BINDINGS[workspace_id] = {
+        "active": "conservative",
+        "overrides": {},
+        "updated_at": "2026-01-01T00:00:00+00:00",
+    }
+
+    client = TestClient(app)
+    execution_id = "exec-intent-outcome-3"
+
+    for payload in [
+        {
+            "objective_id": "io3-anchor",
+            "title": "anchor",
+            "priority": 10,
+            "salience": 10.0,
+            "portfolio_group": "core",
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+        },
+        {
+            "objective_id": "io3-risk",
+            "title": "risk",
+            "priority": 10,
+            "salience": 10.0,
+            "depends_on": ["io3-anchor"],
+            "portfolio_group": "compliance",
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+        },
+    ]:
+        assert client.post("/api/objectives", json=payload).status_code == 200
+
+    analyze = client.post(
+        "/api/coordinator/analyze",
+        json={
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+            "reason": "phase 5h replay linkage",
+        },
+    )
+    assert analyze.status_code == 200
+    pending = [intent for intent in analyze.json()["supervisor_intents"] if intent.get("status") == "pending"]
+    assert len(pending) >= 1
+    intent = pending[0]
+    intent_id = str(intent["intent_id"])
+    promotion_event_id = str(intent.get("promotion_event_id", ""))
+
+    assert client.post(
+        f"/api/supervisor/intents/{intent_id}/status",
+        json={
+            "status": "acknowledged",
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+            "reason": "ready",
+        },
+    ).status_code == 200
+
+    assert client.post(
+        f"/api/intents/{intent_id}/outcome",
+        json={
+            "status": "executed",
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+            "reason": "started",
+        },
+    ).status_code == 200
+
+    assert client.post(
+        f"/api/intents/{intent_id}/outcome",
+        json={
+            "status": "completed",
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+            "reason": "done",
+        },
+    ).status_code == 200
+
+    replay = client.get(f"/api/replay/{execution_id}")
+    assert replay.status_code == 200
+    events = replay.json()["events"]
+
+    replay_types = [event["event_type"] for event in events]
+    assert "supervisor.intent_received" in replay_types
+    assert "supervisor.intent_acknowledged" in replay_types
+    assert "intent.executed" in replay_types
+    assert "intent.completed" in replay_types
+    assert "intent.effectiveness_scored" in replay_types
+
+    executed_events = [
+        event
+        for event in events
+        if event.get("event_type") == "intent.executed" and str(event.get("payload", {}).get("intent_id", "")) == intent_id
+    ]
+    assert len(executed_events) == 1
+    assert str(executed_events[0].get("payload", {}).get("promotion_event_id", "")) == promotion_event_id
+
+    completed_events = [
+        event
+        for event in events
+        if event.get("event_type") == "intent.completed" and str(event.get("payload", {}).get("intent_id", "")) == intent_id
+    ]
+    assert len(completed_events) == 1
+    assert str(completed_events[0].get("payload", {}).get("promotion_event_id", "")) == promotion_event_id
