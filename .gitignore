@@ -3,3 +3,6 @@ __pycache__/
 *.pyc
 .env
 *.log
+artifacts/
+.phase1_worktrees/
+event_log.ndjson

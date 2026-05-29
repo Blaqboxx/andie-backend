@@ -1,109 +1,253 @@
-from fastapi import FastAPI
-from pydantic import BaseModel
-from groq import Groq
-from dotenv import load_dotenv
-import os
+from __future__ import annotations
+
 import json
-# Load environment variables
+import os
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+from uuid import uuid4
+
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from pydantic import BaseModel
+
+try:
+    from dotenv import load_dotenv
+except Exception:  # pragma: no cover - optional dependency
+    def load_dotenv() -> bool:
+        return False
+
+try:
+    from groq import Groq
+except Exception:  # pragma: no cover - optional at runtime
+    Groq = None
+
+
 load_dotenv()
+app = FastAPI(title="ANDIE Backend")
 
-# Initialize app
-app = FastAPI()
+MEMORY_PATH = Path(__file__).resolve().parent / "memory.json"
+EVENT_LOG_PATH = Path(__file__).resolve().parent / "event_log.ndjson"
 
-# Validate API key early
+
+def _utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _load_memory() -> list[dict[str, Any]]:
+    if not MEMORY_PATH.exists():
+        return []
+    try:
+        data = json.loads(MEMORY_PATH.read_text(encoding="utf-8"))
+        return data if isinstance(data, list) else []
+    except json.JSONDecodeError:
+        return []
+
+
+def _save_memory(memory: list[dict[str, Any]]) -> None:
+    MEMORY_PATH.write_text(json.dumps(memory[-20:], indent=2), encoding="utf-8")
+
+
+class EventStore:
+    def __init__(self) -> None:
+        self._events: list[dict[str, Any]] = []
+        self._next_seq = 1
+
+    def append(self, event_type: str, payload: dict[str, Any], execution_id: str | None = None) -> dict[str, Any]:
+        event = {
+            "seq": self._next_seq,
+            "type": event_type,
+            "timestamp": _utc_now(),
+            "execution_id": execution_id,
+            "payload": payload,
+        }
+        self._next_seq += 1
+        self._events.append(event)
+        with EVENT_LOG_PATH.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(event) + "\n")
+        return event
+
+    def replay(self, execution_id: str) -> list[dict[str, Any]]:
+        return [e for e in self._events if e.get("execution_id") == execution_id]
+
+    def latest_seq(self) -> int:
+        return self._next_seq - 1
+
+
+EVENTS = EventStore()
+ACTIVE_CONNECTIONS: set[WebSocket] = set()
+WORKSPACE_SNAPSHOT: dict[str, Any] = {
+    "workspace_id": "andie-default",
+    "status": "healthy",
+    "governance": {
+        "band": "stable",
+        "confidence": 1.0,
+    },
+    "updated_at": _utc_now(),
+}
+
+
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-if not GROQ_API_KEY:
-    raise ValueError("❌ GROQ_API_KEY is missing. Check your .env file.")
+CLIENT = Groq(api_key=GROQ_API_KEY) if (Groq and GROQ_API_KEY) else None
 
-client = Groq(api_key=GROQ_API_KEY)
 
-# Request model (IMPORTANT)
 class AgentRequest(BaseModel):
     input: str
 
-# Memory system
-@app.post("/agents/run")
-def run_agent(request: AgentRequest):
+
+class EventPublishRequest(BaseModel):
+    type: str
+    payload: dict[str, Any] = {}
+    execution_id: str | None = None
+
+
+async def _send_bootstrap(ws: WebSocket) -> None:
+    conn_id = str(uuid4())
+
+    ready_frame = {
+        "type": "connection.ready",
+        "timestamp": _utc_now(),
+        "connection_id": conn_id,
+        "seq": EVENTS.latest_seq() + 1,
+    }
+    await ws.send_json(ready_frame)
+
+    snapshot_frame = {
+        "type": "workspace.snapshot",
+        "timestamp": _utc_now(),
+        "seq": EVENTS.latest_seq() + 2,
+        "snapshot": WORKSPACE_SNAPSHOT,
+    }
+    await ws.send_json(snapshot_frame)
+
+
+async def _stream_handler(ws: WebSocket) -> None:
+    await ws.accept()
+    ACTIVE_CONNECTIONS.add(ws)
+
     try:
-        memory = load_memory()
+        await _send_bootstrap(ws)
 
-        memory.append({
-            "role": "user",
-            "content": request.input
-        })
+        while True:
+            msg = await ws.receive_json()
+            action = str(msg.get("action") or "").lower()
+            if action == "ping":
+                await ws.send_json({"type": "connection.pong", "timestamp": _utc_now()})
+            elif action == "publish":
+                ev_type = str(msg.get("type") or "workspace.event")
+                payload = msg.get("payload") or {}
+                execution_id = msg.get("execution_id")
+                event = EVENTS.append(ev_type, payload, execution_id=execution_id)
+                # Stream is temporal delta; snapshot remains authoritative.
+                frame = {
+                    "type": "workspace.event",
+                    "timestamp": _utc_now(),
+                    "event": event,
+                }
+                dead: list[WebSocket] = []
+                for conn in ACTIVE_CONNECTIONS:
+                    try:
+                        await conn.send_json(frame)
+                    except Exception:
+                        dead.append(conn)
+                for conn in dead:
+                    ACTIVE_CONNECTIONS.discard(conn)
+            else:
+                await ws.send_json(
+                    {
+                        "type": "connection.error",
+                        "timestamp": _utc_now(),
+                        "message": f"unsupported action: {action}",
+                    }
+                )
+    except WebSocketDisconnect:
+        pass
+    finally:
+        ACTIVE_CONNECTIONS.discard(ws)
 
-        response = client.chat.completions.create(
-            messages=memory,
-            model="llama-3.1-8b-instant"
-        )
 
-        reply = response.choices[0].message.content
-
-        memory.append({
-            "role": "assistant",
-            "content": reply
-        })
-
-        # Keep last 20 messages
-        memory = memory[-20:]
-
-        save_memory(memory)
-
-        return {
-            "result": reply,
-            "memory_size": len(memory)
-        }
-
-    except Exception as e:
-        return {"error": str(e)}
-
-# Health check route
 @app.get("/")
-def home():
+def home() -> dict[str, str]:
     return {"status": "ANDIE backend running"}
 
-# Agent endpoint
+
+@app.get("/api/workspace/snapshot")
+def workspace_snapshot() -> dict[str, Any]:
+    return {
+        "type": "workspace.snapshot",
+        "timestamp": _utc_now(),
+        "snapshot": WORKSPACE_SNAPSHOT,
+    }
+
+
 @app.post("/agents/run")
-def run_agent(request: AgentRequest):
-    try:
+def run_agent(request: AgentRequest) -> dict[str, Any]:
+    memory = _load_memory()
+    memory.append({"role": "user", "content": request.input})
 
-        # Support both 'task' and 'input' keys
-        task = getattr(request, 'task', None)
-        if not task:
-            task = getattr(request, 'input', None)
-        # If frontend sends simple input, convert it to structured task
-        if isinstance(task, str):
-            task = {
-                "type": "conversation",
-                "payload": {
-                    "message": task
-                }
-            }
-
-        # Store user input
-        conversation_history.append({
-            "role": "user",
-            "content": task
-        })
-
-        # AI call
-        response = client.chat.completions.create(
-            messages=conversation_history,
-            model="llama-3.1-8b-instant"
+    if CLIENT is not None:
+        response = CLIENT.chat.completions.create(
+            messages=memory,
+            model="llama-3.1-8b-instant",
         )
-
         reply = response.choices[0].message.content
+    else:
+        reply = f"[local-fallback] {request.input}"
 
-        # Store AI response
-        conversation_history.append({
-            "role": "assistant",
-            "content": reply
-        })
+    memory.append({"role": "assistant", "content": reply})
+    _save_memory(memory)
 
-        return {
-            "result": reply,
-            "memory_size": len(conversation_history)
-        }
+    return {
+        "result": reply,
+        "memory_size": len(memory[-20:]),
+    }
 
-    except Exception as e:
-        return {"error": str(e)}
+
+@app.post("/api/events")
+async def publish_event(request: EventPublishRequest) -> dict[str, Any]:
+    event = EVENTS.append(
+        event_type=request.type,
+        payload=request.payload,
+        execution_id=request.execution_id,
+    )
+
+    frame = {
+        "type": "workspace.event",
+        "timestamp": _utc_now(),
+        "event": event,
+    }
+
+    dead: list[WebSocket] = []
+    for conn in ACTIVE_CONNECTIONS:
+        try:
+            await conn.send_json(frame)
+        except Exception:
+            dead.append(conn)
+    for conn in dead:
+        ACTIVE_CONNECTIONS.discard(conn)
+
+    return {"status": "ok", "event": event}
+
+
+@app.get("/api/replay/{execution_id}")
+def replay_execution(execution_id: str) -> dict[str, Any]:
+    return {
+        "execution_id": execution_id,
+        "events": EVENTS.replay(execution_id),
+    }
+
+
+# Canonical streaming route
+@app.websocket("/ws/stream")
+async def ws_stream(ws: WebSocket) -> None:
+    await _stream_handler(ws)
+
+
+# Alias routes normalized to canonical bootstrap behavior
+@app.websocket("/ws/events")
+async def ws_events_alias(ws: WebSocket) -> None:
+    await _stream_handler(ws)
+
+
+@app.websocket("/ws/backlog")
+async def ws_backlog_alias(ws: WebSocket) -> None:
+    await _stream_handler(ws)
