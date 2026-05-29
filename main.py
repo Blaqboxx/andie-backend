@@ -213,6 +213,14 @@ GOVERNANCE_STATE: dict[str, Any] = {
     "confidence": 1.0,
 }
 
+TRUST_STATES: dict[str, dict[str, Any]] = {
+    "andie-default": TRUST_STATE,
+}
+
+GOVERNANCE_STATES: dict[str, dict[str, Any]] = {
+    "andie-default": GOVERNANCE_STATE,
+}
+
 # Balanced is the frozen bootstrap baseline from Phase 2D coupling.
 GOVERNANCE_PROFILES: dict[str, dict[str, float]] = {
     "balanced": {
@@ -319,6 +327,10 @@ GOVERNANCE_PROFILE_STATE: dict[str, Any] = {
     "updated_at": _utc_now(),
 }
 
+GOVERNANCE_PROFILE_BINDINGS: dict[str, dict[str, Any]] = {
+    "andie-default": GOVERNANCE_PROFILE_STATE,
+}
+
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 CLIENT = Groq(api_key=GROQ_API_KEY) if (Groq and GROQ_API_KEY) else None
@@ -379,10 +391,47 @@ class GovernanceRecomputeRequest(BaseModel):
 class GovernanceProfileApplyRequest(BaseModel):
     profile: str
     overrides: dict[str, float] = Field(default_factory=dict)
+    actor: str = "operator"
+    reason: str = "manual profile selection"
     execution_id: str | None = None
     source: str = "governance-policy"
     workspace_id: str = "andie-default"
     correlation_id: str | None = None
+
+
+def _get_trust_state(workspace_id: str) -> dict[str, Any]:
+    if workspace_id not in TRUST_STATES:
+        TRUST_STATES[workspace_id] = {
+            "score": 0.5,
+            "updated_at": _utc_now(),
+        }
+    return TRUST_STATES[workspace_id]
+
+
+def _get_governance_state(workspace_id: str) -> dict[str, Any]:
+    if workspace_id not in GOVERNANCE_STATES:
+        GOVERNANCE_STATES[workspace_id] = {
+            "updated_at": _utc_now(),
+            "band": "stable",
+            "interrupt_sensitivity": 0.5,
+            "escalation_readiness": 0.5,
+            "cooldown_aggressiveness": 0.5,
+            "posture_persistence": 0.5,
+            "governance_attention": 0.5,
+            "confidence": 1.0,
+            "profile": "balanced",
+        }
+    return GOVERNANCE_STATES[workspace_id]
+
+
+def _get_governance_profile_binding(workspace_id: str) -> dict[str, Any]:
+    if workspace_id not in GOVERNANCE_PROFILE_BINDINGS:
+        GOVERNANCE_PROFILE_BINDINGS[workspace_id] = {
+            "active": "balanced",
+            "overrides": {},
+            "updated_at": _utc_now(),
+        }
+    return GOVERNANCE_PROFILE_BINDINGS[workspace_id]
 
 
 async def _fanout_event(event: dict[str, Any]) -> None:
@@ -524,9 +573,10 @@ def _set_trust_score(
     correlation_id: str | None,
     reason: str | None = None,
 ) -> list[dict[str, Any]]:
-    previous = float(TRUST_STATE.get("score", 0.5))
+    trust_state = _get_trust_state(workspace_id)
+    previous = float(trust_state.get("score", 0.5))
     current = round(_clamp01(trust_score), 3)
-    TRUST_STATE.update({"score": current, "updated_at": _utc_now()})
+    trust_state.update({"score": current, "updated_at": _utc_now()})
 
     events: list[dict[str, Any]] = [
         EVENTS.append(
@@ -568,20 +618,24 @@ def _recompute_governance_state(
     workspace_id: str,
     correlation_id: str | None,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-    trust_score = float(TRUST_STATE.get("score", 0.5))
+    trust_state = _get_trust_state(workspace_id)
+    governance_state = _get_governance_state(workspace_id)
+    profile_binding = _get_governance_profile_binding(workspace_id)
+
+    trust_score = float(trust_state.get("score", 0.5))
     failure_score = _failure_pattern_score(execution_id=execution_id)
     objective_ctx = _objective_context()
 
-    prev_band = str(GOVERNANCE_STATE.get("band", "stable"))
-    prev_cooldown = float(GOVERNANCE_STATE.get("cooldown_aggressiveness", 0.5))
+    prev_band = str(governance_state.get("band", "stable"))
+    prev_cooldown = float(governance_state.get("cooldown_aggressiveness", 0.5))
 
     blocked_ratio = float(objective_ctx["blocked_ratio"])
     max_pressure_score = float(objective_ctx["max_pressure_score"])
     critical_active = 1.0 if bool(objective_ctx["critical_path_active"]) else 0.0
 
-    profile_name = str(GOVERNANCE_PROFILE_STATE.get("active") or "balanced")
+    profile_name = str(profile_binding.get("active") or "balanced")
     profile = dict(GOVERNANCE_PROFILES.get(profile_name, GOVERNANCE_PROFILES["balanced"]))
-    for key, value in (GOVERNANCE_PROFILE_STATE.get("overrides") or {}).items():
+    for key, value in (profile_binding.get("overrides") or {}).items():
         if key in profile:
             profile[key] = float(value)
 
@@ -625,7 +679,7 @@ def _recompute_governance_state(
     else:
         band = "stable"
 
-    GOVERNANCE_STATE.update(
+    governance_state.update(
         {
             "updated_at": _utc_now(),
             "band": band,
@@ -653,14 +707,15 @@ def _recompute_governance_state(
         "interrupt_sensitivity": round(interrupt_sensitivity, 3),
         "governance_attention": round(governance_attention, 3),
         "profile": profile_name,
-        "updated_at": GOVERNANCE_STATE["updated_at"],
+        "updated_at": governance_state["updated_at"],
     }
 
     events: list[dict[str, Any]] = [
         EVENTS.append(
             "governance.stability",
             {
-                "governance": GOVERNANCE_STATE,
+                "governance": governance_state,
+                "workspace_id": workspace_id,
             },
             execution_id=execution_id,
             source=source,
@@ -714,7 +769,7 @@ def _recompute_governance_state(
         )
 
     WORKSPACE_SNAPSHOT["updated_at"] = _utc_now()
-    return GOVERNANCE_STATE, events
+    return governance_state, events
 
 
 def _signal_delta_events(
@@ -788,6 +843,8 @@ def _signal_delta_events(
 def _apply_governance_profile(
     profile_name: str,
     overrides: dict[str, float],
+    actor: str,
+    reason: str,
     execution_id: str | None,
     source: str,
     workspace_id: str,
@@ -802,8 +859,9 @@ def _apply_governance_profile(
         if key in known_keys:
             sanitized[key] = float(value)
 
-    previous_profile = str(GOVERNANCE_PROFILE_STATE.get("active") or "balanced")
-    GOVERNANCE_PROFILE_STATE.update(
+    profile_binding = _get_governance_profile_binding(workspace_id)
+    previous_profile = str(profile_binding.get("active") or "balanced")
+    profile_binding.update(
         {
             "active": profile_name,
             "overrides": sanitized,
@@ -817,6 +875,10 @@ def _apply_governance_profile(
             "previous_profile": previous_profile,
             "profile": profile_name,
             "overrides": sanitized,
+            "workspace_id": workspace_id,
+            "actor": actor,
+            "reason": reason,
+            "correlation_id": correlation_id,
         },
         execution_id=execution_id,
         source=source,
@@ -952,20 +1014,22 @@ async def publish_event(request: EventPublishRequest) -> dict[str, Any]:
 
 
 @app.get("/api/governance/state")
-def get_governance_state() -> dict[str, Any]:
+def get_governance_state(workspace_id: str = "andie-default") -> dict[str, Any]:
     return {
         "status": "ok",
-        "governance": GOVERNANCE_STATE,
-        "trust": TRUST_STATE,
-        "profile": GOVERNANCE_PROFILE_STATE,
+        "workspace_id": workspace_id,
+        "governance": _get_governance_state(workspace_id),
+        "trust": _get_trust_state(workspace_id),
+        "profile": _get_governance_profile_binding(workspace_id),
     }
 
 
 @app.get("/api/governance/profiles")
-def list_governance_profiles() -> dict[str, Any]:
+def list_governance_profiles(workspace_id: str = "andie-default") -> dict[str, Any]:
     return {
         "status": "ok",
-        "active_profile": GOVERNANCE_PROFILE_STATE,
+        "workspace_id": workspace_id,
+        "active_profile": _get_governance_profile_binding(workspace_id),
         "profiles": GOVERNANCE_PROFILES,
     }
 
@@ -976,6 +1040,8 @@ async def apply_governance_profile(request: GovernanceProfileApplyRequest) -> di
         profile_event = _apply_governance_profile(
             profile_name=request.profile,
             overrides=request.overrides,
+            actor=request.actor,
+            reason=request.reason,
             execution_id=request.execution_id,
             source=request.source,
             workspace_id=request.workspace_id,
@@ -996,7 +1062,7 @@ async def apply_governance_profile(request: GovernanceProfileApplyRequest) -> di
 
     return {
         "status": "ok",
-        "profile": GOVERNANCE_PROFILE_STATE,
+        "profile": _get_governance_profile_binding(request.workspace_id),
         "governance": governance,
         "emitted_events": [profile_event] + governance_events,
     }
@@ -1026,7 +1092,7 @@ async def recompute_trust(request: TrustRecomputeRequest) -> dict[str, Any]:
 
     return {
         "status": "ok",
-        "trust": TRUST_STATE,
+        "trust": _get_trust_state(request.workspace_id),
         "governance": governance,
         "emitted_events": trust_events + governance_events,
     }

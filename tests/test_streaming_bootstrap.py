@@ -1,6 +1,15 @@
 from fastapi.testclient import TestClient
 
-from main import GOVERNANCE_PROFILE_STATE, GOVERNANCE_STATE, OBJECTIVES, OBJECTIVE_SIGNALS, TRUST_STATE, app
+from main import (
+    GOVERNANCE_PROFILE_BINDINGS,
+    GOVERNANCE_PROFILE_STATE,
+    GOVERNANCE_STATE,
+    OBJECTIVES,
+    OBJECTIVE_SIGNALS,
+    TRUST_STATE,
+    TRUST_STATES,
+    app,
+)
 
 
 REQUIRED_KEYS = {
@@ -222,6 +231,7 @@ def test_trust_memory_objective_context_recomputes_governance_state() -> None:
 
     client = TestClient(app)
     execution_id = "exec-governance-coupling-1"
+    workspace_id = "ws-governance-coupling-1"
 
     assert (
         client.post(
@@ -232,6 +242,7 @@ def test_trust_memory_objective_context_recomputes_governance_state() -> None:
                 "priority": 5,
                 "salience": 5.0,
                 "execution_id": execution_id,
+                "workspace_id": workspace_id,
             },
         ).status_code
         == 200
@@ -246,6 +257,7 @@ def test_trust_memory_objective_context_recomputes_governance_state() -> None:
                 "salience": 4.0,
                 "blocked_by": ["gpu-upgrade"],
                 "execution_id": execution_id,
+                "workspace_id": workspace_id,
             },
         ).status_code
         == 200
@@ -257,6 +269,7 @@ def test_trust_memory_objective_context_recomputes_governance_state() -> None:
             "trust_score": 0.95,
             "reason": "trusted-operator",
             "execution_id": execution_id,
+            "workspace_id": workspace_id,
         },
     )
     assert trust_res.status_code == 200
@@ -269,11 +282,15 @@ def test_trust_memory_objective_context_recomputes_governance_state() -> None:
                 "type": "execution.failed",
                 "payload": {"reason": "transient"},
                 "execution_id": execution_id,
+                "workspace_id": workspace_id,
             },
         )
         assert fail.status_code == 200
 
-    gov = client.post("/api/governance/recompute", json={"execution_id": execution_id})
+    gov = client.post(
+        "/api/governance/recompute",
+        json={"execution_id": execution_id, "workspace_id": workspace_id},
+    )
     assert gov.status_code == 200
     body = gov.json()
     state = body["governance"]
@@ -294,16 +311,17 @@ def test_trust_memory_objective_context_recomputes_governance_state() -> None:
 def test_trust_changed_emits_when_score_delta_is_material() -> None:
     client = TestClient(app)
     execution_id = "exec-trust-delta-1"
+    workspace_id = "ws-trust-delta-1"
 
     a = client.post(
         "/api/trust/recompute",
-        json={"trust_score": 0.2, "execution_id": execution_id},
+        json={"trust_score": 0.2, "execution_id": execution_id, "workspace_id": workspace_id},
     )
     assert a.status_code == 200
 
     b = client.post(
         "/api/trust/recompute",
-        json={"trust_score": 0.9, "execution_id": execution_id},
+        json={"trust_score": 0.9, "execution_id": execution_id, "workspace_id": workspace_id},
     )
     assert b.status_code == 200
 
@@ -387,3 +405,66 @@ def test_governance_profile_apply_rejects_unknown_profile() -> None:
         json={"profile": "does-not-exist", "execution_id": "exec-profile-unknown"},
     )
     assert res.status_code == 400
+
+
+def test_governance_profile_apply_event_includes_provenance_fields() -> None:
+    client = TestClient(app)
+    execution_id = "exec-profile-prov-1"
+    workspace_id = "ws-provenance-a"
+
+    res = client.post(
+        "/api/governance/profile/apply",
+        json={
+            "profile": "mission_critical",
+            "actor": "chief-architect",
+            "reason": "incident response posture",
+            "execution_id": execution_id,
+            "workspace_id": workspace_id,
+            "correlation_id": "corr-profile-123",
+        },
+    )
+    assert res.status_code == 200
+
+    replay = client.get(f"/api/replay/{execution_id}")
+    assert replay.status_code == 200
+
+    profile_events = [e for e in replay.json()["events"] if e["event_type"] == "governance.profile_applied"]
+    assert len(profile_events) >= 1
+    profile_event = profile_events[-1]
+
+    assert profile_event["workspace_id"] == workspace_id
+    assert profile_event["correlation_id"] == "corr-profile-123"
+    assert profile_event["payload"]["profile"] == "mission_critical"
+    assert profile_event["payload"]["workspace_id"] == workspace_id
+    assert profile_event["payload"]["actor"] == "chief-architect"
+    assert profile_event["payload"]["reason"] == "incident response posture"
+    assert profile_event["payload"]["correlation_id"] == "corr-profile-123"
+
+
+def test_workspace_scoped_profile_binding_is_isolated() -> None:
+    TRUST_STATES.pop("ws-alpha", None)
+    TRUST_STATES.pop("ws-beta", None)
+    GOVERNANCE_PROFILE_BINDINGS.pop("ws-alpha", None)
+    GOVERNANCE_PROFILE_BINDINGS.pop("ws-beta", None)
+
+    client = TestClient(app)
+
+    a = client.post(
+        "/api/governance/profile/apply",
+        json={"profile": "aggressive", "workspace_id": "ws-alpha", "execution_id": "exec-ws-1"},
+    )
+    assert a.status_code == 200
+
+    b = client.post(
+        "/api/governance/profile/apply",
+        json={"profile": "conservative", "workspace_id": "ws-beta", "execution_id": "exec-ws-2"},
+    )
+    assert b.status_code == 200
+
+    state_a = client.get("/api/governance/state", params={"workspace_id": "ws-alpha"})
+    state_b = client.get("/api/governance/state", params={"workspace_id": "ws-beta"})
+    assert state_a.status_code == 200
+    assert state_b.status_code == 200
+
+    assert state_a.json()["profile"]["active"] == "aggressive"
+    assert state_b.json()["profile"]["active"] == "conservative"

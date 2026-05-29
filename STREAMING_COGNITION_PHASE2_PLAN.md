@@ -45,6 +45,8 @@ Never allow event frames to become the system of record.
 	- memory/trust/objective-pressure coupling into governance posture
 - Phase 2E: bootstrap complete
 	- governance policy overlay layer + profile application events
+- Phase 2F: bootstrap complete
+	- workspace-scoped governance profile bindings + profile provenance
 
 ## Current Runtime Additions (Phase 2E Bootstrap)
 - Governance policy overlay layer is now active with profile-driven coefficients.
@@ -57,6 +59,15 @@ Never allow event frames to become the system of record.
 	- `GET /api/governance/profiles`
 	- `POST /api/governance/profile/apply`
 - Profile changes are replay-visible via `governance.profile_applied`.
+
+## Current Runtime Additions (Phase 2F Bootstrap)
+- Governance/trust state resolution supports workspace-scoped posture behavior.
+- Profile binding is workspace-scoped, allowing concurrent profile policies.
+- `governance.profile_applied` payload includes provenance fields:
+	- workspace_id
+	- actor
+	- reason
+	- correlation_id
 
 ## Priority Workstreams
 
