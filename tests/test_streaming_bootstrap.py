@@ -622,12 +622,14 @@ def test_agent_arbitration_emits_assignment_strategy_event() -> None:
     assert arb.status_code == 200
     body = arb.json()
     assert body["strategy"] in {"pressure_based", "governance_directed", "trust_based", "operator_forced"}
-    assert body["emitted_events"][0]["event_type"] == "agent.assignment_strategy"
-    assert body["emitted_events"][1]["event_type"] == "agent.assigned"
+    assert body["emitted_events"][0]["event_type"] == "agent.decision_context"
+    assert body["emitted_events"][1]["event_type"] == "agent.assignment_strategy"
+    assert body["emitted_events"][2]["event_type"] == "agent.assigned"
 
     replay = client.get(f"/api/replay/{execution_id}")
     assert replay.status_code == 200
     event_types = [event["event_type"] for event in replay.json()["events"]]
+    assert "agent.decision_context" in event_types
     assert "agent.assignment_strategy" in event_types
     assert "agent.assigned" in event_types
 
@@ -699,3 +701,71 @@ def test_agent_arbitration_aggressive_high_pressure_prefers_execution() -> None:
     body = arb.json()
     assert body["strategy"] == "pressure_based"
     assert body["role"] == "execution"
+
+
+def test_agent_arbitration_escalated_governance_selects_governance_role() -> None:
+    workspace_id = "ws-arb-4"
+    AGENT_TASKS_BY_WORKSPACE.pop(workspace_id, None)
+
+    client = TestClient(app)
+    execution_id = "exec-arb-4"
+
+    parent = client.post(
+        "/api/objectives",
+        json={
+            "objective_id": "obj-arb-4-parent",
+            "title": "Parent Objective",
+            "priority": 8,
+            "salience": 8.0,
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+        },
+    )
+    assert parent.status_code == 200
+
+    child = client.post(
+        "/api/objectives",
+        json={
+            "objective_id": "obj-arb-4-child",
+            "title": "Child Objective",
+            "priority": 8,
+            "salience": 8.0,
+            "blocked_by": ["obj-arb-4-parent"],
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+        },
+    )
+    assert child.status_code == 200
+
+    for _ in range(5):
+        fail = client.post(
+            "/api/events",
+            json={
+                "type": "execution.failed",
+                "payload": {"reason": "stress"},
+                "workspace_id": workspace_id,
+                "execution_id": execution_id,
+            },
+        )
+        assert fail.status_code == 200
+
+    gov = client.post(
+        "/api/governance/recompute",
+        json={"workspace_id": workspace_id, "execution_id": execution_id},
+    )
+    assert gov.status_code == 200
+    assert gov.json()["governance"]["band"] == "escalated"
+
+    arb = client.post(
+        "/api/agents/arbitrate",
+        json={
+            "task_id": "task-arb-4",
+            "objective_id": "obj-arb-4-child",
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+        },
+    )
+    assert arb.status_code == 200
+    body = arb.json()
+    assert body["strategy"] == "governance_directed"
+    assert body["role"] == "governance"

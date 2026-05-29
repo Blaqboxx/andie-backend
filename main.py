@@ -61,6 +61,7 @@ EVENT_FAMILIES: dict[str, set[str]] = {
         "rollback.completed",
     },
     "agent": {
+        "agent.decision_context",
         "agent.assignment_strategy",
         "agent.assigned",
         "agent.completed",
@@ -502,36 +503,71 @@ def _normalize_agent_role(role: str) -> str:
     return role_value
 
 
+def _governance_assignment_constraints(workspace_id: str) -> dict[str, Any]:
+    governance_state = _get_governance_state(workspace_id)
+    profile = str(_get_governance_profile_binding(workspace_id).get("active", "balanced"))
+    band = str(governance_state.get("band", "stable"))
+
+    constraints: dict[str, Any] = {
+        "governance_band": band,
+        "workspace_profile": profile,
+        "preferred_role": "execution",
+        "requires_governance_review": False,
+    }
+
+    if band == "warning":
+        constraints["preferred_role"] = "planner"
+        constraints["requires_governance_review"] = True
+    elif band == "escalated":
+        constraints["preferred_role"] = "governance"
+        constraints["requires_governance_review"] = True
+
+    if profile == "mission_critical" and band != "escalated":
+        constraints["preferred_role"] = "planner"
+        constraints["requires_governance_review"] = True
+    elif profile == "aggressive" and band == "stable":
+        constraints["preferred_role"] = "execution"
+
+    return constraints
+
+
 def _select_agent_strategy_and_role(
     workspace_id: str,
     objective_id: str | None,
     operator_forced_role: str | None,
 ) -> tuple[str, str, dict[str, Any]]:
+    constraints = _governance_assignment_constraints(workspace_id)
+    signals = _derive_objective_signals()
+    pressure_score = float((signals.get("objective_pressure_score") or {}).get(objective_id or "", 0.0))
+    trust_score = float(_get_trust_state(workspace_id).get("score", 0.5))
+    governance_band = str(constraints.get("governance_band", "stable"))
+    profile = str(constraints.get("workspace_profile", "balanced"))
+
     if operator_forced_role is not None:
         role = _normalize_agent_role(operator_forced_role)
         return (
             "operator_forced",
             role,
             {
+                "pressure_score": round(pressure_score, 3),
+                "trust_score": round(trust_score, 3),
+                "governance_band": governance_band,
+                "workspace_profile": profile,
+                "constraints": constraints,
                 "operator_forced_role": role,
             },
         )
 
-    signals = _derive_objective_signals()
-    pressure_score = float((signals.get("objective_pressure_score") or {}).get(objective_id or "", 0.0))
-    trust_score = float(_get_trust_state(workspace_id).get("score", 0.5))
-    governance_state = _get_governance_state(workspace_id)
-    governance_band = str(governance_state.get("band", "stable"))
-    profile = str(_get_governance_profile_binding(workspace_id).get("active", "balanced"))
-
     if governance_band == "escalated" or (profile == "mission_critical" and pressure_score >= 0.6):
         return (
             "governance_directed",
-            "governance",
+            str(constraints.get("preferred_role", "governance")),
             {
+                "pressure_score": round(pressure_score, 3),
+                "trust_score": round(trust_score, 3),
                 "governance_band": governance_band,
-                "profile": profile,
-                "objective_pressure_score": round(pressure_score, 3),
+                "workspace_profile": profile,
+                "constraints": constraints,
             },
         )
 
@@ -540,29 +576,37 @@ def _select_agent_strategy_and_role(
             "trust_based",
             "memory",
             {
+                "pressure_score": round(pressure_score, 3),
                 "trust_score": round(trust_score, 3),
-                "profile": profile,
+                "governance_band": governance_band,
+                "workspace_profile": profile,
+                "constraints": constraints,
             },
         )
 
     if pressure_score >= 0.75:
-        role = "execution" if profile == "aggressive" else "planner"
+        role = "execution" if profile == "aggressive" else str(constraints.get("preferred_role", "planner"))
         return (
             "pressure_based",
             role,
             {
-                "objective_pressure_score": round(pressure_score, 3),
-                "profile": profile,
+                "pressure_score": round(pressure_score, 3),
+                "trust_score": round(trust_score, 3),
+                "governance_band": governance_band,
+                "workspace_profile": profile,
+                "constraints": constraints,
             },
         )
 
     return (
         "governance_directed" if governance_band == "warning" else "pressure_based",
-        "planner",
+        str(constraints.get("preferred_role", "planner")),
         {
+            "pressure_score": round(pressure_score, 3),
+            "trust_score": round(trust_score, 3),
             "governance_band": governance_band,
-            "objective_pressure_score": round(pressure_score, 3),
-            "profile": profile,
+            "workspace_profile": profile,
+            "constraints": constraints,
         },
     )
 
@@ -1299,6 +1343,27 @@ async def arbitrate_agent_task(request: AgentArbitrationRequest) -> dict[str, An
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+    decision_context_event = EVENTS.append(
+        "agent.decision_context",
+        {
+            "task_id": request.task_id,
+            "objective_id": request.objective_id,
+            "pressure_score": strategy_inputs.get("pressure_score"),
+            "trust_score": strategy_inputs.get("trust_score"),
+            "governance_band": strategy_inputs.get("governance_band"),
+            "workspace_profile": strategy_inputs.get("workspace_profile"),
+            "selected_strategy": strategy,
+            "selected_role": role,
+            "constraints": strategy_inputs.get("constraints"),
+            "workspace_id": request.workspace_id,
+        },
+        execution_id=request.execution_id,
+        source=request.source,
+        workspace_id=request.workspace_id,
+        correlation_id=request.correlation_id,
+    )
+    await _fanout_event(decision_context_event)
+
     strategy_event = EVENTS.append(
         "agent.assignment_strategy",
         {
@@ -1346,7 +1411,7 @@ async def arbitrate_agent_task(request: AgentArbitrationRequest) -> dict[str, An
         "strategy": strategy,
         "role": role,
         "task": task,
-        "emitted_events": [strategy_event, assigned_event],
+        "emitted_events": [decision_context_event, strategy_event, assigned_event],
     }
 
 

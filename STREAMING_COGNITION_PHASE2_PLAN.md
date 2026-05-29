@@ -51,6 +51,8 @@ Never allow event frames to become the system of record.
 	- agent role contracts + lifecycle event family
 - Phase 3B: bootstrap complete
 	- objective-to-agent arbitration with strategy visibility
+- Phase 3C: bootstrap complete
+	- governance-aware agent selection + decision context events
 
 ## Current Runtime Additions (Phase 2E Bootstrap)
 - Governance policy overlay layer is now active with profile-driven coefficients.
@@ -100,6 +102,18 @@ Never allow event frames to become the system of record.
 	- trust_based
 	- governance_directed
 	- operator_forced
+
+## Current Runtime Additions (Phase 3C Bootstrap)
+- Governance-aware assignment constraints are now applied during arbitration.
+- Arbitration emits replay-visible decision inputs via:
+	- `agent.decision_context`
+- Decision context records:
+	- pressure score
+	- trust score
+	- governance band
+	- workspace profile
+	- selected strategy
+	- selected role
 
 ## Priority Workstreams
 
