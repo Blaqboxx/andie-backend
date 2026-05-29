@@ -80,6 +80,10 @@ EVENT_FAMILIES: dict[str, set[str]] = {
         "agent.supervisor_replanned",
         "agent.supervisor_redelegated",
         "agent.supervisor_resumed",
+        "agent.supervisor_prioritized",
+        "agent.supervisor_preempted",
+        "agent.supervisor_reallocated",
+        "agent.supervisor_transferred",
         "agent.assigned",
         "agent.completed",
         "agent.blocked",
@@ -371,6 +375,14 @@ AGENT_WORKFLOWS_BY_WORKSPACE: dict[str, dict[str, dict[str, Any]]] = {
     "andie-default": {},
 }
 
+SUPERVISOR_RUNTIME_BY_WORKSPACE: dict[str, dict[str, Any]] = {
+    "andie-default": {
+        "available_slots": 1,
+        "active_workflows": [],
+        "updated_at": _utc_now(),
+    }
+}
+
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 CLIENT = Groq(api_key=GROQ_API_KEY) if (Groq and GROQ_API_KEY) else None
@@ -523,6 +535,18 @@ class AgentWorkflowSupervisionRequest(BaseModel):
     correlation_id: str | None = None
 
 
+class AgentSupervisorArbitrationRequest(BaseModel):
+    available_slots: int = 1
+    trigger: str = "manual"
+    reason: str = "cross-workflow arbitration"
+    payload: dict[str, Any] = Field(default_factory=dict)
+    actor: str = "workflow-supervisor"
+    execution_id: str | None = None
+    source: str = "workflow-supervisor"
+    workspace_id: str = "andie-default"
+    correlation_id: str | None = None
+
+
 class AgentArbitrationRequest(BaseModel):
     task_id: str
     objective_id: str | None = None
@@ -581,6 +605,16 @@ def _get_workspace_workflows(workspace_id: str) -> dict[str, dict[str, Any]]:
     if workspace_id not in AGENT_WORKFLOWS_BY_WORKSPACE:
         AGENT_WORKFLOWS_BY_WORKSPACE[workspace_id] = {}
     return AGENT_WORKFLOWS_BY_WORKSPACE[workspace_id]
+
+
+def _get_supervisor_runtime(workspace_id: str) -> dict[str, Any]:
+    if workspace_id not in SUPERVISOR_RUNTIME_BY_WORKSPACE:
+        SUPERVISOR_RUNTIME_BY_WORKSPACE[workspace_id] = {
+            "available_slots": 1,
+            "active_workflows": [],
+            "updated_at": _utc_now(),
+        }
+    return SUPERVISOR_RUNTIME_BY_WORKSPACE[workspace_id]
 
 
 def _normalize_agent_role(role: str) -> str:
@@ -835,6 +869,7 @@ def _workflow_health_payload(workspace_id: str, workflow: dict[str, Any]) -> dic
         "blocked_steps": int(workflow.get("blocked_steps", 0)),
         "replan_count": int(workflow.get("replan_count", 0)),
         "supervisor_actions": int(workflow.get("supervisor_actions", 0)),
+        "priority": float(workflow.get("priority", 0.0)),
         "governance_band": governance_band,
         "status": workflow.get("status"),
     }
@@ -894,6 +929,165 @@ def _supervisor_apply(
 
     workflow["status"] = "supervisor_resumed"
     return ("agent.supervisor_resumed", "supervisor_continue_current_plan")
+
+
+def _workflow_priority_score(workspace_id: str, workflow: dict[str, Any]) -> float:
+    governance_band = str(_get_governance_state(workspace_id).get("band", "stable"))
+    band_weight = {
+        "stable": 0.2,
+        "warning": 0.5,
+        "escalated": 0.8,
+    }.get(governance_band, 0.2)
+
+    base_pressure = float(workflow.get("workflow_pressure_score", 0.0))
+    blocked = min(1.0, float(int(workflow.get("blocked_steps", 0))) / 3.0)
+    replans = min(1.0, float(int(workflow.get("replan_count", 0))) / 5.0)
+    supervisor_actions = min(1.0, float(int(workflow.get("supervisor_actions", 0))) / 5.0)
+
+    score = (0.5 * base_pressure) + (0.2 * blocked) + (0.15 * replans) + (0.1 * band_weight) + (0.05 * supervisor_actions)
+    return round(_clamp01(score), 3)
+
+
+def _run_supervisor_arbitration(
+    *,
+    workspace_id: str,
+    available_slots: int,
+    execution_id: str | None,
+    source: str,
+    correlation_id: str | None,
+    trigger: str,
+    reason: str,
+    actor: str,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    runtime = _get_supervisor_runtime(workspace_id)
+    runtime["available_slots"] = max(1, int(available_slots))
+    workflows = _get_workspace_workflows(workspace_id)
+
+    ranked: list[tuple[str, float]] = []
+    for workflow_id, workflow in workflows.items():
+        if str(workflow.get("status", "")).lower() == "completed":
+            continue
+        score = _workflow_priority_score(workspace_id, workflow)
+        workflow["priority"] = score
+        workflow["updated_at"] = _utc_now()
+        ranked.append((workflow_id, score))
+
+    ranked.sort(key=lambda row: row[1], reverse=True)
+    target_active = [workflow_id for workflow_id, _ in ranked[: runtime["available_slots"]]]
+    previous_active = [str(wf_id) for wf_id in (runtime.get("active_workflows") or [])]
+    prev_set = set(previous_active)
+    target_set = set(target_active)
+
+    runtime.update(
+        {
+            "active_workflows": target_active,
+            "updated_at": _utc_now(),
+        }
+    )
+
+    emitted: list[dict[str, Any]] = []
+    prioritized_event = EVENTS.append(
+        "agent.supervisor_prioritized",
+        {
+            "workspace_id": workspace_id,
+            "trigger": trigger,
+            "reason": reason,
+            "actor": actor,
+            "available_slots": runtime["available_slots"],
+            "ranking": [
+                {
+                    "workflow_id": workflow_id,
+                    "priority": score,
+                }
+                for workflow_id, score in ranked
+            ],
+            "active_workflows": target_active,
+        },
+        execution_id=execution_id,
+        source=source,
+        workspace_id=workspace_id,
+        correlation_id=correlation_id,
+    )
+    emitted.append(prioritized_event)
+
+    preempted = sorted(prev_set - target_set)
+    activated = sorted(target_set - prev_set)
+    for workflow_id in preempted:
+        workflow = workflows.get(workflow_id)
+        if workflow is not None:
+            workflow["status"] = "preempted"
+            workflow["updated_at"] = _utc_now()
+        emitted.append(
+            EVENTS.append(
+                "agent.supervisor_preempted",
+                {
+                    "workspace_id": workspace_id,
+                    "workflow_id": workflow_id,
+                    "reason": "slot contention",
+                },
+                execution_id=execution_id,
+                source=source,
+                workspace_id=workspace_id,
+                correlation_id=correlation_id,
+            )
+        )
+
+    for workflow_id in activated:
+        workflow = workflows.get(workflow_id)
+        if workflow is not None:
+            workflow["status"] = "active"
+            workflow["updated_at"] = _utc_now()
+        emitted.append(
+            EVENTS.append(
+                "agent.supervisor_reallocated",
+                {
+                    "workspace_id": workspace_id,
+                    "workflow_id": workflow_id,
+                    "reason": "priority promotion",
+                },
+                execution_id=execution_id,
+                source=source,
+                workspace_id=workspace_id,
+                correlation_id=correlation_id,
+            )
+        )
+
+    for from_workflow, to_workflow in zip(preempted, activated):
+        emitted.append(
+            EVENTS.append(
+                "agent.supervisor_transferred",
+                {
+                    "workspace_id": workspace_id,
+                    "from_workflow": from_workflow,
+                    "to_workflow": to_workflow,
+                    "reason": "priority rebalance",
+                },
+                execution_id=execution_id,
+                source=source,
+                workspace_id=workspace_id,
+                correlation_id=correlation_id,
+            )
+        )
+
+    for workflow_id in target_active:
+        workflow = workflows.get(workflow_id)
+        if workflow is None:
+            continue
+        emitted.append(
+            EVENTS.append(
+                "agent.workflow_health",
+                {
+                    "health": _workflow_health_payload(workspace_id, workflow),
+                    "workspace_id": workspace_id,
+                },
+                execution_id=execution_id,
+                source=source,
+                workspace_id=workspace_id,
+                correlation_id=correlation_id,
+            )
+        )
+
+    return runtime, emitted
 
 
 async def _fanout_event(event: dict[str, Any]) -> None:
@@ -1865,6 +2059,18 @@ async def update_agent_workflow(workflow_id: str, request: AgentWorkflowUpdateRe
         )
         emitted.append(supervisor_event)
 
+        _, arbitration_events = _run_supervisor_arbitration(
+            workspace_id=request.workspace_id,
+            available_slots=int(_get_supervisor_runtime(request.workspace_id).get("available_slots", 1)),
+            execution_id=request.execution_id,
+            source="workflow-supervisor",
+            correlation_id=request.correlation_id,
+            trigger="workflow_blocked",
+            reason=request.reason,
+            actor="workflow-supervisor",
+        )
+        emitted.extend(arbitration_events)
+
     elif status_value in {"updated", "in_progress"}:
         workflow["status"] = "in_progress"
         workflow["workflow_pressure_score"] = _workflow_pressure_score(
@@ -2159,6 +2365,18 @@ async def consensus_agent_workflow(workflow_id: str, request: AgentWorkflowConse
         )
         supervisor_events.append(supervisor_event)
 
+        _, arbitration_events = _run_supervisor_arbitration(
+            workspace_id=request.workspace_id,
+            available_slots=int(_get_supervisor_runtime(request.workspace_id).get("available_slots", 1)),
+            execution_id=request.execution_id,
+            source="workflow-supervisor",
+            correlation_id=request.correlation_id,
+            trigger="consensus_failed",
+            reason=request.reason,
+            actor="workflow-supervisor",
+        )
+        supervisor_events.extend(arbitration_events)
+
     health_event = EVENTS.append(
         "agent.workflow_health",
         {
@@ -2250,13 +2468,48 @@ async def supervise_agent_workflow(workflow_id: str, request: AgentWorkflowSuper
         correlation_id=request.correlation_id,
     )
 
-    for event in [invoked_event, supervisor_event, health_event]:
+    _, arbitration_events = _run_supervisor_arbitration(
+        workspace_id=request.workspace_id,
+        available_slots=int(_get_supervisor_runtime(request.workspace_id).get("available_slots", 1)),
+        execution_id=request.execution_id,
+        source=request.source,
+        correlation_id=request.correlation_id,
+        trigger=request.trigger,
+        reason=request.reason,
+        actor=request.actor,
+    )
+
+    for event in [invoked_event, supervisor_event, health_event] + arbitration_events:
         await _fanout_event(event)
 
     return {
         "status": "ok",
         "workflow": workflow,
-        "emitted_events": [invoked_event, supervisor_event, health_event],
+        "emitted_events": [invoked_event, supervisor_event, health_event] + arbitration_events,
+    }
+
+
+@app.post("/api/agents/supervisor/arbitrate")
+async def arbitrate_supervisor_runtime(request: AgentSupervisorArbitrationRequest) -> dict[str, Any]:
+    runtime, emitted_events = _run_supervisor_arbitration(
+        workspace_id=request.workspace_id,
+        available_slots=request.available_slots,
+        execution_id=request.execution_id,
+        source=request.source,
+        correlation_id=request.correlation_id,
+        trigger=request.trigger,
+        reason=request.reason,
+        actor=request.actor,
+    )
+
+    for event in emitted_events:
+        await _fanout_event(event)
+
+    return {
+        "status": "ok",
+        "workspace_id": request.workspace_id,
+        "runtime": runtime,
+        "emitted_events": emitted_events,
     }
 
 

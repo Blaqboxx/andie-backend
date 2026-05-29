@@ -61,6 +61,8 @@ Never allow event frames to become the system of record.
 	- delegation, review chains, and consensus scaffolding
 - Phase 4: foundation started
 	- workflow supervisor layer
+- Phase 4B: bootstrap complete
+	- runtime resource arbitration across workflows
 
 ## Current Runtime Additions (Phase 2E Bootstrap)
 - Governance policy overlay layer is now active with profile-driven coefficients.
@@ -184,6 +186,21 @@ Never allow event frames to become the system of record.
 	- `POST /api/agents/workflows/{workflow_id}/supervise`
 - Workflow health snapshots now include:
 	- `supervisor_actions`
+
+## Current Runtime Additions (Phase 4B Bootstrap)
+- Cross-workflow supervisor arbitration is now available:
+	- `POST /api/agents/supervisor/arbitrate`
+- Supervisor resource arbitration events are now available:
+	- `agent.supervisor_prioritized`
+	- `agent.supervisor_preempted`
+	- `agent.supervisor_reallocated`
+	- `agent.supervisor_transferred`
+- Supervisor arbitration scores workflow priority from:
+	- workflow pressure
+	- blocked step count
+	- replan count
+	- governance band
+	- supervisor action history
 
 ## Priority Workstreams
 

@@ -1056,3 +1056,77 @@ def test_workflow_manual_supervision_endpoint_emits_supervisor_events() -> None:
         or ("agent.supervisor_resumed" in emitted_types)
     )
     assert "agent.workflow_health" in emitted_types
+    assert "agent.supervisor_prioritized" in emitted_types
+
+
+def test_supervisor_cross_workflow_arbitration_emits_priority_and_transfer_events() -> None:
+    workspace_id = "ws-supervisor-arb-1"
+    AGENT_TASKS_BY_WORKSPACE.pop(workspace_id, None)
+    AGENT_WORKFLOWS_BY_WORKSPACE.pop(workspace_id, None)
+
+    client = TestClient(app)
+    execution_id = "exec-supervisor-arb-1"
+
+    a = client.post(
+        "/api/agents/arbitrate",
+        json={
+            "task_id": "wf-super-a",
+            "operator_forced_role": "execution",
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+        },
+    )
+    assert a.status_code == 200
+
+    first_arb = client.post(
+        "/api/agents/supervisor/arbitrate",
+        json={
+            "workspace_id": workspace_id,
+            "available_slots": 1,
+            "execution_id": execution_id,
+            "reason": "initial slot assignment",
+        },
+    )
+    assert first_arb.status_code == 200
+
+    b = client.post(
+        "/api/agents/arbitrate",
+        json={
+            "task_id": "wf-super-b",
+            "operator_forced_role": "execution",
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+        },
+    )
+    assert b.status_code == 200
+
+    boost = client.post(
+        "/api/agents/workflows/wf-super-b/update",
+        json={
+            "status": "blocked",
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+            "reason": "force pressure increase",
+        },
+    )
+    assert boost.status_code == 200
+
+    second_arb = client.post(
+        "/api/agents/supervisor/arbitrate",
+        json={
+            "workspace_id": workspace_id,
+            "available_slots": 1,
+            "execution_id": execution_id,
+            "reason": "rebalance after pressure change",
+        },
+    )
+    assert second_arb.status_code == 200
+    emitted_types = [event["event_type"] for event in second_arb.json()["emitted_events"]]
+    assert "agent.supervisor_prioritized" in emitted_types
+
+    replay = client.get(f"/api/replay/{execution_id}")
+    assert replay.status_code == 200
+    replay_types = [event["event_type"] for event in replay.json()["events"]]
+    assert "agent.supervisor_preempted" in replay_types
+    assert "agent.supervisor_reallocated" in replay_types
+    assert "agent.supervisor_transferred" in replay_types
