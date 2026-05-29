@@ -2235,8 +2235,196 @@ def test_coordinator_portfolio_escalation_and_suspension_recommendations() -> No
 
     actions = body["recommended_actions"]
     assert any(a.get("type") == "portfolio_escalation_recommended" for a in actions)
-    assert any(a.get("type") == "portfolio_suspension_recommended" for a in actions)
+    assert not any(a.get("type") == "portfolio_suspension_recommended" for a in actions)
 
     emitted_types = [event["event_type"] for event in body["emitted_events"]]
     assert "coordinator.portfolio_escalation_recommended" in emitted_types
-    assert "coordinator.portfolio_suspension_recommended" in emitted_types
+    assert "coordinator.portfolio_recommendation_suppressed" in emitted_types
+
+
+def test_coordinator_portfolio_policy_applied_event_emitted() -> None:
+    OBJECTIVES.clear()
+    OBJECTIVE_SIGNALS["blocked"] = {}
+    OBJECTIVE_SIGNALS["pressure"] = {}
+    OBJECTIVE_SIGNALS["objective_pressure_score"] = {}
+    OBJECTIVE_SIGNALS["critical_path"] = {}
+
+    workspace_id = "ws-coordinator-13"
+    AGENT_TASKS_BY_WORKSPACE.pop(workspace_id, None)
+    AGENT_WORKFLOWS_BY_WORKSPACE.pop(workspace_id, None)
+    GOVERNANCE_PROFILE_BINDINGS[workspace_id] = {
+        "active": "mission_critical",
+        "overrides": {},
+        "updated_at": "2026-01-01T00:00:00+00:00",
+    }
+
+    client = TestClient(app)
+    execution_id = "exec-coordinator-13"
+
+    assert (
+        client.post(
+            "/api/objectives",
+            json={
+                "objective_id": "pp-a",
+                "title": "policy profile objective",
+                "priority": 9,
+                "salience": 9.0,
+                "portfolio_group": "pp",
+                "workspace_id": workspace_id,
+                "execution_id": execution_id,
+            },
+        ).status_code
+        == 200
+    )
+
+    analyze = client.post(
+        "/api/coordinator/analyze",
+        json={
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+            "reason": "portfolio policy apply signal",
+        },
+    )
+    assert analyze.status_code == 200
+    body = analyze.json()
+
+    assert body["portfolio_policy"]["active_profile"] == "mission_critical"
+    emitted_types = [event["event_type"] for event in body["emitted_events"]]
+    assert "coordinator.portfolio_policy_applied" in emitted_types
+
+
+def test_coordinator_portfolio_policy_requires_governance_review_before_escalation() -> None:
+    OBJECTIVES.clear()
+    OBJECTIVE_SIGNALS["blocked"] = {}
+    OBJECTIVE_SIGNALS["pressure"] = {}
+    OBJECTIVE_SIGNALS["objective_pressure_score"] = {}
+    OBJECTIVE_SIGNALS["critical_path"] = {}
+
+    workspace_id = "ws-coordinator-14"
+    AGENT_TASKS_BY_WORKSPACE.pop(workspace_id, None)
+    AGENT_WORKFLOWS_BY_WORKSPACE.pop(workspace_id, None)
+    GOVERNANCE_PROFILE_BINDINGS[workspace_id] = {
+        "active": "conservative",
+        "overrides": {},
+        "updated_at": "2026-01-01T00:00:00+00:00",
+    }
+
+    client = TestClient(app)
+    execution_id = "exec-coordinator-14"
+
+    seed = [
+        {
+            "objective_id": "gr-anchor",
+            "title": "anchor",
+            "priority": 10,
+            "salience": 10.0,
+            "portfolio_group": "core",
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+        },
+        {
+            "objective_id": "gr-risk",
+            "title": "high-risk dependent",
+            "priority": 10,
+            "salience": 10.0,
+            "depends_on": ["gr-anchor"],
+            "portfolio_group": "compliance",
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+        },
+    ]
+    for payload in seed:
+        assert client.post("/api/objectives", json=payload).status_code == 200
+
+    analyze = client.post(
+        "/api/coordinator/analyze",
+        json={
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+            "reason": "governance review gate",
+        },
+    )
+    assert analyze.status_code == 200
+    body = analyze.json()
+
+    assert any(
+        a.get("type") == "portfolio_escalation_recommended" and a.get("action") == "governance_review_portfolio"
+        for a in body["recommended_actions"]
+    )
+    emitted_types = [event["event_type"] for event in body["emitted_events"]]
+    assert "coordinator.portfolio_governance_review_required" in emitted_types
+
+
+def test_coordinator_portfolio_policy_conflict_suppresses_suspension() -> None:
+    OBJECTIVES.clear()
+    OBJECTIVE_SIGNALS["blocked"] = {}
+    OBJECTIVE_SIGNALS["pressure"] = {}
+    OBJECTIVE_SIGNALS["objective_pressure_score"] = {}
+    OBJECTIVE_SIGNALS["critical_path"] = {}
+
+    workspace_id = "ws-coordinator-15"
+    AGENT_TASKS_BY_WORKSPACE.pop(workspace_id, None)
+    AGENT_WORKFLOWS_BY_WORKSPACE.pop(workspace_id, None)
+    GOVERNANCE_PROFILE_BINDINGS[workspace_id] = {
+        "active": "balanced",
+        "overrides": {},
+        "updated_at": "2026-01-01T00:00:00+00:00",
+    }
+    client = TestClient(app)
+    execution_id = "exec-coordinator-15"
+
+    seed = [
+        {
+            "objective_id": "pcf-anchor",
+            "title": "anchor",
+            "priority": 10,
+            "salience": 10.0,
+            "portfolio_group": "core",
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+        },
+        {
+            "objective_id": "pcf-risk",
+            "title": "conflict candidate",
+            "priority": 3,
+            "salience": 3.0,
+            "depends_on": ["pcf-anchor"],
+            "portfolio_group": "fragile",
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+        },
+    ]
+    for payload in seed:
+        assert client.post("/api/objectives", json=payload).status_code == 200
+
+    GOVERNANCE_STATES[workspace_id] = {
+        "updated_at": "2026-01-01T00:00:00+00:00",
+        "band": "warning",
+        "interrupt_sensitivity": 0.7,
+        "escalation_readiness": 0.8,
+        "cooldown_aggressiveness": 0.4,
+        "posture_persistence": 0.7,
+        "governance_attention": 0.8,
+        "confidence": 0.8,
+        "profile": "balanced",
+    }
+
+    analyze = client.post(
+        "/api/coordinator/analyze",
+        json={
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+            "reason": "policy conflict arbitration",
+        },
+    )
+    assert analyze.status_code == 200
+    body = analyze.json()
+
+    assert any(a.get("type") == "portfolio_escalation_recommended" for a in body["recommended_actions"])
+    assert not any(a.get("type") == "portfolio_suspension_recommended" for a in body["recommended_actions"])
+    assert len(body["portfolio_policy_conflicts"]) >= 1
+    assert len(body["portfolio_suppressed_recommendations"]) >= 1
+
+    emitted_types = [event["event_type"] for event in body["emitted_events"]]
+    assert "coordinator.portfolio_policy_conflict_detected" in emitted_types
+    assert "coordinator.portfolio_recommendation_suppressed" in emitted_types

@@ -119,6 +119,10 @@ EVENT_FAMILIES: dict[str, set[str]] = {
         "coordinator.portfolio_resource_conflict_detected",
         "coordinator.portfolio_escalation_recommended",
         "coordinator.portfolio_suspension_recommended",
+        "coordinator.portfolio_governance_review_required",
+        "coordinator.portfolio_recommendation_suppressed",
+        "coordinator.portfolio_policy_applied",
+        "coordinator.portfolio_policy_conflict_detected",
     },
 }
 
@@ -450,6 +454,9 @@ COORDINATOR_STATE_BY_WORKSPACE: dict[str, dict[str, Any]] = {
         "portfolio_health": [],
         "cross_portfolio_dependencies": [],
         "portfolio_resource_conflicts": [],
+        "portfolio_policy": {},
+        "portfolio_policy_conflicts": [],
+        "portfolio_suppressed_recommendations": [],
         "updated_at": _utc_now(),
     }
 }
@@ -884,9 +891,54 @@ def _get_coordinator_state(workspace_id: str) -> dict[str, Any]:
             "portfolio_health": [],
             "cross_portfolio_dependencies": [],
             "portfolio_resource_conflicts": [],
+            "portfolio_policy": {},
+            "portfolio_policy_conflicts": [],
+            "portfolio_suppressed_recommendations": [],
             "updated_at": _utc_now(),
         }
     return COORDINATOR_STATE_BY_WORKSPACE[workspace_id]
+
+
+def _portfolio_policy_overlay(profile: str, governance_band: str) -> dict[str, Any]:
+    profile_value = str(profile or "balanced").strip().lower()
+    defaults: dict[str, dict[str, Any]] = {
+        "balanced": {
+            "escalation_threshold": 0.7,
+            "suspension_threshold": 0.65,
+            "max_pressure_for_suspension": 0.4,
+            "require_governance_review_for_escalation": False,
+            "suppress_suspend_when_escalated": True,
+            "conflict_resolution": "prefer_escalation",
+        },
+        "conservative": {
+            "escalation_threshold": 0.8,
+            "suspension_threshold": 0.6,
+            "max_pressure_for_suspension": 0.45,
+            "require_governance_review_for_escalation": True,
+            "suppress_suspend_when_escalated": True,
+            "conflict_resolution": "prefer_escalation",
+        },
+        "aggressive": {
+            "escalation_threshold": 0.55,
+            "suspension_threshold": 0.8,
+            "max_pressure_for_suspension": 0.3,
+            "require_governance_review_for_escalation": False,
+            "suppress_suspend_when_escalated": True,
+            "conflict_resolution": "prefer_escalation",
+        },
+        "mission_critical": {
+            "escalation_threshold": 0.6,
+            "suspension_threshold": 0.9,
+            "max_pressure_for_suspension": 0.25,
+            "require_governance_review_for_escalation": False,
+            "suppress_suspend_when_escalated": True,
+            "conflict_resolution": "prefer_escalation",
+        },
+    }
+    policy = dict(defaults.get(profile_value, defaults["balanced"]))
+    policy["active_profile"] = profile_value
+    policy["governance_band"] = governance_band
+    return policy
 
 
 def _run_coordinator_analysis(
@@ -1005,7 +1057,12 @@ def _run_coordinator_analysis(
         )
 
     governance_band = str(governance_state.get("band", "stable"))
+    governance_profile = str(_get_governance_profile_binding(workspace_id).get("active", "balanced"))
+    portfolio_policy = _portfolio_policy_overlay(governance_profile, governance_band)
     coordination_recommendations: list[dict[str, Any]] = []
+    policy_conflicts: list[dict[str, Any]] = []
+    suppressed_recommendations: list[dict[str, Any]] = []
+    governance_review_required: list[dict[str, Any]] = []
     reverse_dependencies: dict[str, list[str]] = defaultdict(list)
     for edge in objective_dependencies:
         reverse_dependencies[str(edge["depends_on"])].append(str(edge["objective_id"]))
@@ -1294,30 +1351,84 @@ def _run_coordinator_analysis(
                 }
             )
 
-        if float(portfolio["portfolio_risk"]) >= 0.7:
+        if float(portfolio["portfolio_risk"]) >= float(portfolio_policy["escalation_threshold"]):
+            escalate_action = "governance_review_portfolio" if governance_band == "escalated" else "escalate_portfolio"
+            if bool(portfolio_policy.get("require_governance_review_for_escalation", False)):
+                escalate_action = "governance_review_portfolio"
+                governance_review_required.append(
+                    {
+                        "portfolio_id": portfolio["portfolio_id"],
+                        "reason": "policy requires governance review before escalation",
+                    }
+                )
+
             coordination_recommendations.append(
                 {
                     "type": "portfolio_escalation_recommended",
-                    "action": "governance_review_portfolio"
-                    if governance_band == "escalated"
-                    else "escalate_portfolio",
+                    "action": escalate_action,
                     "portfolio_id": portfolio["portfolio_id"],
                     "portfolio_risk": portfolio["portfolio_risk"],
                     "reason": "portfolio risk crossed escalation threshold",
                 }
             )
 
-        if float(portfolio["portfolio_risk"]) >= 0.65 and float(portfolio["portfolio_pressure"]) <= 0.4:
-            coordination_recommendations.append(
-                {
-                    "type": "portfolio_suspension_recommended",
-                    "action": "suspend_portfolio",
-                    "portfolio_id": portfolio["portfolio_id"],
-                    "portfolio_pressure": portfolio["portfolio_pressure"],
-                    "portfolio_risk": portfolio["portfolio_risk"],
-                    "reason": "high risk portfolio with low strategic pressure",
-                }
+        if (
+            float(portfolio["portfolio_risk"]) >= float(portfolio_policy["suspension_threshold"])
+            and float(portfolio["portfolio_pressure"]) <= float(portfolio_policy["max_pressure_for_suspension"])
+        ):
+            suspension_rec = {
+                "type": "portfolio_suspension_recommended",
+                "action": "suspend_portfolio",
+                "portfolio_id": portfolio["portfolio_id"],
+                "portfolio_pressure": portfolio["portfolio_pressure"],
+                "portfolio_risk": portfolio["portfolio_risk"],
+                "reason": "high risk portfolio with low strategic pressure",
+            }
+            if bool(portfolio_policy.get("suppress_suspend_when_escalated", False)) and governance_band == "escalated":
+                suppressed_recommendations.append(
+                    {
+                        "recommendation": suspension_rec,
+                        "reason": "policy_suppressed_escalated_band",
+                    }
+                )
+            else:
+                coordination_recommendations.append(suspension_rec)
+
+    recommendations_by_portfolio: dict[str, set[str]] = defaultdict(set)
+    for recommendation in coordination_recommendations:
+        portfolio_id = str(recommendation.get("portfolio_id") or "")
+        if not portfolio_id:
+            continue
+        recommendations_by_portfolio[portfolio_id].add(str(recommendation.get("type") or ""))
+
+    if str(portfolio_policy.get("conflict_resolution", "")) == "prefer_escalation":
+        filtered: list[dict[str, Any]] = []
+        for recommendation in coordination_recommendations:
+            rec_type = str(recommendation.get("type") or "")
+            portfolio_id = str(recommendation.get("portfolio_id") or "")
+            has_conflict = (
+                portfolio_id
+                and "portfolio_escalation_recommended" in recommendations_by_portfolio.get(portfolio_id, set())
+                and "portfolio_suspension_recommended" in recommendations_by_portfolio.get(portfolio_id, set())
             )
+            if has_conflict and rec_type == "portfolio_suspension_recommended":
+                policy_conflicts.append(
+                    {
+                        "portfolio_id": portfolio_id,
+                        "suppressed_type": "portfolio_suspension_recommended",
+                        "retained_type": "portfolio_escalation_recommended",
+                        "resolution": "prefer_escalation",
+                    }
+                )
+                suppressed_recommendations.append(
+                    {
+                        "recommendation": recommendation,
+                        "reason": "policy_conflict_prefer_escalation",
+                    }
+                )
+                continue
+            filtered.append(recommendation)
+        coordination_recommendations = filtered
 
     emitted: list[dict[str, Any]] = []
     emitted.append(
@@ -1328,6 +1439,20 @@ def _run_coordinator_analysis(
                 "priority_ranking": priority_ranking,
                 "reason": reason,
                 "actor": actor,
+            },
+            execution_id=execution_id,
+            source=source,
+            workspace_id=workspace_id,
+            correlation_id=correlation_id,
+        )
+    )
+
+    emitted.append(
+        EVENTS.append(
+            "coordinator.portfolio_policy_applied",
+            {
+                "workspace_id": workspace_id,
+                "policy": portfolio_policy,
             },
             execution_id=execution_id,
             source=source,
@@ -1489,6 +1614,51 @@ def _run_coordinator_analysis(
             )
         )
 
+    for review in governance_review_required:
+        emitted.append(
+            EVENTS.append(
+                "coordinator.portfolio_governance_review_required",
+                {
+                    "workspace_id": workspace_id,
+                    "review": review,
+                },
+                execution_id=execution_id,
+                source=source,
+                workspace_id=workspace_id,
+                correlation_id=correlation_id,
+            )
+        )
+
+    for suppressed in suppressed_recommendations:
+        emitted.append(
+            EVENTS.append(
+                "coordinator.portfolio_recommendation_suppressed",
+                {
+                    "workspace_id": workspace_id,
+                    "suppressed": suppressed,
+                },
+                execution_id=execution_id,
+                source=source,
+                workspace_id=workspace_id,
+                correlation_id=correlation_id,
+            )
+        )
+
+    for conflict in policy_conflicts:
+        emitted.append(
+            EVENTS.append(
+                "coordinator.portfolio_policy_conflict_detected",
+                {
+                    "workspace_id": workspace_id,
+                    "conflict": conflict,
+                },
+                execution_id=execution_id,
+                source=source,
+                workspace_id=workspace_id,
+                correlation_id=correlation_id,
+            )
+        )
+
     for rec in coordination_recommendations:
         rec_type = str(rec.get("type", ""))
         if rec_type == "suspension_recommended":
@@ -1550,6 +1720,9 @@ def _run_coordinator_analysis(
             "portfolio_health": portfolio_health,
             "cross_portfolio_dependencies": cross_portfolio_dependencies,
             "portfolio_resource_conflicts": portfolio_resource_conflicts,
+            "portfolio_policy": portfolio_policy,
+            "portfolio_policy_conflicts": policy_conflicts,
+            "portfolio_suppressed_recommendations": suppressed_recommendations,
             "updated_at": _utc_now(),
         }
     )
@@ -4126,6 +4299,9 @@ async def analyze_coordinator(request: CoordinatorAnalyzeRequest) -> dict[str, A
         "portfolio_health": state.get("portfolio_health") or [],
         "cross_portfolio_dependencies": state.get("cross_portfolio_dependencies") or [],
         "portfolio_resource_conflicts": state.get("portfolio_resource_conflicts") or [],
+        "portfolio_policy": state.get("portfolio_policy") or {},
+        "portfolio_policy_conflicts": state.get("portfolio_policy_conflicts") or [],
+        "portfolio_suppressed_recommendations": state.get("portfolio_suppressed_recommendations") or [],
         "blocked_objectives": state.get("blocked_objectives") or [],
         "merge_candidates": state.get("merge_candidates") or [],
         "recommended_actions": state.get("coordination_recommendations") or [],

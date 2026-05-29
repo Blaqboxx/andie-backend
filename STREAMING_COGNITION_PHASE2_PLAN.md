@@ -77,6 +77,8 @@ Never allow event frames to become the system of record.
 	- objective portfolio management
 - Phase 5C: bootstrap started
 	- cross-portfolio arbitration
+- Phase 5D: bootstrap started
+	- portfolio governance overlay
 
 ## Current Runtime Additions (Phase 2E Bootstrap)
 - Governance policy overlay layer is now active with profile-driven coefficients.
@@ -304,6 +306,19 @@ Never allow event frames to become the system of record.
 	- `coordinator.portfolio_escalation_recommended`
 	- `coordinator.portfolio_suspension_recommended`
 - Portfolio arbitration recommendations remain advisory and governance-aware.
+
+## Current Runtime Additions (Phase 5D Bootstrap)
+- Portfolio governance overlay now shapes coordinator recommendations by active governance profile.
+- Policy-shaped coordinator outputs are now available in coordinator analysis:
+	- portfolio_policy
+	- portfolio_policy_conflicts
+	- portfolio_suppressed_recommendations
+- Phase 5D event family is replay-visible:
+	- `coordinator.portfolio_governance_review_required`
+	- `coordinator.portfolio_recommendation_suppressed`
+	- `coordinator.portfolio_policy_applied`
+	- `coordinator.portfolio_policy_conflict_detected`
+- Recommendation shaping remains advisory and read-only; execution authority is unchanged.
 
 ## Priority Workstreams
 
