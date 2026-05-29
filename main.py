@@ -123,6 +123,10 @@ EVENT_FAMILIES: dict[str, set[str]] = {
         "coordinator.portfolio_recommendation_suppressed",
         "coordinator.portfolio_policy_applied",
         "coordinator.portfolio_policy_conflict_detected",
+        "coordinator.intent_candidate_created",
+        "coordinator.intent_promotion_requested",
+        "coordinator.intent_promotion_denied",
+        "coordinator.intent_promotion_approved",
     },
 }
 
@@ -457,6 +461,8 @@ COORDINATOR_STATE_BY_WORKSPACE: dict[str, dict[str, Any]] = {
         "portfolio_policy": {},
         "portfolio_policy_conflicts": [],
         "portfolio_suppressed_recommendations": [],
+        "intent_candidates": [],
+        "intent_promotions": [],
         "updated_at": _utc_now(),
     }
 }
@@ -894,6 +900,8 @@ def _get_coordinator_state(workspace_id: str) -> dict[str, Any]:
             "portfolio_policy": {},
             "portfolio_policy_conflicts": [],
             "portfolio_suppressed_recommendations": [],
+            "intent_candidates": [],
+            "intent_promotions": [],
             "updated_at": _utc_now(),
         }
     return COORDINATOR_STATE_BY_WORKSPACE[workspace_id]
@@ -933,6 +941,32 @@ def _portfolio_policy_overlay(profile: str, governance_band: str) -> dict[str, A
             "require_governance_review_for_escalation": False,
             "suppress_suspend_when_escalated": True,
             "conflict_resolution": "prefer_escalation",
+        },
+    }
+    policy = dict(defaults.get(profile_value, defaults["balanced"]))
+    policy["active_profile"] = profile_value
+    policy["governance_band"] = governance_band
+    return policy
+
+
+def _intent_promotion_policy(profile: str, governance_band: str) -> dict[str, Any]:
+    profile_value = str(profile or "balanced").strip().lower()
+    defaults: dict[str, dict[str, Any]] = {
+        "balanced": {
+            "allow_in_escalated_for_review_only": True,
+            "require_review_for_actions": [],
+        },
+        "conservative": {
+            "allow_in_escalated_for_review_only": True,
+            "require_review_for_actions": ["escalate_portfolio", "suspend_portfolio"],
+        },
+        "aggressive": {
+            "allow_in_escalated_for_review_only": False,
+            "require_review_for_actions": [],
+        },
+        "mission_critical": {
+            "allow_in_escalated_for_review_only": True,
+            "require_review_for_actions": ["suspend_portfolio"],
         },
     }
     policy = dict(defaults.get(profile_value, defaults["balanced"]))
@@ -1430,6 +1464,62 @@ def _run_coordinator_analysis(
             filtered.append(recommendation)
         coordination_recommendations = filtered
 
+    intent_policy = _intent_promotion_policy(governance_profile, governance_band)
+    intent_action_map = {
+        "sequence_portfolios": "sequence_portfolio_execution",
+        "rebalance_portfolio_allocation": "rebalance_portfolio_allocation",
+        "governance_review_portfolio_allocation": "governance_review_portfolio_allocation",
+        "governance_review_portfolio": "governance_review_portfolio",
+        "escalate_portfolio": "escalate_portfolio_attention",
+        "suspend_portfolio": "suspend_portfolio_activity",
+        "mitigate_portfolio_risk": "mitigate_portfolio_risk",
+    }
+    intent_candidates: list[dict[str, Any]] = []
+    intent_promotions: list[dict[str, Any]] = []
+    intent_counter = 0
+    for recommendation in coordination_recommendations:
+        portfolio_id = str(recommendation.get("portfolio_id") or "")
+        action = str(recommendation.get("action") or "")
+        if not portfolio_id or action not in intent_action_map:
+            continue
+
+        intent_counter += 1
+        intent_id = f"intent-{portfolio_id}-{intent_counter}"
+        candidate = {
+            "intent_id": intent_id,
+            "portfolio_id": portfolio_id,
+            "recommendation_type": str(recommendation.get("type") or ""),
+            "action": action,
+            "intent": intent_action_map[action],
+            "advisory": True,
+        }
+        intent_candidates.append(candidate)
+
+        approved = True
+        decision_reason = "promotion_policy_default"
+        if (
+            bool(intent_policy.get("allow_in_escalated_for_review_only", False))
+            and governance_band == "escalated"
+            and not action.startswith("governance_review")
+        ):
+            approved = False
+            decision_reason = "escalated_band_requires_governance_review"
+
+        if approved and action in set(intent_policy.get("require_review_for_actions") or []) and not action.startswith("governance_review"):
+            approved = False
+            decision_reason = "profile_requires_governance_review"
+
+        intent_promotions.append(
+            {
+                "intent_id": intent_id,
+                "portfolio_id": portfolio_id,
+                "status": "approved" if approved else "denied",
+                "reason": decision_reason,
+                "intent": candidate["intent"],
+                "action": action,
+            }
+        )
+
     emitted: list[dict[str, Any]] = []
     emitted.append(
         EVENTS.append(
@@ -1659,6 +1749,52 @@ def _run_coordinator_analysis(
             )
         )
 
+    for candidate in intent_candidates:
+        emitted.append(
+            EVENTS.append(
+                "coordinator.intent_candidate_created",
+                {
+                    "workspace_id": workspace_id,
+                    "candidate": candidate,
+                },
+                execution_id=execution_id,
+                source=source,
+                workspace_id=workspace_id,
+                correlation_id=correlation_id,
+            )
+        )
+        emitted.append(
+            EVENTS.append(
+                "coordinator.intent_promotion_requested",
+                {
+                    "workspace_id": workspace_id,
+                    "intent_id": candidate["intent_id"],
+                    "portfolio_id": candidate["portfolio_id"],
+                    "intent": candidate["intent"],
+                },
+                execution_id=execution_id,
+                source=source,
+                workspace_id=workspace_id,
+                correlation_id=correlation_id,
+            )
+        )
+
+    for decision in intent_promotions:
+        event_type = "coordinator.intent_promotion_approved" if decision["status"] == "approved" else "coordinator.intent_promotion_denied"
+        emitted.append(
+            EVENTS.append(
+                event_type,
+                {
+                    "workspace_id": workspace_id,
+                    "decision": decision,
+                },
+                execution_id=execution_id,
+                source=source,
+                workspace_id=workspace_id,
+                correlation_id=correlation_id,
+            )
+        )
+
     for rec in coordination_recommendations:
         rec_type = str(rec.get("type", ""))
         if rec_type == "suspension_recommended":
@@ -1723,6 +1859,8 @@ def _run_coordinator_analysis(
             "portfolio_policy": portfolio_policy,
             "portfolio_policy_conflicts": policy_conflicts,
             "portfolio_suppressed_recommendations": suppressed_recommendations,
+            "intent_candidates": intent_candidates,
+            "intent_promotions": intent_promotions,
             "updated_at": _utc_now(),
         }
     )
@@ -4302,6 +4440,8 @@ async def analyze_coordinator(request: CoordinatorAnalyzeRequest) -> dict[str, A
         "portfolio_policy": state.get("portfolio_policy") or {},
         "portfolio_policy_conflicts": state.get("portfolio_policy_conflicts") or [],
         "portfolio_suppressed_recommendations": state.get("portfolio_suppressed_recommendations") or [],
+        "intent_candidates": state.get("intent_candidates") or [],
+        "intent_promotions": state.get("intent_promotions") or [],
         "blocked_objectives": state.get("blocked_objectives") or [],
         "merge_candidates": state.get("merge_candidates") or [],
         "recommended_actions": state.get("coordination_recommendations") or [],

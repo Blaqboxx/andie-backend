@@ -2428,3 +2428,188 @@ def test_coordinator_portfolio_policy_conflict_suppresses_suspension() -> None:
     emitted_types = [event["event_type"] for event in body["emitted_events"]]
     assert "coordinator.portfolio_policy_conflict_detected" in emitted_types
     assert "coordinator.portfolio_recommendation_suppressed" in emitted_types
+
+
+def test_coordinator_intent_candidates_created_for_portfolio_recommendations() -> None:
+    OBJECTIVES.clear()
+    OBJECTIVE_SIGNALS["blocked"] = {}
+    OBJECTIVE_SIGNALS["pressure"] = {}
+    OBJECTIVE_SIGNALS["objective_pressure_score"] = {}
+    OBJECTIVE_SIGNALS["critical_path"] = {}
+
+    workspace_id = "ws-coordinator-16"
+    AGENT_TASKS_BY_WORKSPACE.pop(workspace_id, None)
+    AGENT_WORKFLOWS_BY_WORKSPACE.pop(workspace_id, None)
+
+    client = TestClient(app)
+    execution_id = "exec-coordinator-16"
+
+    seed = [
+        {
+            "objective_id": "ic-beta",
+            "title": "beta base",
+            "priority": 8,
+            "salience": 8.0,
+            "portfolio_group": "beta",
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+        },
+        {
+            "objective_id": "ic-alpha",
+            "title": "alpha dependent",
+            "priority": 6,
+            "salience": 6.0,
+            "depends_on": ["ic-beta"],
+            "portfolio_group": "alpha",
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+        },
+    ]
+    for payload in seed:
+        assert client.post("/api/objectives", json=payload).status_code == 200
+
+    analyze = client.post(
+        "/api/coordinator/analyze",
+        json={
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+            "reason": "intent candidate generation",
+        },
+    )
+    assert analyze.status_code == 200
+    body = analyze.json()
+
+    assert len(body["intent_candidates"]) >= 1
+    assert all(candidate.get("advisory") is True for candidate in body["intent_candidates"])
+    emitted_types = [event["event_type"] for event in body["emitted_events"]]
+    assert "coordinator.intent_candidate_created" in emitted_types
+    assert "coordinator.intent_promotion_requested" in emitted_types
+
+
+def test_coordinator_intent_promotion_denied_in_escalated_band_for_non_review_actions() -> None:
+    OBJECTIVES.clear()
+    OBJECTIVE_SIGNALS["blocked"] = {}
+    OBJECTIVE_SIGNALS["pressure"] = {}
+    OBJECTIVE_SIGNALS["objective_pressure_score"] = {}
+    OBJECTIVE_SIGNALS["critical_path"] = {}
+
+    workspace_id = "ws-coordinator-17"
+    AGENT_TASKS_BY_WORKSPACE.pop(workspace_id, None)
+    AGENT_WORKFLOWS_BY_WORKSPACE.pop(workspace_id, None)
+
+    client = TestClient(app)
+    execution_id = "exec-coordinator-17"
+
+    for payload in [
+        {
+            "objective_id": "id-beta",
+            "title": "beta base",
+            "priority": 8,
+            "salience": 8.0,
+            "portfolio_group": "beta",
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+        },
+        {
+            "objective_id": "id-alpha",
+            "title": "alpha dependent",
+            "priority": 6,
+            "salience": 6.0,
+            "depends_on": ["id-beta"],
+            "portfolio_group": "alpha",
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+        },
+    ]:
+        assert client.post("/api/objectives", json=payload).status_code == 200
+
+    GOVERNANCE_STATES[workspace_id] = {
+        "updated_at": "2026-01-01T00:00:00+00:00",
+        "band": "escalated",
+        "interrupt_sensitivity": 0.8,
+        "escalation_readiness": 0.9,
+        "cooldown_aggressiveness": 0.3,
+        "posture_persistence": 0.8,
+        "governance_attention": 0.9,
+        "confidence": 0.7,
+        "profile": "mission_critical",
+    }
+
+    analyze = client.post(
+        "/api/coordinator/analyze",
+        json={
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+            "reason": "intent promotion denial path",
+        },
+    )
+    assert analyze.status_code == 200
+    body = analyze.json()
+
+    assert any(decision.get("status") == "denied" for decision in body["intent_promotions"])
+    emitted_types = [event["event_type"] for event in body["emitted_events"]]
+    assert "coordinator.intent_promotion_denied" in emitted_types
+
+
+def test_coordinator_intent_promotion_approved_for_governance_review_action() -> None:
+    OBJECTIVES.clear()
+    OBJECTIVE_SIGNALS["blocked"] = {}
+    OBJECTIVE_SIGNALS["pressure"] = {}
+    OBJECTIVE_SIGNALS["objective_pressure_score"] = {}
+    OBJECTIVE_SIGNALS["critical_path"] = {}
+
+    workspace_id = "ws-coordinator-18"
+    AGENT_TASKS_BY_WORKSPACE.pop(workspace_id, None)
+    AGENT_WORKFLOWS_BY_WORKSPACE.pop(workspace_id, None)
+    GOVERNANCE_PROFILE_BINDINGS[workspace_id] = {
+        "active": "conservative",
+        "overrides": {},
+        "updated_at": "2026-01-01T00:00:00+00:00",
+    }
+
+    client = TestClient(app)
+    execution_id = "exec-coordinator-18"
+
+    for payload in [
+        {
+            "objective_id": "ia-anchor",
+            "title": "anchor",
+            "priority": 10,
+            "salience": 10.0,
+            "portfolio_group": "core",
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+        },
+        {
+            "objective_id": "ia-risk",
+            "title": "risk",
+            "priority": 10,
+            "salience": 10.0,
+            "depends_on": ["ia-anchor"],
+            "portfolio_group": "compliance",
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+        },
+    ]:
+        assert client.post("/api/objectives", json=payload).status_code == 200
+
+    analyze = client.post(
+        "/api/coordinator/analyze",
+        json={
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+            "reason": "intent promotion approval path",
+        },
+    )
+    assert analyze.status_code == 200
+    body = analyze.json()
+
+    approved_governance = [
+        decision
+        for decision in body["intent_promotions"]
+        if decision.get("status") == "approved" and decision.get("action", "").startswith("governance_review")
+    ]
+    assert len(approved_governance) >= 1
+
+    emitted_types = [event["event_type"] for event in body["emitted_events"]]
+    assert "coordinator.intent_promotion_approved" in emitted_types

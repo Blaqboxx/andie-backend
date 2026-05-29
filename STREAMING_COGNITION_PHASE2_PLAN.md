@@ -79,6 +79,8 @@ Never allow event frames to become the system of record.
 	- cross-portfolio arbitration
 - Phase 5D: bootstrap started
 	- portfolio governance overlay
+- Phase 5E: bootstrap started
+	- coordinator recommendation promotion
 
 ## Current Runtime Additions (Phase 2E Bootstrap)
 - Governance policy overlay layer is now active with profile-driven coefficients.
@@ -319,6 +321,18 @@ Never allow event frames to become the system of record.
 	- `coordinator.portfolio_policy_applied`
 	- `coordinator.portfolio_policy_conflict_detected`
 - Recommendation shaping remains advisory and read-only; execution authority is unchanged.
+
+## Current Runtime Additions (Phase 5E Bootstrap)
+- Coordinator now derives advisory supervisor intent candidates from portfolio recommendations.
+- Promotion-gate outputs are now available in coordinator analysis:
+	- intent_candidates
+	- intent_promotions
+- Phase 5E event family is replay-visible:
+	- `coordinator.intent_candidate_created`
+	- `coordinator.intent_promotion_requested`
+	- `coordinator.intent_promotion_denied`
+	- `coordinator.intent_promotion_approved`
+- Intent promotion remains governance-gated and advisory; no direct supervisor command authority is introduced.
 
 ## Priority Workstreams
 
