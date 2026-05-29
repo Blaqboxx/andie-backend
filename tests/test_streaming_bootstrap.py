@@ -588,3 +588,114 @@ def test_agent_workspace_task_isolation() -> None:
     assert len(list_b.json()["tasks"]) == 1
     assert list_a.json()["tasks"][0]["role"] == "memory"
     assert list_b.json()["tasks"][0]["role"] == "governance"
+
+
+def test_agent_arbitration_emits_assignment_strategy_event() -> None:
+    workspace_id = "ws-arb-1"
+    AGENT_TASKS_BY_WORKSPACE.pop(workspace_id, None)
+
+    client = TestClient(app)
+    execution_id = "exec-arb-1"
+
+    create_obj = client.post(
+        "/api/objectives",
+        json={
+            "objective_id": "obj-arb-1",
+            "title": "Priority Objective",
+            "priority": 10,
+            "salience": 10.0,
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+        },
+    )
+    assert create_obj.status_code == 200
+
+    arb = client.post(
+        "/api/agents/arbitrate",
+        json={
+            "task_id": "task-arb-1",
+            "objective_id": "obj-arb-1",
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+        },
+    )
+    assert arb.status_code == 200
+    body = arb.json()
+    assert body["strategy"] in {"pressure_based", "governance_directed", "trust_based", "operator_forced"}
+    assert body["emitted_events"][0]["event_type"] == "agent.assignment_strategy"
+    assert body["emitted_events"][1]["event_type"] == "agent.assigned"
+
+    replay = client.get(f"/api/replay/{execution_id}")
+    assert replay.status_code == 200
+    event_types = [event["event_type"] for event in replay.json()["events"]]
+    assert "agent.assignment_strategy" in event_types
+    assert "agent.assigned" in event_types
+
+
+def test_agent_arbitration_operator_forced_strategy() -> None:
+    workspace_id = "ws-arb-2"
+    AGENT_TASKS_BY_WORKSPACE.pop(workspace_id, None)
+
+    client = TestClient(app)
+    execution_id = "exec-arb-2"
+
+    arb = client.post(
+        "/api/agents/arbitrate",
+        json={
+            "task_id": "task-arb-2",
+            "operator_forced_role": "memory",
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+            "reason": "manual override",
+        },
+    )
+    assert arb.status_code == 200
+    body = arb.json()
+    assert body["strategy"] == "operator_forced"
+    assert body["role"] == "memory"
+
+
+def test_agent_arbitration_aggressive_high_pressure_prefers_execution() -> None:
+    workspace_id = "ws-arb-3"
+    AGENT_TASKS_BY_WORKSPACE.pop(workspace_id, None)
+
+    client = TestClient(app)
+    execution_id = "exec-arb-3"
+
+    profile = client.post(
+        "/api/governance/profile/apply",
+        json={
+            "profile": "aggressive",
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+            "reason": "fast-response mode",
+        },
+    )
+    assert profile.status_code == 200
+
+    create_obj = client.post(
+        "/api/objectives",
+        json={
+            "objective_id": "obj-arb-3",
+            "title": "Hot Objective",
+            "priority": 10,
+            "salience": 10.0,
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+        },
+    )
+    assert create_obj.status_code == 200
+
+    arb = client.post(
+        "/api/agents/arbitrate",
+        json={
+            "task_id": "task-arb-3",
+            "objective_id": "obj-arb-3",
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+        },
+    )
+    assert arb.status_code == 200
+    body = arb.json()
+    assert body["strategy"] == "pressure_based"
+    assert body["role"] == "execution"

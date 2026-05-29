@@ -49,6 +49,8 @@ Never allow event frames to become the system of record.
 	- workspace-scoped governance profile bindings + profile provenance
 - Phase 3: foundation started
 	- agent role contracts + lifecycle event family
+- Phase 3B: bootstrap complete
+	- objective-to-agent arbitration with strategy visibility
 
 ## Current Runtime Additions (Phase 2E Bootstrap)
 - Governance policy overlay layer is now active with profile-driven coefficients.
@@ -87,6 +89,17 @@ Never allow event frames to become the system of record.
 	- `GET /api/agents/tasks`
 	- `POST /api/agents/assign`
 	- `POST /api/agents/{task_id}/status`
+
+## Current Runtime Additions (Phase 3B Bootstrap)
+- Objective-to-agent arbitration is now available via:
+	- `POST /api/agents/arbitrate`
+- Arbitration emits replay-visible strategy events:
+	- `agent.assignment_strategy`
+- Strategy classes currently include:
+	- pressure_based
+	- trust_based
+	- governance_directed
+	- operator_forced
 
 ## Priority Workstreams
 

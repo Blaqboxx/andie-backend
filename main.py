@@ -61,6 +61,7 @@ EVENT_FAMILIES: dict[str, set[str]] = {
         "rollback.completed",
     },
     "agent": {
+        "agent.assignment_strategy",
         "agent.assigned",
         "agent.completed",
         "agent.blocked",
@@ -440,6 +441,19 @@ class AgentTaskStatusRequest(BaseModel):
     correlation_id: str | None = None
 
 
+class AgentArbitrationRequest(BaseModel):
+    task_id: str
+    objective_id: str | None = None
+    payload: dict[str, Any] = Field(default_factory=dict)
+    actor: str = "orchestrator"
+    reason: str = "objective arbitration"
+    operator_forced_role: str | None = None
+    execution_id: str | None = None
+    source: str = "agent-orchestrator"
+    workspace_id: str = "andie-default"
+    correlation_id: str | None = None
+
+
 def _get_trust_state(workspace_id: str) -> dict[str, Any]:
     if workspace_id not in TRUST_STATES:
         TRUST_STATES[workspace_id] = {
@@ -486,6 +500,100 @@ def _normalize_agent_role(role: str) -> str:
     if role_value not in AGENT_ROLES:
         raise ValueError(f"unknown agent role: {role}")
     return role_value
+
+
+def _select_agent_strategy_and_role(
+    workspace_id: str,
+    objective_id: str | None,
+    operator_forced_role: str | None,
+) -> tuple[str, str, dict[str, Any]]:
+    if operator_forced_role is not None:
+        role = _normalize_agent_role(operator_forced_role)
+        return (
+            "operator_forced",
+            role,
+            {
+                "operator_forced_role": role,
+            },
+        )
+
+    signals = _derive_objective_signals()
+    pressure_score = float((signals.get("objective_pressure_score") or {}).get(objective_id or "", 0.0))
+    trust_score = float(_get_trust_state(workspace_id).get("score", 0.5))
+    governance_state = _get_governance_state(workspace_id)
+    governance_band = str(governance_state.get("band", "stable"))
+    profile = str(_get_governance_profile_binding(workspace_id).get("active", "balanced"))
+
+    if governance_band == "escalated" or (profile == "mission_critical" and pressure_score >= 0.6):
+        return (
+            "governance_directed",
+            "governance",
+            {
+                "governance_band": governance_band,
+                "profile": profile,
+                "objective_pressure_score": round(pressure_score, 3),
+            },
+        )
+
+    if trust_score < 0.4:
+        return (
+            "trust_based",
+            "memory",
+            {
+                "trust_score": round(trust_score, 3),
+                "profile": profile,
+            },
+        )
+
+    if pressure_score >= 0.75:
+        role = "execution" if profile == "aggressive" else "planner"
+        return (
+            "pressure_based",
+            role,
+            {
+                "objective_pressure_score": round(pressure_score, 3),
+                "profile": profile,
+            },
+        )
+
+    return (
+        "governance_directed" if governance_band == "warning" else "pressure_based",
+        "planner",
+        {
+            "governance_band": governance_band,
+            "objective_pressure_score": round(pressure_score, 3),
+            "profile": profile,
+        },
+    )
+
+
+def _create_assigned_task(
+    task_id: str,
+    role: str,
+    objective_id: str | None,
+    payload: dict[str, Any],
+    actor: str,
+    reason: str,
+    workspace_id: str,
+    strategy: str,
+) -> dict[str, Any]:
+    workspace_tasks = _get_workspace_agent_tasks(workspace_id)
+    now = _utc_now()
+    task = {
+        "task_id": task_id,
+        "role": role,
+        "objective_id": objective_id,
+        "status": "assigned",
+        "payload": payload,
+        "actor": actor,
+        "reason": reason,
+        "strategy": strategy,
+        "workspace_id": workspace_id,
+        "created_at": workspace_tasks.get(task_id, {}).get("created_at", now),
+        "updated_at": now,
+    }
+    workspace_tasks[task_id] = task
+    return task
 
 
 async def _fanout_event(event: dict[str, Any]) -> None:
@@ -1147,21 +1255,16 @@ async def assign_agent_task(request: AgentAssignmentRequest) -> dict[str, Any]:
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    workspace_tasks = _get_workspace_agent_tasks(request.workspace_id)
-    now = _utc_now()
-    task = {
-        "task_id": request.task_id,
-        "role": role,
-        "objective_id": request.objective_id,
-        "status": "assigned",
-        "payload": request.payload,
-        "actor": request.actor,
-        "reason": request.reason,
-        "workspace_id": request.workspace_id,
-        "created_at": workspace_tasks.get(request.task_id, {}).get("created_at", now),
-        "updated_at": now,
-    }
-    workspace_tasks[request.task_id] = task
+    task = _create_assigned_task(
+        task_id=request.task_id,
+        role=role,
+        objective_id=request.objective_id,
+        payload=request.payload,
+        actor=request.actor,
+        reason=request.reason,
+        workspace_id=request.workspace_id,
+        strategy="operator_forced",
+    )
 
     event = EVENTS.append(
         "agent.assigned",
@@ -1179,6 +1282,71 @@ async def assign_agent_task(request: AgentAssignmentRequest) -> dict[str, Any]:
         "status": "ok",
         "task": task,
         "event": event,
+    }
+
+
+@app.post("/api/agents/arbitrate")
+async def arbitrate_agent_task(request: AgentArbitrationRequest) -> dict[str, Any]:
+    if request.objective_id is not None and request.objective_id not in OBJECTIVES:
+        raise HTTPException(status_code=404, detail=f"unknown objective_id: {request.objective_id}")
+
+    try:
+        strategy, role, strategy_inputs = _select_agent_strategy_and_role(
+            workspace_id=request.workspace_id,
+            objective_id=request.objective_id,
+            operator_forced_role=request.operator_forced_role,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    strategy_event = EVENTS.append(
+        "agent.assignment_strategy",
+        {
+            "task_id": request.task_id,
+            "objective_id": request.objective_id,
+            "strategy": strategy,
+            "selected_role": role,
+            "inputs": strategy_inputs,
+            "workspace_id": request.workspace_id,
+            "actor": request.actor,
+            "reason": request.reason,
+        },
+        execution_id=request.execution_id,
+        source=request.source,
+        workspace_id=request.workspace_id,
+        correlation_id=request.correlation_id,
+    )
+    await _fanout_event(strategy_event)
+
+    task = _create_assigned_task(
+        task_id=request.task_id,
+        role=role,
+        objective_id=request.objective_id,
+        payload=request.payload,
+        actor=request.actor,
+        reason=request.reason,
+        workspace_id=request.workspace_id,
+        strategy=strategy,
+    )
+
+    assigned_event = EVENTS.append(
+        "agent.assigned",
+        {
+            "task": task,
+        },
+        execution_id=request.execution_id,
+        source=request.source,
+        workspace_id=request.workspace_id,
+        correlation_id=request.correlation_id,
+    )
+    await _fanout_event(assigned_event)
+
+    return {
+        "status": "ok",
+        "strategy": strategy,
+        "role": role,
+        "task": task,
+        "emitted_events": [strategy_event, assigned_event],
     }
 
 
