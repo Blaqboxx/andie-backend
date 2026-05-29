@@ -83,6 +83,8 @@ Never allow event frames to become the system of record.
 	- coordinator recommendation promotion
 - Phase 5F: bootstrap started
 	- supervisor intent integration
+- Phase 5G: bootstrap started
+	- governance intent review
 
 ## Current Runtime Additions (Phase 2E Bootstrap)
 - Governance policy overlay layer is now active with profile-driven coefficients.
@@ -356,6 +358,16 @@ Never allow event frames to become the system of record.
 	- `supervisor.intent_rejected`
 	- `supervisor.intent_expired`
 - Rejected intent transitions require `reason_code` for auditability.
+
+## Current Runtime Additions (Phase 5G Bootstrap)
+- Governance intent review is now inserted between intent promotion approval and supervisor intake.
+- Governance review output is now available in coordinator analysis:
+	- governance_intent_reviews
+- Phase 5G event family is replay-visible:
+	- `governance.intent_review_started`
+	- `governance.intent_review_approved`
+	- `governance.intent_review_denied`
+- Review-denied intents do not emit `supervisor.intent_received`, preserving governance-first handoff integrity.
 
 ## Priority Workstreams
 

@@ -46,6 +46,9 @@ EVENT_FAMILIES: dict[str, set[str]] = {
         "governance.recovery",
         "governance.stability",
         "governance.profile_applied",
+        "governance.intent_review_started",
+        "governance.intent_review_approved",
+        "governance.intent_review_denied",
     },
     "execution": {
         "execution.started",
@@ -470,6 +473,7 @@ COORDINATOR_STATE_BY_WORKSPACE: dict[str, dict[str, Any]] = {
         "intent_candidates": [],
         "intent_promotions": [],
         "supervisor_intents": [],
+        "governance_intent_reviews": [],
         "updated_at": _utc_now(),
     }
 }
@@ -925,6 +929,7 @@ def _get_coordinator_state(workspace_id: str) -> dict[str, Any]:
             "intent_candidates": [],
             "intent_promotions": [],
             "supervisor_intents": [],
+            "governance_intent_reviews": [],
             "updated_at": _utc_now(),
         }
     return COORDINATOR_STATE_BY_WORKSPACE[workspace_id]
@@ -996,6 +1001,32 @@ def _intent_promotion_policy(profile: str, governance_band: str) -> dict[str, An
         "mission_critical": {
             "allow_in_escalated_for_review_only": True,
             "require_review_for_actions": ["suspend_portfolio"],
+        },
+    }
+    policy = dict(defaults.get(profile_value, defaults["balanced"]))
+    policy["active_profile"] = profile_value
+    policy["governance_band"] = governance_band
+    return policy
+
+
+def _governance_intent_review_policy(profile: str, governance_band: str) -> dict[str, Any]:
+    profile_value = str(profile or "balanced").strip().lower()
+    defaults: dict[str, dict[str, Any]] = {
+        "balanced": {
+            "review_required_actions": ["governance_review_portfolio", "governance_review_portfolio_allocation"],
+            "enforce_review_in_escalated": True,
+        },
+        "conservative": {
+            "review_required_actions": ["governance_review_portfolio", "governance_review_portfolio_allocation"],
+            "enforce_review_in_escalated": True,
+        },
+        "aggressive": {
+            "review_required_actions": ["governance_review_portfolio"],
+            "enforce_review_in_escalated": True,
+        },
+        "mission_critical": {
+            "review_required_actions": ["governance_review_portfolio", "governance_review_portfolio_allocation"],
+            "enforce_review_in_escalated": True,
         },
     }
     policy = dict(defaults.get(profile_value, defaults["balanced"]))
@@ -1809,6 +1840,8 @@ def _run_coordinator_analysis(
         )
 
     supervisor_intents = _get_supervisor_intents(workspace_id)
+    governance_review_policy = _governance_intent_review_policy(governance_profile, governance_band)
+    governance_intent_reviews: list[dict[str, Any]] = []
     for decision in intent_promotions:
         event_type = "coordinator.intent_promotion_approved" if decision["status"] == "approved" else "coordinator.intent_promotion_denied"
         promotion_event = EVENTS.append(
@@ -1827,6 +1860,68 @@ def _run_coordinator_analysis(
         if decision["status"] != "approved":
             continue
 
+        action = str(decision.get("action") or "")
+        review_required_actions = set(str(x) for x in (governance_review_policy.get("review_required_actions") or []))
+        review_required = action in review_required_actions or (
+            bool(governance_review_policy.get("enforce_review_in_escalated", False)) and governance_band == "escalated"
+        )
+
+        review_result = {
+            "intent_id": decision["intent_id"],
+            "promotion_event_id": promotion_event["event_id"],
+            "workspace_id": workspace_id,
+            "status": "approved",
+            "reason_code": "policy_clear",
+            "review_required": review_required,
+        }
+
+        if review_required:
+            review_result["status"] = "started"
+            review_started = EVENTS.append(
+                "governance.intent_review_started",
+                {
+                    "workspace_id": workspace_id,
+                    "review": dict(review_result),
+                },
+                execution_id=execution_id,
+                source="governance-engine",
+                workspace_id=workspace_id,
+                correlation_id=correlation_id,
+            )
+            emitted.append(review_started)
+            review_result["review_started_event_id"] = review_started["event_id"]
+
+            if governance_band == "escalated" and not action.startswith("governance_review"):
+                review_result["status"] = "denied"
+                review_result["reason_code"] = "governance_mismatch"
+            else:
+                review_result["status"] = "approved"
+                review_result["reason_code"] = "governance_review_approved"
+
+            review_event_type = (
+                "governance.intent_review_approved"
+                if review_result["status"] == "approved"
+                else "governance.intent_review_denied"
+            )
+            emitted.append(
+                EVENTS.append(
+                    review_event_type,
+                    {
+                        "workspace_id": workspace_id,
+                        "review": dict(review_result),
+                    },
+                    execution_id=execution_id,
+                    source="governance-engine",
+                    workspace_id=workspace_id,
+                    correlation_id=correlation_id,
+                )
+            )
+
+        governance_intent_reviews.append(dict(review_result))
+
+        if review_result["status"] != "approved":
+            continue
+
         intake = {
             "intent_id": decision["intent_id"],
             "intent_type": decision["intent"],
@@ -1834,6 +1929,8 @@ def _run_coordinator_analysis(
             "portfolio_id": decision["portfolio_id"],
             "workspace_id": workspace_id,
             "promotion_event_id": promotion_event["event_id"],
+            "governance_review_status": review_result["status"],
+            "governance_review_reason_code": review_result["reason_code"],
             "created_at": _utc_now(),
             "status": "pending",
         }
@@ -1920,6 +2017,7 @@ def _run_coordinator_analysis(
             "intent_candidates": intent_candidates,
             "intent_promotions": intent_promotions,
             "supervisor_intents": list(supervisor_intents.values()),
+            "governance_intent_reviews": governance_intent_reviews,
             "updated_at": _utc_now(),
         }
     )
@@ -4502,6 +4600,7 @@ async def analyze_coordinator(request: CoordinatorAnalyzeRequest) -> dict[str, A
         "intent_candidates": state.get("intent_candidates") or [],
         "intent_promotions": state.get("intent_promotions") or [],
         "supervisor_intents": state.get("supervisor_intents") or [],
+        "governance_intent_reviews": state.get("governance_intent_reviews") or [],
         "blocked_objectives": state.get("blocked_objectives") or [],
         "merge_candidates": state.get("merge_candidates") or [],
         "recommended_actions": state.get("coordination_recommendations") or [],

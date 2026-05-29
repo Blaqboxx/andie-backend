@@ -2910,3 +2910,147 @@ def test_supervisor_intake_replay_integrity_links_promotion_event() -> None:
     assert "coordinator.intent_promotion_approved" in replay_types
     assert "supervisor.intent_received" in replay_types
     assert "supervisor.intent_acknowledged" in replay_types
+
+
+def test_governance_review_started_and_approved_before_supervisor_receives_intent() -> None:
+    OBJECTIVES.clear()
+    OBJECTIVE_SIGNALS["blocked"] = {}
+    OBJECTIVE_SIGNALS["pressure"] = {}
+    OBJECTIVE_SIGNALS["objective_pressure_score"] = {}
+    OBJECTIVE_SIGNALS["critical_path"] = {}
+
+    workspace_id = "ws-governance-review-1"
+    AGENT_TASKS_BY_WORKSPACE.pop(workspace_id, None)
+    AGENT_WORKFLOWS_BY_WORKSPACE.pop(workspace_id, None)
+    SUPERVISOR_INTENTS_BY_WORKSPACE.pop(workspace_id, None)
+    GOVERNANCE_PROFILE_BINDINGS[workspace_id] = {
+        "active": "conservative",
+        "overrides": {},
+        "updated_at": "2026-01-01T00:00:00+00:00",
+    }
+
+    client = TestClient(app)
+    execution_id = "exec-governance-review-1"
+
+    for payload in [
+        {
+            "objective_id": "gr1-anchor",
+            "title": "anchor",
+            "priority": 10,
+            "salience": 10.0,
+            "portfolio_group": "core",
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+        },
+        {
+            "objective_id": "gr1-risk",
+            "title": "risk",
+            "priority": 10,
+            "salience": 10.0,
+            "depends_on": ["gr1-anchor"],
+            "portfolio_group": "compliance",
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+        },
+    ]:
+        assert client.post("/api/objectives", json=payload).status_code == 200
+
+    analyze = client.post(
+        "/api/coordinator/analyze",
+        json={
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+            "reason": "governance review approval chain",
+        },
+    )
+    assert analyze.status_code == 200
+    body = analyze.json()
+
+    emitted_types = [event["event_type"] for event in body["emitted_events"]]
+    assert "governance.intent_review_started" in emitted_types
+    assert "governance.intent_review_approved" in emitted_types
+    assert "supervisor.intent_received" in emitted_types
+
+
+def test_governance_review_denied_blocks_supervisor_intake() -> None:
+    OBJECTIVES.clear()
+    OBJECTIVE_SIGNALS["blocked"] = {}
+    OBJECTIVE_SIGNALS["pressure"] = {}
+    OBJECTIVE_SIGNALS["objective_pressure_score"] = {}
+    OBJECTIVE_SIGNALS["critical_path"] = {}
+
+    workspace_id = "ws-governance-review-2"
+    AGENT_TASKS_BY_WORKSPACE.pop(workspace_id, None)
+    AGENT_WORKFLOWS_BY_WORKSPACE.pop(workspace_id, None)
+    SUPERVISOR_INTENTS_BY_WORKSPACE.pop(workspace_id, None)
+    GOVERNANCE_PROFILE_BINDINGS[workspace_id] = {
+        "active": "aggressive",
+        "overrides": {},
+        "updated_at": "2026-01-01T00:00:00+00:00",
+    }
+
+    client = TestClient(app)
+    execution_id = "exec-governance-review-2"
+
+    for payload in [
+        {
+            "objective_id": "gr2-beta",
+            "title": "beta",
+            "priority": 8,
+            "salience": 8.0,
+            "portfolio_group": "beta",
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+        },
+        {
+            "objective_id": "gr2-alpha",
+            "title": "alpha",
+            "priority": 6,
+            "salience": 6.0,
+            "depends_on": ["gr2-beta"],
+            "portfolio_group": "alpha",
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+        },
+    ]:
+        assert client.post("/api/objectives", json=payload).status_code == 200
+
+    GOVERNANCE_STATES[workspace_id] = {
+        "updated_at": "2026-01-01T00:00:00+00:00",
+        "band": "escalated",
+        "interrupt_sensitivity": 0.8,
+        "escalation_readiness": 0.9,
+        "cooldown_aggressiveness": 0.3,
+        "posture_persistence": 0.8,
+        "governance_attention": 0.9,
+        "confidence": 0.7,
+        "profile": "aggressive",
+    }
+
+    analyze = client.post(
+        "/api/coordinator/analyze",
+        json={
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+            "reason": "governance review denial chain",
+        },
+    )
+    assert analyze.status_code == 200
+    body = analyze.json()
+
+    emitted_types = [event["event_type"] for event in body["emitted_events"]]
+    assert "governance.intent_review_started" in emitted_types
+    assert "governance.intent_review_denied" in emitted_types
+
+    denied_reviews = [review for review in body["governance_intent_reviews"] if review.get("status") == "denied"]
+    assert len(denied_reviews) >= 1
+    assert all(review.get("reason_code") == "governance_mismatch" for review in denied_reviews)
+
+    denied_intent_ids = {str(review.get("intent_id")) for review in denied_reviews}
+    received_for_denied = [
+        event
+        for event in body["emitted_events"]
+        if event.get("event_type") == "supervisor.intent_received"
+        and str(event.get("payload", {}).get("intent", {}).get("intent_id", "")) in denied_intent_ids
+    ]
+    assert len(received_for_denied) == 0
