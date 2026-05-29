@@ -88,6 +88,7 @@ EVENT_FAMILIES: dict[str, set[str]] = {
         "agent.supervisor_boosted",
         "agent.supervisor_starvation_detected",
         "agent.supervisor_fairness_applied",
+        "agent.scheduler_policy_applied",
         "agent.assigned",
         "agent.completed",
         "agent.blocked",
@@ -387,6 +388,18 @@ SUPERVISOR_RUNTIME_BY_WORKSPACE: dict[str, dict[str, Any]] = {
     }
 }
 
+SCHEDULER_POLICY_BY_WORKSPACE: dict[str, dict[str, Any]] = {
+    "andie-default": {
+        "scheduler_profile": "balanced",
+        "fairness_curve": "linear",
+        "starvation_recovery": "normal",
+        "preemption_policy": "allowed",
+        "fairness_window": 3,
+        "starvation_threshold": 3,
+        "updated_at": _utc_now(),
+    }
+}
+
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 CLIENT = Groq(api_key=GROQ_API_KEY) if (Groq and GROQ_API_KEY) else None
@@ -553,6 +566,22 @@ class AgentSupervisorArbitrationRequest(BaseModel):
     correlation_id: str | None = None
 
 
+class AgentSchedulerPolicyApplyRequest(BaseModel):
+    scheduler_profile: str = "balanced"
+    fairness_curve: str | None = None
+    starvation_recovery: str | None = None
+    preemption_policy: str | None = None
+    fairness_window: int | None = None
+    starvation_threshold: int | None = None
+    overrides: dict[str, Any] = Field(default_factory=dict)
+    actor: str = "operator"
+    reason: str = "scheduler policy selection"
+    execution_id: str | None = None
+    source: str = "scheduler-policy"
+    workspace_id: str = "andie-default"
+    correlation_id: str | None = None
+
+
 class AgentArbitrationRequest(BaseModel):
     task_id: str
     objective_id: str | None = None
@@ -624,6 +653,91 @@ def _get_supervisor_runtime(workspace_id: str) -> dict[str, Any]:
             "updated_at": _utc_now(),
         }
     return SUPERVISOR_RUNTIME_BY_WORKSPACE[workspace_id]
+
+
+def _scheduler_policy_defaults(profile: str) -> dict[str, Any]:
+    profile_value = profile.strip().lower()
+    profiles: dict[str, dict[str, Any]] = {
+        "throughput": {
+            "scheduler_profile": "throughput",
+            "fairness_curve": "linear",
+            "starvation_recovery": "soft",
+            "preemption_policy": "never",
+            "fairness_window": 6,
+            "starvation_threshold": 6,
+        },
+        "balanced": {
+            "scheduler_profile": "balanced",
+            "fairness_curve": "linear",
+            "starvation_recovery": "normal",
+            "preemption_policy": "allowed",
+            "fairness_window": 3,
+            "starvation_threshold": 3,
+        },
+        "fair": {
+            "scheduler_profile": "fair",
+            "fairness_curve": "weighted",
+            "starvation_recovery": "normal",
+            "preemption_policy": "allowed",
+            "fairness_window": 2,
+            "starvation_threshold": 2,
+        },
+        "mission_critical": {
+            "scheduler_profile": "mission_critical",
+            "fairness_curve": "exponential",
+            "starvation_recovery": "aggressive",
+            "preemption_policy": "aggressive",
+            "fairness_window": 4,
+            "starvation_threshold": 2,
+        },
+    }
+    if profile_value not in profiles:
+        raise ValueError(f"unknown scheduler profile: {profile}")
+    return dict(profiles[profile_value])
+
+
+def _get_scheduler_policy(workspace_id: str) -> dict[str, Any]:
+    if workspace_id not in SCHEDULER_POLICY_BY_WORKSPACE:
+        SCHEDULER_POLICY_BY_WORKSPACE[workspace_id] = {
+            **_scheduler_policy_defaults("balanced"),
+            "updated_at": _utc_now(),
+        }
+    return SCHEDULER_POLICY_BY_WORKSPACE[workspace_id]
+
+
+def _apply_scheduler_policy(request: AgentSchedulerPolicyApplyRequest) -> dict[str, Any]:
+    defaults = _scheduler_policy_defaults(request.scheduler_profile)
+    policy = _get_scheduler_policy(request.workspace_id)
+
+    if request.fairness_curve is not None:
+        curve = request.fairness_curve.strip().lower()
+        if curve not in {"linear", "weighted", "exponential"}:
+            raise ValueError(f"unknown fairness curve: {request.fairness_curve}")
+        defaults["fairness_curve"] = curve
+
+    if request.starvation_recovery is not None:
+        recovery = request.starvation_recovery.strip().lower()
+        if recovery not in {"soft", "normal", "aggressive"}:
+            raise ValueError(f"unknown starvation recovery: {request.starvation_recovery}")
+        defaults["starvation_recovery"] = recovery
+
+    if request.preemption_policy is not None:
+        preemption = request.preemption_policy.strip().lower()
+        if preemption not in {"never", "allowed", "aggressive"}:
+            raise ValueError(f"unknown preemption policy: {request.preemption_policy}")
+        defaults["preemption_policy"] = preemption
+
+    if request.fairness_window is not None:
+        defaults["fairness_window"] = max(1, int(request.fairness_window))
+
+    if request.starvation_threshold is not None:
+        defaults["starvation_threshold"] = max(1, int(request.starvation_threshold))
+
+    defaults["overrides"] = dict(request.overrides)
+    defaults["updated_at"] = _utc_now()
+    policy.clear()
+    policy.update(defaults)
+    return policy
 
 
 def _normalize_agent_role(role: str) -> str:
@@ -966,6 +1080,18 @@ def _workflow_priority_score(workspace_id: str, workflow: dict[str, Any]) -> flo
     return round(_clamp01(score), 3)
 
 
+def _scheduler_curve_multiplier(curve: str, wait_time: int, fairness_window: int) -> float:
+    curve_value = curve.strip().lower()
+    window = max(1, fairness_window)
+    wait_ratio = min(1.0, float(wait_time) / float(window))
+
+    if curve_value == "exponential":
+        return round(1.0 + min(0.5, (wait_ratio**2) * 0.5), 3)
+    if curve_value == "weighted":
+        return round(1.0 + min(0.35, wait_ratio * 0.35), 3)
+    return round(1.0 + min(0.25, wait_ratio * 0.25), 3)
+
+
 def _run_supervisor_arbitration(
     *,
     workspace_id: str,
@@ -980,12 +1106,16 @@ def _run_supervisor_arbitration(
     actor: str,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     runtime = _get_supervisor_runtime(workspace_id)
+    scheduler_policy = _get_scheduler_policy(workspace_id)
     runtime["available_slots"] = max(1, int(available_slots))
-    runtime["fairness_window"] = max(1, int(fairness_window))
-    runtime["starvation_threshold"] = max(1, int(starvation_threshold))
+    runtime["fairness_window"] = max(1, int(scheduler_policy.get("fairness_window", fairness_window)))
+    runtime["starvation_threshold"] = max(1, int(scheduler_policy.get("starvation_threshold", starvation_threshold)))
     runtime["cycle"] = int(runtime.get("cycle", 0)) + 1
     workflows = _get_workspace_workflows(workspace_id)
     cycle = int(runtime["cycle"])
+    preemption_policy = str(scheduler_policy.get("preemption_policy", "allowed"))
+    fairness_curve = str(scheduler_policy.get("fairness_curve", "linear"))
+    starvation_recovery = str(scheduler_policy.get("starvation_recovery", "normal"))
 
     ranked: list[tuple[str, float]] = []
     fairness_candidates: list[tuple[str, int]] = []
@@ -1004,8 +1134,14 @@ def _run_supervisor_arbitration(
             age += 1
 
         base_score = _workflow_priority_score(workspace_id, workflow)
-        aging_bonus = min(0.25, float(wait_time) * 0.05)
-        starvation_bonus = 0.2 if wait_time >= int(runtime["starvation_threshold"]) else 0.0
+        curve_multiplier = _scheduler_curve_multiplier(fairness_curve, wait_time, int(runtime["fairness_window"]))
+        starvation_base = {
+            "soft": 0.08,
+            "normal": 0.15,
+            "aggressive": 0.24,
+        }.get(starvation_recovery, 0.15)
+        aging_bonus = min(0.35, float(wait_time) * 0.05 * curve_multiplier)
+        starvation_bonus = starvation_base if wait_time >= int(runtime["starvation_threshold"]) else 0.0
         boost = round(aging_bonus + starvation_bonus, 3)
         starvation_score = round(_clamp01(float(wait_time) / float(runtime["starvation_threshold"])), 3)
         score = round(_clamp01(base_score + boost), 3)
@@ -1021,8 +1157,21 @@ def _run_supervisor_arbitration(
             fairness_candidates.append((workflow_id, wait_time))
 
     ranked.sort(key=lambda row: row[1], reverse=True)
-    target_active = [workflow_id for workflow_id, _ in ranked[: runtime["available_slots"]]]
     previous_active = [str(wf_id) for wf_id in (runtime.get("active_workflows") or [])]
+    target_active: list[str]
+    if preemption_policy == "never":
+        retained = [workflow_id for workflow_id in previous_active if workflow_id in workflows][: runtime["available_slots"]]
+        if len(retained) < runtime["available_slots"]:
+            for workflow_id, _ in ranked:
+                if workflow_id in retained:
+                    continue
+                retained.append(workflow_id)
+                if len(retained) >= runtime["available_slots"]:
+                    break
+        target_active = retained
+    else:
+        target_active = [workflow_id for workflow_id, _ in ranked[: runtime["available_slots"]]]
+
     prev_set = set(previous_active)
     target_set = set(target_active)
 
@@ -1033,6 +1182,26 @@ def _run_supervisor_arbitration(
         }
     )
     emitted: list[dict[str, Any]] = []
+
+    policy_event = EVENTS.append(
+        "agent.scheduler_policy_applied",
+        {
+            "workspace_id": workspace_id,
+            "scheduler_profile": str(scheduler_policy.get("scheduler_profile", "balanced")),
+            "fairness_curve": fairness_curve,
+            "starvation_recovery": starvation_recovery,
+            "preemption_policy": preemption_policy,
+            "fairness_window": int(runtime["fairness_window"]),
+            "starvation_threshold": int(runtime["starvation_threshold"]),
+            "available_slots": int(runtime["available_slots"]),
+            "cycle": cycle,
+        },
+        execution_id=execution_id,
+        source=source,
+        workspace_id=workspace_id,
+        correlation_id=correlation_id,
+    )
+    emitted.append(policy_event)
 
     for workflow_id, score in ranked:
         workflow = workflows.get(workflow_id)
@@ -1139,6 +1308,10 @@ def _run_supervisor_arbitration(
             "reason": reason,
             "actor": actor,
             "available_slots": runtime["available_slots"],
+            "scheduler_profile": str(scheduler_policy.get("scheduler_profile", "balanced")),
+            "fairness_curve": fairness_curve,
+            "starvation_recovery": starvation_recovery,
+            "preemption_policy": preemption_policy,
             "fairness_window": int(runtime["fairness_window"]),
             "starvation_threshold": int(runtime["starvation_threshold"]),
             "ranking": [
@@ -2671,6 +2844,52 @@ async def arbitrate_supervisor_runtime(request: AgentSupervisorArbitrationReques
         "workspace_id": request.workspace_id,
         "runtime": runtime,
         "emitted_events": emitted_events,
+    }
+
+
+@app.get("/api/agents/scheduler/policy")
+async def get_scheduler_policy(workspace_id: str = "andie-default") -> dict[str, Any]:
+    return {
+        "status": "ok",
+        "workspace_id": workspace_id,
+        "policy": _get_scheduler_policy(workspace_id),
+    }
+
+
+@app.post("/api/agents/scheduler/policy")
+async def apply_scheduler_policy(request: AgentSchedulerPolicyApplyRequest) -> dict[str, Any]:
+    try:
+        policy = _apply_scheduler_policy(request)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    event = EVENTS.append(
+        "agent.scheduler_policy_applied",
+        {
+            "workspace_id": request.workspace_id,
+            "scheduler_profile": policy["scheduler_profile"],
+            "fairness_curve": policy["fairness_curve"],
+            "starvation_recovery": policy["starvation_recovery"],
+            "preemption_policy": policy["preemption_policy"],
+            "fairness_window": policy["fairness_window"],
+            "starvation_threshold": policy["starvation_threshold"],
+            "overrides": dict(request.overrides),
+            "actor": request.actor,
+            "reason": request.reason,
+        },
+        execution_id=request.execution_id,
+        source=request.source,
+        workspace_id=request.workspace_id,
+        correlation_id=request.correlation_id,
+    )
+
+    await _fanout_event(event)
+
+    return {
+        "status": "ok",
+        "workspace_id": request.workspace_id,
+        "policy": policy,
+        "event": event,
     }
 
 

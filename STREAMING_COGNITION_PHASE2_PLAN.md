@@ -63,6 +63,10 @@ Never allow event frames to become the system of record.
 	- workflow supervisor layer
 - Phase 4B: bootstrap complete
 	- runtime resource arbitration across workflows
+- Phase 4C: bootstrap complete
+	- fairness and aging for anti-starvation scheduling
+- Phase 4D: bootstrap started
+	- runtime scheduling policy profiles
 
 ## Current Runtime Additions (Phase 2E Bootstrap)
 - Governance policy overlay layer is now active with profile-driven coefficients.
@@ -201,6 +205,34 @@ Never allow event frames to become the system of record.
 	- replan count
 	- governance band
 	- supervisor action history
+
+## Current Runtime Additions (Phase 4C Bootstrap)
+- Scheduler fairness and aging are active in arbitration.
+- Aging-aware scheduler events are replay-visible:
+	- `agent.supervisor_aged`
+	- `agent.supervisor_boosted`
+	- `agent.supervisor_starvation_detected`
+	- `agent.supervisor_fairness_applied`
+- Anti-starvation behavior is validated by regression coverage that proves workflow ownership rotates over repeated arbitration cycles.
+
+## Current Runtime Additions (Phase 4D Bootstrap)
+- Scheduler policies are now first-class runtime controls.
+- Scheduler policy profiles are available:
+	- throughput
+	- balanced
+	- fair
+	- mission_critical
+- Scheduler policy API surface is available:
+	- `GET /api/agents/scheduler/policy`
+	- `POST /api/agents/scheduler/policy`
+- Scheduler policy application is replay-visible via:
+	- `agent.scheduler_policy_applied`
+- Policy fields currently shape arbitration through:
+	- fairness curve
+	- starvation recovery mode
+	- preemption policy
+	- fairness window
+	- starvation threshold
 
 ## Priority Workstreams
 

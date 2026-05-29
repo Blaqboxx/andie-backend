@@ -1140,6 +1140,20 @@ def test_supervisor_fairness_aging_prevents_starvation() -> None:
     client = TestClient(app)
     execution_id = "exec-supervisor-fairness-1"
 
+    policy = client.post(
+        "/api/agents/scheduler/policy",
+        json={
+            "scheduler_profile": "fair",
+            "fairness_window": 2,
+            "starvation_threshold": 2,
+            "preemption_policy": "allowed",
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+            "reason": "enable anti-starvation policy for fairness regression",
+        },
+    )
+    assert policy.status_code == 200
+
     for workflow_id in ("wf-fair-a", "wf-fair-b", "wf-fair-c"):
         response = client.post(
             "/api/agents/arbitrate",
@@ -1159,8 +1173,6 @@ def test_supervisor_fairness_aging_prevents_starvation() -> None:
         json={
             "workspace_id": workspace_id,
             "available_slots": 1,
-            "fairness_window": 2,
-            "starvation_threshold": 2,
             "execution_id": execution_id,
             "reason": "initial arbitration",
         },
@@ -1176,8 +1188,6 @@ def test_supervisor_fairness_aging_prevents_starvation() -> None:
             json={
                 "workspace_id": workspace_id,
                 "available_slots": 1,
-                "fairness_window": 2,
-                "starvation_threshold": 2,
                 "execution_id": execution_id,
                 "reason": "aging sweep",
             },
@@ -1190,8 +1200,6 @@ def test_supervisor_fairness_aging_prevents_starvation() -> None:
         json={
             "workspace_id": workspace_id,
             "available_slots": 1,
-            "fairness_window": 2,
-            "starvation_threshold": 2,
             "execution_id": execution_id,
             "reason": "fairness enforcement",
         },
@@ -1207,3 +1215,121 @@ def test_supervisor_fairness_aging_prevents_starvation() -> None:
 
     active_history.append(final.json()["runtime"]["active_workflows"][0])
     assert {"wf-fair-a", "wf-fair-b", "wf-fair-c"}.issubset(set(active_history))
+
+
+def test_scheduler_policy_apply_emits_policy_event_and_can_be_retrieved() -> None:
+    workspace_id = "ws-scheduler-policy-1"
+    AGENT_TASKS_BY_WORKSPACE.pop(workspace_id, None)
+    AGENT_WORKFLOWS_BY_WORKSPACE.pop(workspace_id, None)
+
+    client = TestClient(app)
+    execution_id = "exec-scheduler-policy-1"
+
+    applied = client.post(
+        "/api/agents/scheduler/policy",
+        json={
+            "scheduler_profile": "mission_critical",
+            "fairness_curve": "exponential",
+            "starvation_recovery": "aggressive",
+            "preemption_policy": "aggressive",
+            "fairness_window": 4,
+            "starvation_threshold": 2,
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+            "reason": "tune mission critical scheduling",
+        },
+    )
+    assert applied.status_code == 200
+
+    body = applied.json()
+    _assert_envelope(body["event"], "agent.scheduler_policy_applied")
+    assert body["event"]["payload"]["scheduler_profile"] == "mission_critical"
+    assert body["event"]["payload"]["fairness_curve"] == "exponential"
+    assert body["event"]["payload"]["preemption_policy"] == "aggressive"
+
+    retrieved = client.get(
+        "/api/agents/scheduler/policy",
+        params={"workspace_id": workspace_id},
+    )
+    assert retrieved.status_code == 200
+    assert retrieved.json()["policy"]["scheduler_profile"] == "mission_critical"
+    assert retrieved.json()["policy"]["fairness_window"] == 4
+    assert retrieved.json()["policy"]["starvation_threshold"] == 2
+
+
+def test_scheduler_policy_never_preempts_active_workflows() -> None:
+    workspace_id = "ws-scheduler-policy-2"
+    AGENT_TASKS_BY_WORKSPACE.pop(workspace_id, None)
+    AGENT_WORKFLOWS_BY_WORKSPACE.pop(workspace_id, None)
+
+    client = TestClient(app)
+    execution_id = "exec-scheduler-policy-2"
+
+    applied = client.post(
+        "/api/agents/scheduler/policy",
+        json={
+            "scheduler_profile": "throughput",
+            "preemption_policy": "never",
+            "fairness_window": 6,
+            "starvation_threshold": 6,
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+            "reason": "prefer throughput stability",
+        },
+    )
+    assert applied.status_code == 200
+
+    for workflow_id in ("wf-policy-a", "wf-policy-b"):
+        response = client.post(
+            "/api/agents/arbitrate",
+            json={
+                "task_id": workflow_id,
+                "operator_forced_role": "execution",
+                "workspace_id": workspace_id,
+                "execution_id": execution_id,
+            },
+        )
+        assert response.status_code == 200
+
+    first = client.post(
+        "/api/agents/supervisor/arbitrate",
+        json={
+            "workspace_id": workspace_id,
+            "available_slots": 1,
+            "execution_id": execution_id,
+            "reason": "initial throughput slot",
+        },
+    )
+    assert first.status_code == 200
+    first_active = first.json()["runtime"]["active_workflows"][0]
+    hot_workflow = "wf-policy-b" if first_active == "wf-policy-a" else "wf-policy-a"
+
+    updated = client.post(
+        f"/api/agents/workflows/{hot_workflow}/update",
+        json={
+            "status": "blocked",
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+            "reason": "raise competing pressure",
+        },
+    )
+    assert updated.status_code == 200
+
+    second = client.post(
+        "/api/agents/supervisor/arbitrate",
+        json={
+            "workspace_id": workspace_id,
+            "available_slots": 1,
+            "execution_id": execution_id,
+            "reason": "throughput stability check",
+        },
+    )
+    assert second.status_code == 200
+    second_body = second.json()
+    assert second_body["runtime"]["active_workflows"][0] == first_active
+
+    emitted_types = [event["event_type"] for event in second_body["emitted_events"]]
+    assert "agent.scheduler_policy_applied" in emitted_types
+    assert "agent.supervisor_preempted" not in emitted_types
+    assert "agent.supervisor_reallocated" not in emitted_types
+    assert "agent.supervisor_transferred" not in emitted_types
