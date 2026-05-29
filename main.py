@@ -9,7 +9,7 @@ from collections import defaultdict
 from uuid import uuid4
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 try:
     from dotenv import load_dotenv
@@ -192,7 +192,24 @@ OBJECTIVE_SIGNALS: dict[str, Any] = {
     "updated_at": _utc_now(),
     "blocked": {},
     "pressure": {},
+    "objective_pressure_score": {},
     "critical_path": {},
+}
+
+TRUST_STATE: dict[str, Any] = {
+    "score": 0.5,
+    "updated_at": _utc_now(),
+}
+
+GOVERNANCE_STATE: dict[str, Any] = {
+    "updated_at": _utc_now(),
+    "band": "stable",
+    "interrupt_sensitivity": 0.5,
+    "escalation_readiness": 0.5,
+    "cooldown_aggressiveness": 0.5,
+    "posture_persistence": 0.5,
+    "governance_attention": 0.5,
+    "confidence": 1.0,
 }
 
 
@@ -218,9 +235,9 @@ class ObjectiveUpsertRequest(BaseModel):
     title: str
     priority: int = 1
     salience: float = 1.0
-    depends_on: list[str] = []
-    blocked_by: list[str] = []
-    enables: list[str] = []
+    depends_on: list[str] = Field(default_factory=list)
+    blocked_by: list[str] = Field(default_factory=list)
+    enables: list[str] = Field(default_factory=list)
     status: str = "active"
     execution_id: str | None = None
     source: str = "objective-engine"
@@ -232,6 +249,22 @@ class ObjectiveStatusRequest(BaseModel):
     status: str
     execution_id: str | None = None
     source: str = "objective-engine"
+    workspace_id: str = "andie-default"
+    correlation_id: str | None = None
+
+
+class TrustRecomputeRequest(BaseModel):
+    trust_score: float
+    reason: str | None = None
+    execution_id: str | None = None
+    source: str = "trust-engine"
+    workspace_id: str = "andie-default"
+    correlation_id: str | None = None
+
+
+class GovernanceRecomputeRequest(BaseModel):
+    execution_id: str | None = None
+    source: str = "governance-engine"
     workspace_id: str = "andie-default"
     correlation_id: str | None = None
 
@@ -286,6 +319,7 @@ def _derive_objective_signals() -> dict[str, Any]:
     blocked: dict[str, bool] = {}
     critical_path: dict[str, int] = {}
     pressure: dict[str, float] = {}
+    pressure_score: dict[str, float] = {}
 
     active_ids = {obj_id for obj_id, obj in OBJECTIVES.items() if _is_objective_active(obj)}
     enables_map: dict[str, list[str]] = defaultdict(list)
@@ -318,15 +352,218 @@ def _derive_objective_signals() -> dict[str, Any]:
         blocked_penalty = -1.0 if is_blocked else 1.0
         pressure[obj_id] = round(base + flow_bonus + critical_bonus + blocked_penalty, 3)
 
+    max_pressure = max(pressure.values(), default=0.0)
+    for obj_id, value in pressure.items():
+        pressure_score[obj_id] = round((value / max_pressure), 3) if max_pressure > 0 else 0.0
+
     OBJECTIVE_SIGNALS.update(
         {
             "updated_at": _utc_now(),
             "blocked": blocked,
             "pressure": pressure,
+            "objective_pressure_score": pressure_score,
             "critical_path": critical_path,
         }
     )
     return OBJECTIVE_SIGNALS
+
+
+def _clamp01(value: float) -> float:
+    return max(0.0, min(1.0, value))
+
+
+def _failure_pattern_score(execution_id: str | None = None) -> float:
+    if execution_id:
+        sample = EVENTS.replay(execution_id)
+    else:
+        sample = EVENTS._events[-100:]  # noqa: SLF001 - local in-process store
+
+    failures = sum(1 for event in sample if event.get("event_type") == "execution.failed")
+    return round(_clamp01(failures / 5.0), 3)
+
+
+def _objective_context() -> dict[str, Any]:
+    signals = _derive_objective_signals()
+    blocked = signals.get("blocked", {})
+    scores = signals.get("objective_pressure_score", {})
+    active_count = sum(1 for obj in OBJECTIVES.values() if _is_objective_active(obj))
+    blocked_count = sum(1 for _, is_blocked in blocked.items() if is_blocked)
+    max_pressure_score = max(scores.values(), default=0.0)
+    critical_active = any(path_len >= 2 for path_len in signals.get("critical_path", {}).values())
+
+    return {
+        "active_count": active_count,
+        "blocked_count": blocked_count,
+        "blocked_ratio": round((blocked_count / active_count), 3) if active_count > 0 else 0.0,
+        "max_pressure_score": round(max_pressure_score, 3),
+        "critical_path_active": critical_active,
+    }
+
+
+def _set_trust_score(
+    trust_score: float,
+    execution_id: str | None,
+    source: str,
+    workspace_id: str,
+    correlation_id: str | None,
+    reason: str | None = None,
+) -> list[dict[str, Any]]:
+    previous = float(TRUST_STATE.get("score", 0.5))
+    current = round(_clamp01(trust_score), 3)
+    TRUST_STATE.update({"score": current, "updated_at": _utc_now()})
+
+    events: list[dict[str, Any]] = [
+        EVENTS.append(
+            "trust.recomputed",
+            {
+                "trust_score": current,
+                "previous": previous,
+                "reason": reason,
+            },
+            execution_id=execution_id,
+            source=source,
+            workspace_id=workspace_id,
+            correlation_id=correlation_id,
+        )
+    ]
+
+    if abs(current - previous) >= 0.05:
+        events.append(
+            EVENTS.append(
+                "trust.changed",
+                {
+                    "previous": previous,
+                    "current": current,
+                    "delta": round(current - previous, 3),
+                },
+                execution_id=execution_id,
+                source=source,
+                workspace_id=workspace_id,
+                correlation_id=correlation_id,
+            )
+        )
+
+    return events
+
+
+def _recompute_governance_state(
+    execution_id: str | None,
+    source: str,
+    workspace_id: str,
+    correlation_id: str | None,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    trust_score = float(TRUST_STATE.get("score", 0.5))
+    failure_score = _failure_pattern_score(execution_id=execution_id)
+    objective_ctx = _objective_context()
+
+    prev_band = str(GOVERNANCE_STATE.get("band", "stable"))
+    prev_cooldown = float(GOVERNANCE_STATE.get("cooldown_aggressiveness", 0.5))
+
+    blocked_ratio = float(objective_ctx["blocked_ratio"])
+    max_pressure_score = float(objective_ctx["max_pressure_score"])
+    critical_active = 1.0 if bool(objective_ctx["critical_path_active"]) else 0.0
+
+    interrupt_sensitivity = _clamp01(1.0 - (0.65 * trust_score) + (0.15 * failure_score))
+    escalation_readiness = _clamp01(0.2 + (0.55 * failure_score) + (0.25 * blocked_ratio))
+    cooldown_aggressiveness = _clamp01(0.75 - (0.3 * critical_active) - (0.25 * max_pressure_score) + (0.1 * failure_score))
+    posture_persistence = _clamp01(0.2 + (0.45 * critical_active) + (0.35 * max_pressure_score) + (0.1 * trust_score))
+    governance_attention = _clamp01(0.15 + (0.45 * blocked_ratio) + (0.4 * max_pressure_score))
+    confidence = _clamp01(1.0 - (0.5 * failure_score) - (0.2 * blocked_ratio))
+
+    if escalation_readiness >= 0.8:
+        band = "escalated"
+    elif escalation_readiness >= 0.5:
+        band = "warning"
+    else:
+        band = "stable"
+
+    GOVERNANCE_STATE.update(
+        {
+            "updated_at": _utc_now(),
+            "band": band,
+            "interrupt_sensitivity": round(interrupt_sensitivity, 3),
+            "escalation_readiness": round(escalation_readiness, 3),
+            "cooldown_aggressiveness": round(cooldown_aggressiveness, 3),
+            "posture_persistence": round(posture_persistence, 3),
+            "governance_attention": round(governance_attention, 3),
+            "confidence": round(confidence, 3),
+            "inputs": {
+                "trust_score": round(trust_score, 3),
+                "failure_pattern_score": round(failure_score, 3),
+                "objective_context": objective_ctx,
+            },
+        }
+    )
+
+    WORKSPACE_SNAPSHOT["governance"] = {
+        "band": band,
+        "confidence": round(confidence, 3),
+        "posture_persistence": round(posture_persistence, 3),
+        "cooldown_aggressiveness": round(cooldown_aggressiveness, 3),
+        "interrupt_sensitivity": round(interrupt_sensitivity, 3),
+        "governance_attention": round(governance_attention, 3),
+        "updated_at": GOVERNANCE_STATE["updated_at"],
+    }
+
+    events: list[dict[str, Any]] = [
+        EVENTS.append(
+            "governance.stability",
+            {
+                "governance": GOVERNANCE_STATE,
+            },
+            execution_id=execution_id,
+            source=source,
+            workspace_id=workspace_id,
+            correlation_id=correlation_id,
+        )
+    ]
+
+    if band == "escalated" and prev_band != "escalated":
+        events.append(
+            EVENTS.append(
+                "governance.escalation",
+                {
+                    "from_band": prev_band,
+                    "to_band": band,
+                },
+                execution_id=execution_id,
+                source=source,
+                workspace_id=workspace_id,
+                correlation_id=correlation_id,
+            )
+        )
+    elif prev_band == "escalated" and band in {"warning", "stable"}:
+        events.append(
+            EVENTS.append(
+                "governance.recovery",
+                {
+                    "from_band": prev_band,
+                    "to_band": band,
+                },
+                execution_id=execution_id,
+                source=source,
+                workspace_id=workspace_id,
+                correlation_id=correlation_id,
+            )
+        )
+
+    if cooldown_aggressiveness < (prev_cooldown - 0.1):
+        events.append(
+            EVENTS.append(
+                "governance.cooldown",
+                {
+                    "cooldown_aggressiveness": round(cooldown_aggressiveness, 3),
+                    "previous": round(prev_cooldown, 3),
+                },
+                execution_id=execution_id,
+                source=source,
+                workspace_id=workspace_id,
+                correlation_id=correlation_id,
+            )
+        )
+
+    WORKSPACE_SNAPSHOT["updated_at"] = _utc_now()
+    return GOVERNANCE_STATE, events
 
 
 def _signal_delta_events(
@@ -367,6 +604,7 @@ def _signal_delta_events(
                         {
                             "objective_id": objective_id,
                             "pressure": pressure,
+                            "objective_pressure_score": current["objective_pressure_score"].get(objective_id, 0.0),
                         }
                         for objective_id, pressure in current["pressure"].items()
                     ),
@@ -522,6 +760,63 @@ async def publish_event(request: EventPublishRequest) -> dict[str, Any]:
     return {"status": "ok", "event": event}
 
 
+@app.get("/api/governance/state")
+def get_governance_state() -> dict[str, Any]:
+    return {
+        "status": "ok",
+        "governance": GOVERNANCE_STATE,
+        "trust": TRUST_STATE,
+    }
+
+
+@app.post("/api/trust/recompute")
+async def recompute_trust(request: TrustRecomputeRequest) -> dict[str, Any]:
+    trust_events = _set_trust_score(
+        trust_score=request.trust_score,
+        execution_id=request.execution_id,
+        source=request.source,
+        workspace_id=request.workspace_id,
+        correlation_id=request.correlation_id,
+        reason=request.reason,
+    )
+    for event in trust_events:
+        await _fanout_event(event)
+
+    governance, governance_events = _recompute_governance_state(
+        execution_id=request.execution_id,
+        source="governance-engine",
+        workspace_id=request.workspace_id,
+        correlation_id=request.correlation_id,
+    )
+    for event in governance_events:
+        await _fanout_event(event)
+
+    return {
+        "status": "ok",
+        "trust": TRUST_STATE,
+        "governance": governance,
+        "emitted_events": trust_events + governance_events,
+    }
+
+
+@app.post("/api/governance/recompute")
+async def recompute_governance(request: GovernanceRecomputeRequest) -> dict[str, Any]:
+    governance, governance_events = _recompute_governance_state(
+        execution_id=request.execution_id,
+        source=request.source,
+        workspace_id=request.workspace_id,
+        correlation_id=request.correlation_id,
+    )
+    for event in governance_events:
+        await _fanout_event(event)
+
+    return {
+        "status": "ok",
+        "governance": governance,
+        "emitted_events": governance_events,
+    }
+
+
 @app.get("/api/objectives/graph")
 def get_objective_graph() -> dict[str, Any]:
     _derive_objective_signals()
@@ -558,11 +853,21 @@ async def upsert_objective(request: ObjectiveUpsertRequest) -> dict[str, Any]:
     for event in emitted:
         await _fanout_event(event)
 
+    governance, governance_events = _recompute_governance_state(
+        execution_id=request.execution_id,
+        source="governance-engine",
+        workspace_id=request.workspace_id,
+        correlation_id=request.correlation_id,
+    )
+    for event in governance_events:
+        await _fanout_event(event)
+
     return {
         "status": "ok",
         "objective": OBJECTIVES[request.objective_id],
         "signals": OBJECTIVE_SIGNALS,
-        "emitted_events": emitted,
+        "governance": governance,
+        "emitted_events": emitted + governance_events,
     }
 
 
@@ -600,11 +905,21 @@ async def update_objective_status(objective_id: str, request: ObjectiveStatusReq
     for event in emitted:
         await _fanout_event(event)
 
+    governance, governance_events = _recompute_governance_state(
+        execution_id=request.execution_id,
+        source="governance-engine",
+        workspace_id=request.workspace_id,
+        correlation_id=request.correlation_id,
+    )
+    for event in governance_events:
+        await _fanout_event(event)
+
     return {
         "status": "ok",
         "objective": OBJECTIVES[objective_id],
         "signals": OBJECTIVE_SIGNALS,
-        "emitted_events": emitted,
+        "governance": governance,
+        "emitted_events": emitted + governance_events,
     }
 
 

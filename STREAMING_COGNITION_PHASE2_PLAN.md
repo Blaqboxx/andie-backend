@@ -30,6 +30,20 @@ Never allow event frames to become the system of record.
 	- `POST /api/objectives/{objective_id}/status`
 	- `GET /api/objectives/graph`
 
+## Maturity Map (Updated)
+- Phase 1: complete
+	- governance stabilization
+	- reliability qualification
+	- promotion gates
+- Phase 2A: complete
+	- event envelope standardization
+- Phase 2B: complete
+	- event taxonomy scaffold
+- Phase 2C: bootstrap complete
+	- initial objective graph influence
+- Phase 2D: in progress
+	- memory/trust/objective-pressure coupling into governance posture
+
 ## Priority Workstreams
 
 ## 1) Live Timeline Streaming (Highest)

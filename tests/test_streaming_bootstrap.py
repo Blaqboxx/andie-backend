@@ -1,6 +1,6 @@
 from fastapi.testclient import TestClient
 
-from main import OBJECTIVES, OBJECTIVE_SIGNALS, app
+from main import GOVERNANCE_STATE, OBJECTIVES, OBJECTIVE_SIGNALS, TRUST_STATE, app
 
 
 REQUIRED_KEYS = {
@@ -112,6 +112,7 @@ def test_objective_graph_influence_emits_pressure_and_critical_path() -> None:
     OBJECTIVES.clear()
     OBJECTIVE_SIGNALS["blocked"] = {}
     OBJECTIVE_SIGNALS["pressure"] = {}
+    OBJECTIVE_SIGNALS["objective_pressure_score"] = {}
     OBJECTIVE_SIGNALS["critical_path"] = {}
 
     client = TestClient(app)
@@ -157,6 +158,7 @@ def test_objective_graph_influence_emits_pressure_and_critical_path() -> None:
     assert signals["blocked"]["local-training"] is True
     assert signals["blocked"]["agent-expansion"] is True
     assert signals["pressure"]["gpu-upgrade"] > signals["pressure"]["agent-expansion"]
+    assert 0.0 <= signals["objective_pressure_score"]["gpu-upgrade"] <= 1.0
     assert signals["critical_path"]["gpu-upgrade"] >= 2
 
     replay = client.get(f"/api/replay/{execution_id}")
@@ -170,6 +172,7 @@ def test_objective_unblocked_signal_emitted_after_dependency_completion() -> Non
     OBJECTIVES.clear()
     OBJECTIVE_SIGNALS["blocked"] = {}
     OBJECTIVE_SIGNALS["pressure"] = {}
+    OBJECTIVE_SIGNALS["objective_pressure_score"] = {}
     OBJECTIVE_SIGNALS["critical_path"] = {}
 
     client = TestClient(app)
@@ -206,3 +209,105 @@ def test_objective_unblocked_signal_emitted_after_dependency_completion() -> Non
     event_types = [event["event_type"] for event in replay.json()["events"]]
     assert "objective.completed" in event_types
     assert "objective.unblocked" in event_types
+
+
+def test_trust_memory_objective_context_recomputes_governance_state() -> None:
+    OBJECTIVES.clear()
+    OBJECTIVE_SIGNALS["blocked"] = {}
+    OBJECTIVE_SIGNALS["pressure"] = {}
+    OBJECTIVE_SIGNALS["objective_pressure_score"] = {}
+    OBJECTIVE_SIGNALS["critical_path"] = {}
+    TRUST_STATE["score"] = 0.5
+    GOVERNANCE_STATE["band"] = "stable"
+
+    client = TestClient(app)
+    execution_id = "exec-governance-coupling-1"
+
+    assert (
+        client.post(
+            "/api/objectives",
+            json={
+                "objective_id": "gpu-upgrade",
+                "title": "GPU Upgrade",
+                "priority": 5,
+                "salience": 5.0,
+                "execution_id": execution_id,
+            },
+        ).status_code
+        == 200
+    )
+    assert (
+        client.post(
+            "/api/objectives",
+            json={
+                "objective_id": "local-training",
+                "title": "Local Training",
+                "priority": 4,
+                "salience": 4.0,
+                "blocked_by": ["gpu-upgrade"],
+                "execution_id": execution_id,
+            },
+        ).status_code
+        == 200
+    )
+
+    trust_res = client.post(
+        "/api/trust/recompute",
+        json={
+            "trust_score": 0.95,
+            "reason": "trusted-operator",
+            "execution_id": execution_id,
+        },
+    )
+    assert trust_res.status_code == 200
+    assert trust_res.json()["trust"]["score"] == 0.95
+
+    for _ in range(3):
+        fail = client.post(
+            "/api/events",
+            json={
+                "type": "execution.failed",
+                "payload": {"reason": "transient"},
+                "execution_id": execution_id,
+            },
+        )
+        assert fail.status_code == 200
+
+    gov = client.post("/api/governance/recompute", json={"execution_id": execution_id})
+    assert gov.status_code == 200
+    body = gov.json()
+    state = body["governance"]
+
+    assert state["inputs"]["failure_pattern_score"] >= 0.6
+    assert state["inputs"]["objective_context"]["blocked_count"] >= 1
+    assert state["inputs"]["objective_context"]["max_pressure_score"] > 0
+    assert state["interrupt_sensitivity"] < 0.5
+    assert state["escalation_readiness"] >= 0.5
+
+    replay = client.get(f"/api/replay/{execution_id}")
+    assert replay.status_code == 200
+    event_types = [event["event_type"] for event in replay.json()["events"]]
+    assert "trust.recomputed" in event_types
+    assert "governance.stability" in event_types
+
+
+def test_trust_changed_emits_when_score_delta_is_material() -> None:
+    client = TestClient(app)
+    execution_id = "exec-trust-delta-1"
+
+    a = client.post(
+        "/api/trust/recompute",
+        json={"trust_score": 0.2, "execution_id": execution_id},
+    )
+    assert a.status_code == 200
+
+    b = client.post(
+        "/api/trust/recompute",
+        json={"trust_score": 0.9, "execution_id": execution_id},
+    )
+    assert b.status_code == 200
+
+    replay = client.get(f"/api/replay/{execution_id}")
+    assert replay.status_code == 200
+    event_types = [event["event_type"] for event in replay.json()["events"]]
+    assert "trust.changed" in event_types
