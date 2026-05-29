@@ -84,6 +84,10 @@ EVENT_FAMILIES: dict[str, set[str]] = {
         "agent.supervisor_preempted",
         "agent.supervisor_reallocated",
         "agent.supervisor_transferred",
+        "agent.supervisor_aged",
+        "agent.supervisor_boosted",
+        "agent.supervisor_starvation_detected",
+        "agent.supervisor_fairness_applied",
         "agent.assigned",
         "agent.completed",
         "agent.blocked",
@@ -537,6 +541,8 @@ class AgentWorkflowSupervisionRequest(BaseModel):
 
 class AgentSupervisorArbitrationRequest(BaseModel):
     available_slots: int = 1
+    fairness_window: int = 3
+    starvation_threshold: int = 3
     trigger: str = "manual"
     reason: str = "cross-workflow arbitration"
     payload: dict[str, Any] = Field(default_factory=dict)
@@ -611,6 +617,9 @@ def _get_supervisor_runtime(workspace_id: str) -> dict[str, Any]:
     if workspace_id not in SUPERVISOR_RUNTIME_BY_WORKSPACE:
         SUPERVISOR_RUNTIME_BY_WORKSPACE[workspace_id] = {
             "available_slots": 1,
+            "fairness_window": 3,
+            "starvation_threshold": 3,
+            "cycle": 0,
             "active_workflows": [],
             "updated_at": _utc_now(),
         }
@@ -842,6 +851,11 @@ def _build_workflow(
         "blocked_steps": 0,
         "replan_count": 0,
         "supervisor_actions": 0,
+        "workflow_age": 0,
+        "workflow_wait_time": 0,
+        "priority_boost": 0.0,
+        "starvation_score": 0.0,
+        "scheduler_cycle_last_scheduled": 0,
         "history": [
             {
                 "at": now,
@@ -870,6 +884,10 @@ def _workflow_health_payload(workspace_id: str, workflow: dict[str, Any]) -> dic
         "replan_count": int(workflow.get("replan_count", 0)),
         "supervisor_actions": int(workflow.get("supervisor_actions", 0)),
         "priority": float(workflow.get("priority", 0.0)),
+        "workflow_age": int(workflow.get("workflow_age", 0)),
+        "workflow_wait_time": int(workflow.get("workflow_wait_time", 0)),
+        "priority_boost": float(workflow.get("priority_boost", 0.0)),
+        "starvation_score": float(workflow.get("starvation_score", 0.0)),
         "governance_band": governance_band,
         "status": workflow.get("status"),
     }
@@ -952,6 +970,8 @@ def _run_supervisor_arbitration(
     *,
     workspace_id: str,
     available_slots: int,
+    fairness_window: int,
+    starvation_threshold: int,
     execution_id: str | None,
     source: str,
     correlation_id: str | None,
@@ -961,16 +981,44 @@ def _run_supervisor_arbitration(
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     runtime = _get_supervisor_runtime(workspace_id)
     runtime["available_slots"] = max(1, int(available_slots))
+    runtime["fairness_window"] = max(1, int(fairness_window))
+    runtime["starvation_threshold"] = max(1, int(starvation_threshold))
+    runtime["cycle"] = int(runtime.get("cycle", 0)) + 1
     workflows = _get_workspace_workflows(workspace_id)
+    cycle = int(runtime["cycle"])
 
     ranked: list[tuple[str, float]] = []
+    fairness_candidates: list[tuple[str, int]] = []
     for workflow_id, workflow in workflows.items():
         if str(workflow.get("status", "")).lower() == "completed":
             continue
-        score = _workflow_priority_score(workspace_id, workflow)
+
+        wait_time = int(workflow.get("workflow_wait_time", 0))
+        age = int(workflow.get("workflow_age", 0))
+        last_scheduled = int(workflow.get("scheduler_cycle_last_scheduled", 0))
+        if last_scheduled >= cycle - 1:
+            wait_time = 0
+            age = 0
+        else:
+            wait_time += 1
+            age += 1
+
+        base_score = _workflow_priority_score(workspace_id, workflow)
+        aging_bonus = min(0.25, float(wait_time) * 0.05)
+        starvation_bonus = 0.2 if wait_time >= int(runtime["starvation_threshold"]) else 0.0
+        boost = round(aging_bonus + starvation_bonus, 3)
+        starvation_score = round(_clamp01(float(wait_time) / float(runtime["starvation_threshold"])), 3)
+        score = round(_clamp01(base_score + boost), 3)
+
+        workflow["workflow_wait_time"] = wait_time
+        workflow["workflow_age"] = age
+        workflow["priority_boost"] = boost
+        workflow["starvation_score"] = starvation_score
         workflow["priority"] = score
         workflow["updated_at"] = _utc_now()
         ranked.append((workflow_id, score))
+        if wait_time >= int(runtime["fairness_window"]):
+            fairness_candidates.append((workflow_id, wait_time))
 
     ranked.sort(key=lambda row: row[1], reverse=True)
     target_active = [workflow_id for workflow_id, _ in ranked[: runtime["available_slots"]]]
@@ -984,8 +1032,105 @@ def _run_supervisor_arbitration(
             "updated_at": _utc_now(),
         }
     )
-
     emitted: list[dict[str, Any]] = []
+
+    for workflow_id, score in ranked:
+        workflow = workflows.get(workflow_id)
+        if workflow is None:
+            continue
+        wait_time = int(workflow.get("workflow_wait_time", 0))
+        boost = float(workflow.get("priority_boost", 0.0))
+        starvation_score = float(workflow.get("starvation_score", 0.0))
+
+        if wait_time > 0:
+            emitted.append(
+                EVENTS.append(
+                    "agent.supervisor_aged",
+                    {
+                        "workspace_id": workspace_id,
+                        "workflow_id": workflow_id,
+                        "workflow_age": int(workflow.get("workflow_age", 0)),
+                        "workflow_wait_time": wait_time,
+                    },
+                    execution_id=execution_id,
+                    source=source,
+                    workspace_id=workspace_id,
+                    correlation_id=correlation_id,
+                )
+            )
+
+        if boost > 0:
+            emitted.append(
+                EVENTS.append(
+                    "agent.supervisor_boosted",
+                    {
+                        "workspace_id": workspace_id,
+                        "workflow_id": workflow_id,
+                        "base_priority": round(max(0.0, score - boost), 3),
+                        "priority_boost": boost,
+                        "effective_priority": score,
+                        "workflow_wait_time": wait_time,
+                    },
+                    execution_id=execution_id,
+                    source=source,
+                    workspace_id=workspace_id,
+                    correlation_id=correlation_id,
+                )
+            )
+
+        if wait_time >= int(runtime["starvation_threshold"]):
+            emitted.append(
+                EVENTS.append(
+                    "agent.supervisor_starvation_detected",
+                    {
+                        "workspace_id": workspace_id,
+                        "workflow_id": workflow_id,
+                        "workflow_wait_time": wait_time,
+                        "starvation_score": starvation_score,
+                    },
+                    execution_id=execution_id,
+                    source=source,
+                    workspace_id=workspace_id,
+                    correlation_id=correlation_id,
+                )
+            )
+
+    if fairness_candidates and target_active:
+        fairness_candidates.sort(key=lambda row: row[1], reverse=True)
+        fairness_workflow = fairness_candidates[0][0]
+        replaced = target_active[-1]
+        applied = False
+        if fairness_workflow not in target_set:
+            target_active[-1] = fairness_workflow
+            target_set = set(target_active)
+            applied = True
+
+        emitted.append(
+            EVENTS.append(
+                "agent.supervisor_fairness_applied",
+                {
+                    "workspace_id": workspace_id,
+                    "reason": "fairness_window_enforced",
+                    "fairness_window": int(runtime["fairness_window"]),
+                    "starvation_threshold": int(runtime["starvation_threshold"]),
+                    "selected_workflow": fairness_workflow,
+                    "replaced_workflow": replaced,
+                    "applied": applied,
+                },
+                execution_id=execution_id,
+                source=source,
+                workspace_id=workspace_id,
+                correlation_id=correlation_id,
+            )
+        )
+
+        if applied:
+            runtime.update(
+                {
+                    "active_workflows": target_active,
+                    "updated_at": _utc_now(),
+                }
+            )
     prioritized_event = EVENTS.append(
         "agent.supervisor_prioritized",
         {
@@ -994,6 +1139,8 @@ def _run_supervisor_arbitration(
             "reason": reason,
             "actor": actor,
             "available_slots": runtime["available_slots"],
+            "fairness_window": int(runtime["fairness_window"]),
+            "starvation_threshold": int(runtime["starvation_threshold"]),
             "ranking": [
                 {
                     "workflow_id": workflow_id,
@@ -1036,6 +1183,9 @@ def _run_supervisor_arbitration(
         workflow = workflows.get(workflow_id)
         if workflow is not None:
             workflow["status"] = "active"
+            workflow["workflow_wait_time"] = 0
+            workflow["workflow_age"] = 0
+            workflow["scheduler_cycle_last_scheduled"] = cycle
             workflow["updated_at"] = _utc_now()
         emitted.append(
             EVENTS.append(
@@ -1073,6 +1223,9 @@ def _run_supervisor_arbitration(
         workflow = workflows.get(workflow_id)
         if workflow is None:
             continue
+        workflow["scheduler_cycle_last_scheduled"] = cycle
+        workflow["workflow_wait_time"] = 0
+        workflow["workflow_age"] = 0
         emitted.append(
             EVENTS.append(
                 "agent.workflow_health",
@@ -2062,6 +2215,8 @@ async def update_agent_workflow(workflow_id: str, request: AgentWorkflowUpdateRe
         _, arbitration_events = _run_supervisor_arbitration(
             workspace_id=request.workspace_id,
             available_slots=int(_get_supervisor_runtime(request.workspace_id).get("available_slots", 1)),
+            fairness_window=int(_get_supervisor_runtime(request.workspace_id).get("fairness_window", 3)),
+            starvation_threshold=int(_get_supervisor_runtime(request.workspace_id).get("starvation_threshold", 3)),
             execution_id=request.execution_id,
             source="workflow-supervisor",
             correlation_id=request.correlation_id,
@@ -2368,6 +2523,8 @@ async def consensus_agent_workflow(workflow_id: str, request: AgentWorkflowConse
         _, arbitration_events = _run_supervisor_arbitration(
             workspace_id=request.workspace_id,
             available_slots=int(_get_supervisor_runtime(request.workspace_id).get("available_slots", 1)),
+            fairness_window=int(_get_supervisor_runtime(request.workspace_id).get("fairness_window", 3)),
+            starvation_threshold=int(_get_supervisor_runtime(request.workspace_id).get("starvation_threshold", 3)),
             execution_id=request.execution_id,
             source="workflow-supervisor",
             correlation_id=request.correlation_id,
@@ -2471,6 +2628,8 @@ async def supervise_agent_workflow(workflow_id: str, request: AgentWorkflowSuper
     _, arbitration_events = _run_supervisor_arbitration(
         workspace_id=request.workspace_id,
         available_slots=int(_get_supervisor_runtime(request.workspace_id).get("available_slots", 1)),
+        fairness_window=int(_get_supervisor_runtime(request.workspace_id).get("fairness_window", 3)),
+        starvation_threshold=int(_get_supervisor_runtime(request.workspace_id).get("starvation_threshold", 3)),
         execution_id=request.execution_id,
         source=request.source,
         correlation_id=request.correlation_id,
@@ -2494,6 +2653,8 @@ async def arbitrate_supervisor_runtime(request: AgentSupervisorArbitrationReques
     runtime, emitted_events = _run_supervisor_arbitration(
         workspace_id=request.workspace_id,
         available_slots=request.available_slots,
+        fairness_window=request.fairness_window,
+        starvation_threshold=request.starvation_threshold,
         execution_id=request.execution_id,
         source=request.source,
         correlation_id=request.correlation_id,

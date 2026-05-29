@@ -1130,3 +1130,80 @@ def test_supervisor_cross_workflow_arbitration_emits_priority_and_transfer_event
     assert "agent.supervisor_preempted" in replay_types
     assert "agent.supervisor_reallocated" in replay_types
     assert "agent.supervisor_transferred" in replay_types
+
+
+def test_supervisor_fairness_aging_prevents_starvation() -> None:
+    workspace_id = "ws-supervisor-fairness-1"
+    AGENT_TASKS_BY_WORKSPACE.pop(workspace_id, None)
+    AGENT_WORKFLOWS_BY_WORKSPACE.pop(workspace_id, None)
+
+    client = TestClient(app)
+    execution_id = "exec-supervisor-fairness-1"
+
+    for workflow_id in ("wf-fair-a", "wf-fair-b", "wf-fair-c"):
+        response = client.post(
+            "/api/agents/arbitrate",
+            json={
+                "task_id": workflow_id,
+                "operator_forced_role": "execution",
+                "workspace_id": workspace_id,
+                "execution_id": execution_id,
+            },
+        )
+        assert response.status_code == 200
+
+    active_history: list[str] = []
+
+    base = client.post(
+        "/api/agents/supervisor/arbitrate",
+        json={
+            "workspace_id": workspace_id,
+            "available_slots": 1,
+            "fairness_window": 2,
+            "starvation_threshold": 2,
+            "execution_id": execution_id,
+            "reason": "initial arbitration",
+        },
+    )
+    assert base.status_code == 200
+    first_active = base.json()["runtime"]["active_workflows"]
+    assert len(first_active) == 1
+    active_history.append(first_active[0])
+
+    for _ in range(2):
+        rerun = client.post(
+            "/api/agents/supervisor/arbitrate",
+            json={
+                "workspace_id": workspace_id,
+                "available_slots": 1,
+                "fairness_window": 2,
+                "starvation_threshold": 2,
+                "execution_id": execution_id,
+                "reason": "aging sweep",
+            },
+        )
+        assert rerun.status_code == 200
+        active_history.append(rerun.json()["runtime"]["active_workflows"][0])
+
+    final = client.post(
+        "/api/agents/supervisor/arbitrate",
+        json={
+            "workspace_id": workspace_id,
+            "available_slots": 1,
+            "fairness_window": 2,
+            "starvation_threshold": 2,
+            "execution_id": execution_id,
+            "reason": "fairness enforcement",
+        },
+    )
+    assert final.status_code == 200
+
+    emitted_types = [event["event_type"] for event in final.json()["emitted_events"]]
+    assert "agent.supervisor_prioritized" in emitted_types
+    assert "agent.supervisor_aged" in emitted_types
+    assert "agent.supervisor_boosted" in emitted_types
+    assert "agent.supervisor_starvation_detected" in emitted_types
+    assert "agent.supervisor_fairness_applied" in emitted_types
+
+    active_history.append(final.json()["runtime"]["active_workflows"][0])
+    assert {"wf-fair-a", "wf-fair-b", "wf-fair-c"}.issubset(set(active_history))
