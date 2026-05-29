@@ -2,16 +2,28 @@
 # --- ANDIE API: MCP + Sentinel integration ---
 import httpx
 import json
+import base64
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Request, HTTPException
 from andie_backend.interfaces.api.event_bus import subscribe, unsubscribe, recent_events
 import asyncio
 import json as py_json
 import time
+import logging
+import re
 
-from andie_backend.inference.router import chat as _ollama_chat
+from andie_backend.inference.router import (
+    chat as _ollama_chat,
+    preflight_validate as _preflight_validate,
+    resolve_inference_contract as _resolve_inference_contract,
+    InferenceRouteError as _InferenceRouteError,
+    InferenceTopologyError as _InferenceTopologyError,
+)
 from andie_backend.andie.brain.system_prompt import build_system_prompt
 from andie_backend.andie.action.action_router import route as _action_route
 from andie_backend.andie.memory.observer import observe as _observe
+from andie_backend.andie.brain.competency_router import route_competencies
+from andie_backend.andie.brain.response_composer import compose_andie_response
+from andie_backend.andie.conversation import apply_conversational_cognition
 
 router = APIRouter()
 # --- ANDIE API: MCP + Sentinel integration ---
@@ -21,12 +33,113 @@ router = APIRouter()
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
     queue = await subscribe()
+
+    class _RequestLike:
+        def __init__(self, app):
+            self.app = app
+
+    bootstrap_request = _RequestLike(websocket.app)
+    try:
+        await websocket.send_json({
+            "type": "connection.ready",
+            "message": "ANDIE workspace event stream connected",
+            "ts": int(time.time() * 1000),
+        })
+        await websocket.send_json({
+            "type": "workspace.snapshot",
+            "snapshot": _build_workspace_snapshot(bootstrap_request, limit=25),
+            "ts": int(time.time() * 1000),
+        })
+        for event in recent_events(20):
+            await websocket.send_text(py_json.dumps(event))
+
+        disconnect_task = asyncio.create_task(websocket.receive())
+        try:
+            while True:
+                queue_task = asyncio.create_task(queue.get())
+                done, pending = await asyncio.wait(
+                    {queue_task, disconnect_task},
+                    timeout=30,
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                if disconnect_task in done:
+                    queue_task.cancel()
+                    break
+                if queue_task in done:
+                    event = queue_task.result()
+                    await websocket.send_text(py_json.dumps(event))
+                    continue
+                queue_task.cancel()
+                await websocket.send_json({"type": "workspace.heartbeat", "ts": int(time.time() * 1000)})
+        finally:
+            disconnect_task.cancel()
+    except WebSocketDisconnect:
+        pass
+    finally:
+        await unsubscribe(queue)
+
+@router.websocket("/audio/stream")
+async def audio_stream(websocket: WebSocket):
+    await websocket.accept()
+    chunks_received = 0
+    bytes_received = 0
+
     try:
         while True:
-            event = await queue.get()
-            await websocket.send_text(py_json.dumps(event))
+            try:
+                raw = await websocket.receive_text()
+                data = py_json.loads(raw)
+            except WebSocketDisconnect:
+                return
+            except Exception as parse_err:
+                await websocket.send_json({"type": "error", "detail": f"invalid_payload: {parse_err}"})
+                continue
+
+            msg_type = str(data.get("type") or "").lower()
+
+            if msg_type == "ping":
+                await websocket.send_json({"type": "pong", "ts": int(time.time() * 1000)})
+                continue
+
+            if msg_type == "chunk":
+                audio_b64 = data.get("audio")
+                index = data.get("index")
+                if not audio_b64:
+                    await websocket.send_json({"type": "error", "detail": "missing_audio"})
+                    continue
+
+                try:
+                    payload = base64.b64decode(audio_b64)
+                except Exception:
+                    await websocket.send_json({"type": "error", "detail": "invalid_base64_audio", "index": index})
+                    continue
+
+                chunks_received += 1
+                bytes_received += len(payload)
+                await websocket.send_json({
+                    "type": "ack",
+                    "index": index,
+                    "chunks": chunks_received,
+                    "bytes": bytes_received,
+                })
+                continue
+
+            if msg_type == "flush":
+                if chunks_received > 0:
+                    await websocket.send_json({
+                        "type": "transcript",
+                        "text": "Voice input received. ASR transcript service not configured yet.",
+                        "chunks": chunks_received,
+                        "bytes": bytes_received,
+                    })
+                else:
+                    await websocket.send_json({"type": "error", "detail": "no_audio_received"})
+                continue
+
+            await websocket.send_json({"type": "error", "detail": f"unsupported_type:{msg_type}"})
+
     except WebSocketDisconnect:
-        await unsubscribe(queue)
+        return
 
 @router.get("/tasks/stream")
 async def tasks_stream(request: Request, limit: int = 20):
@@ -126,7 +239,7 @@ async def healthz(request: Request):
     redis_port = int(os.environ.get("REDIS_PORT", "6379"))
     qdrant_host = os.environ.get("QDRANT_HOST", "qdrant")
     qdrant_port = int(os.environ.get("QDRANT_PORT", "6333"))
-    ollama_host = os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434")
+    ollama_host = os.environ.get("OLLAMA_HOST") or os.environ.get("OLLAMA_BASE_URL") or ""
 
     memory_service = getattr(request.app.state, "memory_service", None)
     memory_ready = memory_service is not None
@@ -152,45 +265,56 @@ async def system_status(request: Request):
     status = {"andie": "online"}
 
     # MCP check
+    _mcp_url = os.environ.get("MCP_URL", "http://andie-mcp:7001")
     try:
         async with httpx.AsyncClient(timeout=2.0) as client:
-            r = await client.get(f"{MCP_URL}/docs")
+            r = await client.get(f"{_mcp_url}/status")
             status["mcp"] = "online" if r.status_code == 200 else "unknown"
     except:
         status["mcp"] = "offline"
 
-    # Sentinel check (HTTP)
+    # Sentinel check
+    _sentinel_url = os.environ.get("SENTINEL_URL", "http://andie-sentinel:7002")
     try:
-        sentinel_url = os.environ.get("SENTINEL_URL", "http://127.0.0.1:7002")
         async with httpx.AsyncClient(timeout=2.0) as client:
-            r = await client.get(f"{sentinel_url}/health")
+            r = await client.get(f"{_sentinel_url}/health")
             status["sentinel"] = "online" if r.status_code == 200 else "unknown"
     except:
         status["sentinel"] = "offline"
 
-    # Ollama runtime telemetry (low-cost probe against /api/tags).
-    ollama_host = os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434")
-    status["ollama"] = await _ollama_telemetry(ollama_host)
+    # Ollama runtime telemetry — return a string status for UI compatibility.
+    ollama_host = os.environ.get("OLLAMA_HOST") or os.environ.get("OLLAMA_BASE_URL") or ""
+    _ollama_data = await _ollama_telemetry(ollama_host)
+    if isinstance(_ollama_data, dict):
+        status["ollama"] = "online" if _ollama_data.get("ready") else ("degraded" if not _ollama_data.get("error") else "offline")
+        status["ollama_detail"] = _ollama_data
+    else:
+        status["ollama"] = str(_ollama_data)
 
-    # Memory/embedding readiness from app lifespan state.
+    # Memory/embedding readiness — return string status + detail for UI.
     try:
         memory_service = getattr(request.app.state, "memory_service", None)
         if memory_service is not None and hasattr(memory_service, "health"):
-            status["memory"] = memory_service.health()
+            _mem_data = memory_service.health()
         else:
-            status["memory"] = {
+            _mem_data = {
                 "embeddings_enabled": False,
                 "degraded": True,
                 "degraded_reason": "Memory service not initialized",
                 "vector_entries": 0,
             }
     except Exception as e:
-        status["memory"] = {
+        _mem_data = {
             "embeddings_enabled": False,
             "degraded": True,
             "degraded_reason": str(e),
             "vector_entries": 0,
         }
+    if isinstance(_mem_data, dict):
+        status["memory"] = "degraded" if _mem_data.get("degraded") else "online"
+        status["memory_detail"] = _mem_data
+    else:
+        status["memory"] = str(_mem_data)
 
     return status
 
@@ -214,11 +338,86 @@ async def system_agents():
         return {"agents": []}
 
 
+@router.get("/system/gpu")
+async def system_gpu(request: Request):
+    monitor = getattr(request.app.state, "gpu_monitor", None)
+    if monitor is None:
+        return {"status": "unavailable", "reason": "gpu monitor not initialized"}
+    return {"status": "ok", "gpu": monitor.snapshot()}
+
+
+@router.get("/runtime/services")
+async def runtime_services(request: Request):
+    monitor = getattr(request.app.state, "gpu_monitor", None)
+    speech = getattr(request.app.state, "speech_runtime", None)
+    vision = getattr(request.app.state, "vision_runtime", None)
+    memory_service = getattr(request.app.state, "memory_service", None)
+
+    gpu = monitor.snapshot() if monitor is not None else {"accelerator": "none", "vram_gb_total": 0.0, "service_activation_matrix": {}}
+    accelerator = gpu.get("accelerator", "none")
+    vram_gb = float(gpu.get("vram_gb_total", 0.0) or 0.0)
+
+    speech_status = speech.status(accelerator) if speech is not None else {"available": False, "engine": "unknown"}
+    vision_status = vision.status(accelerator, vram_gb) if vision is not None else {"available": False}
+
+    matrix = dict(gpu.get("service_activation_matrix", {}))
+    matrix.update({
+        "speech_asr": bool(speech_status.get("available", False)),
+        "vision_ocr": bool(vision_status.get("available", False)),
+        "vector_memory": bool(getattr(memory_service, "embeddings_enabled", False)) if memory_service is not None else False,
+    })
+
+    return {
+        "status": "ok",
+        "accelerator": accelerator,
+        "gpu": gpu,
+        "speech": speech_status,
+        "vision": vision_status,
+        "service_activation_matrix": matrix,
+    }
+
+
+@router.post("/runtime/route-task")
+async def runtime_route_task(request: Request):
+    data = await request.json()
+    task_type = (data.get("task_type") or "quick_response").strip().lower()
+
+    router = getattr(request.app.state, "task_router", None)
+    monitor = getattr(request.app.state, "gpu_monitor", None)
+    speech = getattr(request.app.state, "speech_runtime", None)
+    vision = getattr(request.app.state, "vision_runtime", None)
+
+    model = router.choose_model(task_type) if router is not None else "phi"
+    gpu = monitor.snapshot() if monitor is not None else {"accelerator": "none", "vram_gb_total": 0.0, "service_activation_matrix": {}}
+    accelerator = gpu.get("accelerator", "none")
+    vram_gb = float(gpu.get("vram_gb_total", 0.0) or 0.0)
+
+    speech_status = speech.status(accelerator) if speech else {}
+    vision_status = vision.status(accelerator, vram_gb) if vision else {}
+
+    return {
+        "status": "ok",
+        "task_type": task_type,
+        "selected_model": model,
+        "accelerator": accelerator,
+        "services": {
+            "speech_available": bool(speech_status.get("available", False)),
+            "vision_available": bool(vision_status.get("available", False)),
+        },
+        "service_activation_matrix": gpu.get("service_activation_matrix", {}),
+    }
+
+
 @router.get("/guardian")
 async def guardian_status():
-    async with httpx.AsyncClient() as client:
-        r = await client.get("http://127.0.0.1:7010/health")
-        return r.json()
+    try:
+        async with httpx.AsyncClient(timeout=3.0) as client:
+            r = await client.get("http://127.0.0.1:7010/health")
+            if r.status_code == 200:
+                return r.json()
+            return {"guardian": "offline", "status_code": r.status_code}
+    except Exception as e:
+        return {"guardian": "offline", "error": str(e)}
 
 
 # --- ANDIE API: Assistant endpoint ---
@@ -249,36 +448,235 @@ async def build(req: dict):
         return r.json()
 
 
+async def _persist_chat_memory(request: Request, user_message: str, assistant_response: str, confidence: float, meta: dict, session_id: str | None = None):
+    """Persist chat memory off the critical response path."""
+    try:
+        memory = request.app.state.memory_service
+    except Exception:
+        return
+
+    def _write():
+        memory.add({
+            "role": "user",
+            "content": user_message,
+            "session_id": session_id,
+            "output": {
+                "channel": "chat",
+                "event": "chat_user_turn",
+                "session_id": session_id,
+            },
+        })
+        memory.add({
+            "role": "assistant",
+            "content": assistant_response,
+            "session_id": session_id,
+            "output": {
+                "channel": "chat",
+                "event": "chat_assistant_turn",
+                "session_id": session_id,
+                "confidence": confidence,
+                "meta": meta,
+            },
+        })
+
+    try:
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, _write)
+    except Exception:
+        # Memory persistence is best-effort and must never block chat.
+        return
+
+
+_IDENTITY_PATTERNS = [
+    re.compile(r"\bmy name is (?P<name>[A-Za-z][A-Za-z0-9' -]{0,60})", re.IGNORECASE),
+    re.compile(r"\bcall me (?P<name>[A-Za-z][A-Za-z0-9' -]{0,60})", re.IGNORECASE),
+    re.compile(r"\bi am (?P<name>[A-Za-z][A-Za-z0-9' -]{0,60})\b", re.IGNORECASE),
+    re.compile(r"\bi'm (?P<name>[A-Za-z][A-Za-z0-9' -]{0,60})\b", re.IGNORECASE),
+]
+
+
+def _normalize_identity_value(raw: str) -> str:
+    cleaned = re.sub(r"\s+", " ", (raw or "").strip(" .,!?:;\"'"))
+    cleaned = re.sub(r"\b(and|but|because|please|thanks)\b.*$", "", cleaned, flags=re.IGNORECASE)
+    cleaned = cleaned.strip(" .,!?:;\"'")
+    if not cleaned:
+        return ""
+    lowered = cleaned.lower()
+    if lowered in {"andie", "assistant", "ai"}:
+        return ""
+    return " ".join(part[:1].upper() + part[1:] for part in cleaned.split(" ") if part)
+
+
+def _extract_identity_facts(text: str) -> list[dict]:
+    if not text:
+        return []
+    facts = []
+    seen = set()
+    for pattern in _IDENTITY_PATTERNS:
+        match = pattern.search(text)
+        if not match:
+            continue
+        name = _normalize_identity_value(match.group("name"))
+        if not name:
+            continue
+        dedupe_key = ("user_name", name.lower())
+        if dedupe_key in seen:
+            continue
+        seen.add(dedupe_key)
+        facts.append({
+            "type": "identity",
+            "key": "user_name",
+            "value": name,
+            "confidence": 0.98,
+            "source": "explicit_user_statement",
+        })
+    return facts
+
+
+async def _persist_identity_facts(request: Request, user_message: str, session_id: str | None = None) -> list[dict]:
+    facts = _extract_identity_facts(user_message)
+    if not facts:
+        return []
+
+    try:
+        memory = request.app.state.memory_service
+    except Exception:
+        return facts
+
+    def _write():
+        for fact in facts:
+            memory.add({
+                "agent": "identity_memory",
+                "input": f"Known user fact: {fact['key']}={fact['value']}",
+                "content": f"Known user fact: {fact['key']}={fact['value']}",
+                "session_id": session_id,
+                "output": {**fact, "channel": "chat", "session_id": session_id},
+            })
+
+    try:
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, _write)
+    except Exception:
+        return facts
+    return facts
+
+
+def _extract_identity_from_entry(entry: dict) -> tuple[str, str] | None:
+    output = entry.get("output")
+    if isinstance(output, dict) and output.get("type") == "identity":
+        key = str(output.get("key") or "").strip()
+        value = _normalize_identity_value(str(output.get("value") or ""))
+        if key and value:
+            return key, value
+
+    agent = entry.get("agent") or entry.get("role")
+    if agent not in {"user", "identity_memory"}:
+        return None
+
+    text = entry.get("input") or entry.get("content") or ""
+    for fact in _extract_identity_facts(text):
+        return fact["key"], fact["value"]
+    return None
+
+
+def _build_known_user_facts(request: Request, current_facts: list[dict] | None = None) -> str:
+    known = {}
+    for fact in current_facts or []:
+        key = str(fact.get("key") or "").strip()
+        value = _normalize_identity_value(str(fact.get("value") or ""))
+        if key and value:
+            known.setdefault(key, value)
+
+    try:
+        memory = request.app.state.memory_service
+    except Exception:
+        memory = None
+
+    if memory is not None and hasattr(memory, "get_recent"):
+        try:
+            recent = list(reversed(memory.get_recent(limit=80)))
+        except Exception:
+            recent = []
+        for entry in recent:
+            parsed = _extract_identity_from_entry(entry)
+            if not parsed:
+                continue
+            key, value = parsed
+            known.setdefault(key, value)
+
+    lines = []
+    if known.get("user_name"):
+        lines.append(f"- User name: {known['user_name']}")
+    return "\n".join(lines)
+
+
 # --- ANDIE API: Chat Endpoint ---
 @router.post("/chat")
 async def chat(request: Request):
     try:
         data = await request.json()
         user_message = data.get("message", "")
-
-
-        _sys = build_system_prompt()
-        result = await _action_route(user_message, _ollama_chat, _sys)
+        session_id = (
+            request.headers.get("x-session-id")
+            or request.headers.get("x-conversation-id")
+            or getattr(getattr(request, "client", None), "host", None)
+            or "default"
+        )
+        current_facts = await _persist_identity_facts(request, user_message, session_id=str(session_id))
+        known_user_facts = _build_known_user_facts(request, current_facts=current_facts)
+        _sys = _build_orchestrator_prompt("", known_user_facts=known_user_facts)
+        chat_timeout_s = float(os.environ.get("ANDIE_CHAT_TIMEOUT_SECONDS", "20"))
+        try:
+            result = await asyncio.wait_for(
+                _action_route(user_message, _ollama_chat, _sys),
+                timeout=chat_timeout_s,
+            )
+        except asyncio.TimeoutError:
+            return {
+                "status": "error",
+                "response": f"Chat timed out after {int(chat_timeout_s)}s. Please try again.",
+                "confidence": 0.0,
+                "intent": "TIMEOUT",
+                "meta": {"source": "timeout_guard"},
+            }
         if "meta" not in result:
             result["meta"] = {"source": "ollama", "intent": result.get("intent", "CHAT_RESPONSE")}
         result.setdefault("confidence", 0.92)
 
-
-        # Store structured memory (user + assistant) — optional
         try:
-            memory: MemoryService = request.app.state.memory_service
-            memory.add({
-                "role": "user",
-                "content": user_message
-            })
-            memory.add({
-                "role": "assistant",
-                "content": result.get("response", ""),
-                "confidence": result.get("confidence"),
-                "meta": result.get("meta")
-            })
-        except AttributeError:
-            pass
+            runtime_snapshot = _build_workspace_snapshot(request, limit=25)
+        except Exception:
+            runtime_snapshot = {}
+
+        result = apply_conversational_cognition(
+            request=request,
+            user_message=user_message,
+            llm_result=result,
+            runtime_snapshot=runtime_snapshot,
+            session_id=str(session_id),
+        )
+
+        competency_weights = route_competencies(user_message)
+        pressure_tier = _pressure_tier_from_snapshot(runtime_snapshot)
+        result = compose_andie_response(
+            user_message=user_message,
+            llm_result=result,
+            competency_weights=competency_weights,
+            pressure_tier=pressure_tier,
+        )
+
+
+        # Store structured memory asynchronously; never block response path.
+        asyncio.create_task(
+            _persist_chat_memory(
+                request,
+                user_message=user_message,
+                assistant_response=result.get("response", ""),
+                confidence=float(result.get("confidence", 0.0) or 0.0),
+                meta=result.get("meta") or {},
+                session_id=str(session_id),
+            )
+        )
 
         out = {k: v for k, v in result.items() if v is not None}
         out["status"] = "ok"
@@ -295,6 +693,27 @@ async def chat(request: Request):
 
 
 # Helper to run repair agent async (handles both sync/async run methods)
+def _truncate_to_sentence_boundary(text: str, max_chars: int) -> str:
+    """Trim to max_chars and snap to sentence boundary when possible."""
+    if not text:
+        return ""
+    text = text.strip()
+    if len(text) <= max_chars:
+        return text
+
+    clipped = text[:max_chars].rstrip()
+    # Prefer nearest sentence terminator in the clipped window.
+    end_idx = max(clipped.rfind('.'), clipped.rfind('!'), clipped.rfind('?'))
+    if end_idx >= int(max_chars * 0.5):
+        return clipped[:end_idx + 1].strip()
+
+    # Fallback to last whitespace to avoid mid-word cuts.
+    ws_idx = clipped.rfind(' ')
+    if ws_idx >= int(max_chars * 0.5):
+        return clipped[:ws_idx].strip() + '...'
+    return clipped + '...'
+
+
 async def async_run_repair(repair):
     try:
         run_method = getattr(repair, "run", None)
@@ -308,31 +727,325 @@ async def async_run_repair(repair):
     except Exception as e:
         print(f"[Repair Error] {e}")
 
+ORCH_LOGGER = logging.getLogger("andie.orchestrator")
+_STREAM_METRICS = {
+    "requests": 0,
+    "errors": 0,
+    "dropped_streams": 0,
+    "disconnects": 0,
+    "tokens": 0,
+    "token_seconds": 0.0,
+    "first_token_ms": [],
+    "total_ms": [],
+    "stream_duration_ms": [],
+}
+
+
+def _build_orchestrator_prompt(context: str, known_user_facts: str = "") -> str:
+    prompt = (
+        "You are ANDIE (Autonomous Neural Distributed Intelligence Engine), an AI system "
+        "running on a distributed home cluster. You are concise, direct, and technically "
+        "precise. You assist the operator Jamai with system management, code, and autonomous "
+        "tasks. Never pretend to be a generic AI assistant. "
+        "Identity rules: ANDIE is the assistant name. The user's identity is always separate "
+        "from the assistant identity. Never answer that the user's name is ANDIE unless the "
+        "known user facts explicitly state that."
+    )
+    if known_user_facts:
+        prompt = prompt + "\nKnown user facts:\n" + known_user_facts
+    if context:
+        prompt = prompt + "\nAdditional context:\n" + str(context)
+    return prompt
+
+
+def _orchestrator_policy() -> dict:
+    return {
+        "server_timeout_s": float(os.environ.get("ANDIE_ORCHESTRATOR_SERVER_TIMEOUT_SECONDS", "25")),
+        "num_predict": int(os.environ.get("ANDIE_ORCHESTRATOR_NUM_PREDICT", "32")),
+        "temperature": float(os.environ.get("ANDIE_ORCHESTRATOR_TEMPERATURE", "0.2")),
+        "read_timeout_s": float(os.environ.get("ANDIE_ORCHESTRATOR_READ_TIMEOUT_SECONDS", "30")),
+        "max_chars": int(os.environ.get("ANDIE_ORCHESTRATOR_MAX_RESPONSE_CHARS", "320")),
+    }
+
+
+def _estimate_token_count(text: str) -> int:
+    return len([x for x in (text or "").split() if x])
+
+
+def _append_metric(bucket: str, value: float):
+    arr = _STREAM_METRICS[bucket]
+    arr.append(float(value))
+    if len(arr) > 2000:
+        del arr[: len(arr) - 2000]
+
+
+def _record_stream_metrics(*, first_token_ms: int | None, total_ms: int, stream_duration_ms: int, token_count: int, ok: bool):
+    _STREAM_METRICS["requests"] += 1
+    if not ok:
+        _STREAM_METRICS["errors"] += 1
+    if first_token_ms is not None:
+        _append_metric("first_token_ms", first_token_ms)
+    _append_metric("total_ms", total_ms)
+    _append_metric("stream_duration_ms", stream_duration_ms)
+    _STREAM_METRICS["tokens"] += max(token_count, 0)
+    _STREAM_METRICS["token_seconds"] += max(stream_duration_ms, 0) / 1000.0
+
+
 @router.post("/orchestrator/run")
 async def orchestrator_run(request: Request):
+    started = time.monotonic()
+    policy = _orchestrator_policy()
     try:
         data = await request.json()
         task = data.get("task", data.get("message", ""))
         context = data.get("context", "")
-        system_prompt = "You are ANDIE (Autonomous Neural Distributed Intelligence Engine), an AI system running on a distributed home cluster. You are concise, direct, and technically precise. You assist the operator Jamai with system management, code, and autonomous tasks. Never pretend to be a generic AI assistant."
-        if context:
-            system_prompt = system_prompt + " " + context
-        result = await _ollama_chat(
-            messages=[{"role": "user", "content": task}],
-            system=system_prompt,
+        current_facts = await _persist_identity_facts(request, task)
+        known_user_facts = _build_known_user_facts(request, current_facts=current_facts)
+        system_prompt = _build_orchestrator_prompt(context, known_user_facts=known_user_facts)
+        contract = _resolve_inference_contract()
+
+        result = await asyncio.wait_for(
+            _ollama_chat(
+                messages=[{"role": "user", "content": task}],
+                system=system_prompt,
+                num_predict=policy["num_predict"],
+                temperature=policy["temperature"],
+                read_timeout_seconds=policy["read_timeout_s"],
+            ),
+            timeout=policy["server_timeout_s"],
         )
-        return {
+
+        total_ms = int((time.monotonic() - started) * 1000)
+        raw_response = result.get("response", "")
+        trimmed_response = _truncate_to_sentence_boundary(raw_response, policy["max_chars"])
+
+        fallback_used = bool(result.get("fallback_used", False) or (result.get("routing") or {}).get("fallback_used", False))
+        topology_verified = bool(result.get("topology_verified", False))
+        resolved_node = str(result.get("node") or contract.get("resolved_node") or "")
+        resolved_model = str(result.get("model") or contract.get("resolved_model") or "")
+
+        if fallback_used:
+            msg = "Unexpected fallback activation in strict production mode"
+            ORCH_LOGGER.critical("[ORCH-TOPOLOGY] %s", msg)
+            raise _InferenceTopologyError(msg, diagnostics={"fallback_used": True, **contract})
+
+        if not topology_verified:
+            msg = "Topology verification failed"
+            ORCH_LOGGER.critical("[ORCH-TOPOLOGY] %s node=%s model=%s", msg, resolved_node, resolved_model)
+            raise _InferenceTopologyError(
+                msg,
+                diagnostics={
+                    "resolved_node": resolved_node,
+                    "resolved_model": resolved_model,
+                    "topology_verified": False,
+                    "fallback_used": False,
+                    **contract,
+                },
+            )
+
+        orchestrator_payload = {
             "status": "ok",
-            "response": result["response"],
+            "response": trimmed_response,
             "confidence": 0.92,
             "route": "assistant",
-            "meta": {"source": "ollama", "model": result["model"], "node": result["node"]},
+            "node": resolved_node,
+            "model": resolved_model,
+            "fallback_used": False,
+            "topology_verified": True,
+            "timings_ms": {
+                "total": total_ms,
+                "probe": (result.get("timings_ms") or {}).get("probe"),
+                "inference": (result.get("timings_ms") or {}).get("inference", result.get("latency_ms")),
+            },
+            "meta": {
+                "source": "ollama",
+                "model": resolved_model,
+                "node": resolved_node,
+                "fallback_used": False,
+                "topology_verified": True,
+                "timings_ms": {
+                    "total": total_ms,
+                    "probe": (result.get("timings_ms") or {}).get("probe"),
+                    "inference": (result.get("timings_ms") or {}).get("inference", result.get("latency_ms")),
+                },
+                "routing": result.get("routing") or {"fallback_used": False, "attempt_count": 1, "selected_node": resolved_node, "attempts": []},
+                "policy": {
+                    **policy,
+                    "truncated": trimmed_response != raw_response,
+                },
+            },
+        }
+
+        competency_weights = route_competencies(task)
+        return compose_andie_response(
+            user_message=task,
+            llm_result=orchestrator_payload,
+            competency_weights=competency_weights,
+        )
+    except asyncio.TimeoutError:
+        total_ms = int((time.monotonic() - started) * 1000)
+        ORCH_LOGGER.critical("[ORCH-TOPOLOGY] run timeout exceeded: %ss", policy["server_timeout_s"])
+        contract = _resolve_inference_contract()
+        return {
+            "status": "error",
+            "response": f"Orchestrator timed out after {int(policy['server_timeout_s'])}s.",
+            "confidence": 0.0,
+            "node": contract.get("resolved_node"),
+            "model": contract.get("resolved_model"),
+            "fallback_used": False,
+            "topology_verified": False,
+            "timings_ms": {"total": total_ms, "probe": None, "inference": None},
+            "meta": {
+                "source": "ollama",
+                "error_type": "ServerTimeout",
+                "node": contract.get("resolved_node"),
+                "model": contract.get("resolved_model"),
+                "fallback_used": False,
+                "topology_verified": False,
+                "timings_ms": {"total": total_ms, "probe": None, "inference": None},
+                "routing": {"fallback_used": False, "attempt_count": 0, "selected_node": None, "attempts": []},
+                "policy": policy,
+            },
         }
     except Exception as e:
-        import traceback
-        print("[CHAT ERROR]", e)
-        print(traceback.format_exc())
-        return {"status": "error", "response": str(e), "confidence": 0.0}
+        total_ms = int((time.monotonic() - started) * 1000)
+        diagnostics = getattr(e, "diagnostics", {}) or {}
+        resolved_node = diagnostics.get("resolved_node") or diagnostics.get("base_url") or diagnostics.get("expected_node")
+        resolved_model = diagnostics.get("resolved_model") or diagnostics.get("expected_model")
+        fallback_used = bool(diagnostics.get("fallback_used", False))
+        topology_verified = bool(diagnostics.get("topology_verified", False))
+        ORCH_LOGGER.critical("[ORCH-TOPOLOGY] run failure type=%s err=%s diag=%s", type(e).__name__, str(e), diagnostics)
+        return {
+            "status": "error",
+            "response": str(e),
+            "confidence": 0.0,
+            "node": resolved_node,
+            "model": resolved_model,
+            "fallback_used": fallback_used,
+            "topology_verified": topology_verified,
+            "timings_ms": {
+                "total": total_ms,
+                "probe": diagnostics.get("probe_ms"),
+                "inference": diagnostics.get("request_ms"),
+            },
+            "meta": {
+                "source": "ollama",
+                "error_type": type(e).__name__,
+                "node": resolved_node,
+                "model": resolved_model,
+                "fallback_used": fallback_used,
+                "topology_verified": topology_verified,
+                "timings_ms": {
+                    "total": total_ms,
+                    "probe": diagnostics.get("probe_ms"),
+                    "inference": diagnostics.get("request_ms"),
+                },
+                "routing": {
+                    "fallback_used": fallback_used,
+                    "attempt_count": len(diagnostics.get("attempts", []) or []),
+                    "selected_node": diagnostics.get("selected_node"),
+                    "attempts": diagnostics.get("attempts", []) or [],
+                    "nodes": diagnostics.get("nodes", []) or [],
+                },
+            },
+        }
+
+
+@router.post("/orchestrator/stream")
+async def orchestrator_stream(request: Request):
+    """Token-streaming orchestrator endpoint (SSE) with strict parity to run."""
+    from fastapi.responses import StreamingResponse
+
+    data = await request.json()
+    task = data.get("task", data.get("message", ""))
+    context = data.get("context", "")
+    current_facts = await _persist_identity_facts(request, task)
+    known_user_facts = _build_known_user_facts(request, current_facts=current_facts)
+    system_prompt = _build_orchestrator_prompt(context, known_user_facts=known_user_facts)
+    policy = _orchestrator_policy()
+
+    preflight = await _preflight_validate(read_timeout_seconds=policy["read_timeout_s"])
+    resolved_node = preflight["resolved_node"]
+    resolved_model = preflight["resolved_model"]
+
+    timeout = httpx.Timeout(
+        connect=float(os.environ.get("ANDIE_OLLAMA_CONNECT_TIMEOUT_SECONDS", "5")),
+        read=policy["read_timeout_s"],
+        write=float(os.environ.get("ANDIE_OLLAMA_WRITE_TIMEOUT_SECONDS", "5")),
+        pool=float(os.environ.get("ANDIE_OLLAMA_POOL_TIMEOUT_SECONDS", "10")),
+    )
+
+    started = time.monotonic()
+
+    async def event_generator():
+        first_token_ms = None
+        total_ms = 0
+        token_count = 0
+        stream_duration_ms = 0
+        try:
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                async with client.stream(
+                    "POST",
+                    f"{resolved_node}/api/chat",
+                    json={
+                        "model": resolved_model,
+                        "messages": [
+                            {"role": "system", "content": system_prompt},
+                            {"role": "user", "content": task},
+                        ],
+                        "stream": True,
+                        "options": {
+                            "num_predict": policy["num_predict"],
+                            "temperature": policy["temperature"],
+                        },
+                    },
+                ) as resp:
+                    if resp.status_code != 200:
+                        body = await resp.aread()
+                        total_ms = int((time.monotonic() - started) * 1000)
+                        _record_stream_metrics(first_token_ms=first_token_ms, total_ms=total_ms, stream_duration_ms=0, token_count=token_count, ok=False)
+                        ORCH_LOGGER.critical("[ORCH-TOPOLOGY] stream HTTP failure status=%s node=%s model=%s", resp.status_code, resolved_node, resolved_model)
+                        yield f"data: {py_json.dumps({'type': 'error', 'error': 'stream_http_failure', 'status_code': resp.status_code, 'body': body.decode('utf-8', 'ignore')[:300], 'node': resolved_node, 'model': resolved_model, 'fallback_used': False, 'topology_verified': False, 'timings_ms': {'total': total_ms, 'first_token_ms': first_token_ms, 'stream_duration_ms': 0, 'token_count': token_count, 'tokens_per_second': 0.0}})}\n\n"
+                        return
+
+                    yield f"data: {py_json.dumps({'type': 'start', 'model': resolved_model, 'node': resolved_node, 'fallback_used': False, 'topology_verified': True, 'policy': policy})}\n\n"
+
+                    async for line in resp.aiter_lines():
+                        if not line:
+                            continue
+                        try:
+                            item = py_json.loads(line)
+                        except Exception:
+                            continue
+
+                        token_chunk = ((item.get("message") or {}).get("content") or "")
+                        if token_chunk:
+                            token_count += _estimate_token_count(token_chunk)
+                            if first_token_ms is None:
+                                first_token_ms = int((time.monotonic() - started) * 1000)
+                            yield f"data: {py_json.dumps({'type': 'token', 'chunk': token_chunk})}\n\n"
+
+                        if item.get("done"):
+                            total_ms = int((time.monotonic() - started) * 1000)
+                            stream_duration_ms = max(0, total_ms - (first_token_ms or total_ms))
+                            tps = round((token_count / (stream_duration_ms / 1000.0)), 2) if stream_duration_ms > 0 else 0.0
+                            _record_stream_metrics(first_token_ms=first_token_ms, total_ms=total_ms, stream_duration_ms=stream_duration_ms, token_count=token_count, ok=True)
+                            ORCH_LOGGER.info("[ORCH-STREAM] done node=%s model=%s first_token_ms=%s total_ms=%s stream_duration_ms=%s token_count=%s tps=%s", resolved_node, resolved_model, first_token_ms, total_ms, stream_duration_ms, token_count, tps)
+                            yield f"data: {py_json.dumps({'type': 'done', 'node': resolved_node, 'model': resolved_model, 'fallback_used': False, 'topology_verified': True, 'timings_ms': {'first_token_ms': first_token_ms, 'total_ms': total_ms, 'stream_duration_ms': stream_duration_ms, 'token_count': token_count, 'tokens_per_second': tps}})}\n\n"
+                            return
+        except Exception as e:
+            total_ms = int((time.monotonic() - started) * 1000)
+            stream_duration_ms = max(0, total_ms - (first_token_ms or total_ms))
+            tps = round((token_count / (stream_duration_ms / 1000.0)), 2) if stream_duration_ms > 0 else 0.0
+            _record_stream_metrics(first_token_ms=first_token_ms, total_ms=total_ms, stream_duration_ms=stream_duration_ms, token_count=token_count, ok=False)
+            ORCH_LOGGER.critical("[ORCH-TOPOLOGY] stream exception type=%s err=%s", type(e).__name__, str(e))
+            yield f"data: {py_json.dumps({'type': 'error', 'error': str(e), 'node': resolved_node, 'model': resolved_model, 'fallback_used': False, 'topology_verified': False, 'timings_ms': {'first_token_ms': first_token_ms, 'total_ms': total_ms, 'stream_duration_ms': stream_duration_ms, 'token_count': token_count, 'tokens_per_second': tps}})}\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 @router.post("/converse")
 async def converse(request: Request):
@@ -387,11 +1100,51 @@ async def list_skills():
 @router.get("/metrics")
 async def metrics():
     import psutil
+
+    def _percentile(values, pct):
+        if not values:
+            return None
+        vals = sorted(values)
+        idx = (len(vals) - 1) * pct
+        lo = int(idx)
+        hi = min(lo + 1, len(vals) - 1)
+        frac = idx - lo
+        return round(vals[lo] * (1 - frac) + vals[hi] * frac, 2)
+
+    first_token = list(_STREAM_METRICS["first_token_ms"])
+    total = list(_STREAM_METRICS["total_ms"])
+    stream_dur = list(_STREAM_METRICS["stream_duration_ms"])
+    token_seconds = _STREAM_METRICS["token_seconds"]
+    tokens = _STREAM_METRICS["tokens"]
+
     return {
         "cpu_percent": psutil.cpu_percent(interval=0.1),
         "memory_percent": psutil.virtual_memory().percent,
         "memory_available_mb": psutil.virtual_memory().available // 1024 // 1024,
         "disk_percent": psutil.disk_usage("/").percent,
+        "orchestrator_stream": {
+            "requests": _STREAM_METRICS["requests"],
+            "errors": _STREAM_METRICS["errors"],
+            "dropped_streams": _STREAM_METRICS["dropped_streams"],
+            "disconnects": _STREAM_METRICS["disconnects"],
+            "first_token_ms": {
+                "p50": _percentile(first_token, 0.5),
+                "p95": _percentile(first_token, 0.95),
+                "p99": _percentile(first_token, 0.99),
+            },
+            "total_ms": {
+                "p50": _percentile(total, 0.5),
+                "p95": _percentile(total, 0.95),
+                "p99": _percentile(total, 0.99),
+            },
+            "stream_duration_ms": {
+                "p50": _percentile(stream_dur, 0.5),
+                "p95": _percentile(stream_dur, 0.95),
+                "p99": _percentile(stream_dur, 0.99),
+            },
+            "token_count_total": tokens,
+            "tokens_per_second": round(tokens / token_seconds, 2) if token_seconds > 0 else 0.0,
+        },
     }
 
 @router.get("/nodes/status")
@@ -643,15 +1396,104 @@ async def autonomy_simulate(request: Request):
 @router.post("/autonomy/optimize")
 async def autonomy_optimize_plan(request: Request):
     try:
-        from autonomy.plan_optimizer import apply_replacements, suggest_alternatives, resolve_min_trust_threshold
+        try:
+            from andie_backend.interfaces.api.event_bus import emit_event
+            from andie_backend.autonomy.plan_optimizer import (
+                apply_replacements,
+                prune_plan_with_reasons,
+                resolve_min_trust_threshold,
+                suggest_alternatives,
+            )
+        except ModuleNotFoundError:
+            from interfaces.api.event_bus import emit_event
+            from autonomy.plan_optimizer import (
+                apply_replacements,
+                prune_plan_with_reasons,
+                resolve_min_trust_threshold,
+                suggest_alternatives,
+            )
+        import uuid
+
         data = await request.json()
         plan = data.get("plan", [])
+        candidate_skills = data.get("candidate_skills", [])
         profile = data.get("profile", "balanced")
         context_key = data.get("context_key")
+        intent_type = data.get("intent_type")
+        governance_profile = data.get("governance_profile") or profile
+        portfolio_group = data.get("portfolio_group")
+        execution_id = str(data.get("execution_id") or data.get("correlation_id") or uuid.uuid4())
+        fallback_depth = max(1, int(data.get("fallback_depth", 3) or 3))
+        context_match_min = max(0.0, min(float(data.get("context_match_min", 0.6) or 0.6), 1.0))
         min_trust = resolve_min_trust_threshold(profile)
-        result = apply_replacements(plan, context_key=context_key)
-        suggestions = [suggest_alternatives(step, context_key=context_key) for step in plan]
-        return {"status": "ok", "profile": profile, "min_trust": min_trust, "optimized": result, "suggestions": suggestions}
+
+        pruned_result = prune_plan_with_reasons(
+            plan,
+            context_key=context_key,
+            min_trust_threshold=min_trust,
+            profile=profile,
+        )
+        result = apply_replacements(
+            pruned_result.get("kept", []),
+            pruned_result.get("pruned", []),
+            candidate_skills,
+            context_key=context_key,
+            profile=profile,
+            fallback_depth=fallback_depth,
+            context_match_min=context_match_min,
+            intent_type=intent_type,
+            governance_profile=governance_profile,
+            portfolio_group=portfolio_group,
+        )
+
+        suggestions = []
+        for step in plan:
+            step_name = step.get("step") if isinstance(step, dict) else step
+            step_suggestions = suggest_alternatives(
+                str(step_name or ""),
+                candidate_skills,
+                context_key=context_key,
+                top_k=fallback_depth,
+                context_match_min=context_match_min,
+                intent_type=intent_type,
+                governance_profile=governance_profile,
+                portfolio_group=portfolio_group,
+            )
+            suggestions.append({
+                "step": step_name,
+                "alternatives": step_suggestions,
+            })
+            for candidate in step_suggestions:
+                await emit_event(
+                    {
+                        "type": candidate.get("outcome_weight_event"),
+                        "execution_id": execution_id,
+                        "timestamp": int(time.time() * 1000),
+                        "step": step_name,
+                        "candidate_skill": candidate.get("skill"),
+                        "intent_type": intent_type,
+                        "governance_profile": governance_profile,
+                        "portfolio_group": portfolio_group,
+                        "base_score": candidate.get("base_score"),
+                        "outcome_weight_modifier": candidate.get("outcome_weight_modifier"),
+                        "final_score": candidate.get("final_score"),
+                    }
+                )
+
+        return {
+            "status": "ok",
+            "execution_id": execution_id,
+            "profile": profile,
+            "min_trust": min_trust,
+            "intent_type": intent_type,
+            "governance_profile": governance_profile,
+            "portfolio_group": portfolio_group,
+            "optimized": result,
+            "suggestions": suggestions,
+            "pruned": pruned_result.get("pruned", []),
+            "kept": pruned_result.get("kept", []),
+            "plan_stability": pruned_result.get("plan_stability"),
+        }
     except Exception as e:
         return {"status": "error", "error": str(e)}
 
@@ -1044,3 +1886,410 @@ async def observe_history(n: int = 20):
             for s in snaps
         ],
     }
+
+# --- Valhalla Workspace Snapshot + Replay + Event Stream ---
+from collections import defaultdict
+from datetime import datetime, timezone
+from typing import Any, Dict, List
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _parse_iso_or_now(value: Any) -> str:
+    if isinstance(value, str) and value:
+        try:
+            return datetime.fromisoformat(value).isoformat()
+        except Exception:
+            return value
+    return _now_iso()
+
+
+def _to_status_value(task: Any) -> str:
+    status = getattr(task, "status", None)
+    if status is None:
+        return "unknown"
+    value = getattr(status, "value", None)
+    return str(value or status)
+
+
+def _build_runs(request: Request, limit: int = 50) -> List[Dict[str, Any]]:
+    queue = getattr(request.app.state, "task_queue", None)
+    runtime_state = getattr(request.app.state, "runtime_state", None)
+    runtime_snapshot = runtime_state.snapshot() if runtime_state else {}
+
+    runs: List[Dict[str, Any]] = []
+    if queue is not None and hasattr(queue, "get_all_tasks"):
+        try:
+            all_tasks = queue.get_all_tasks() or []
+            all_tasks = sorted(
+                all_tasks,
+                key=lambda t: _parse_iso_or_now(getattr(t, "created_at", None)),
+                reverse=True,
+            )
+            for task in all_tasks[: max(1, int(limit))]:
+                execution_id = str(getattr(task, "task_id", ""))
+                status_value = _to_status_value(task)
+                retries = int(getattr(task, "retry_count", 0) or 0)
+                failed = status_value in {"failed", "dead_letter", "error"}
+                completed = status_value in {"completed", "done", "verified"}
+                confidence = 0.92 if completed else 0.78
+                if failed:
+                    confidence = 0.28
+                confidence = max(0.05, confidence - min(retries * 0.1, 0.4))
+
+                runs.append(
+                    {
+                        "execution_id": execution_id,
+                        "adapter_id": str(getattr(task, "claimed_by_worker", None) or "orchestrator.worker"),
+                        "capability_id": str(getattr(task, "task_type", None) or "orchestration.task"),
+                        "policy_profile": str(runtime_snapshot.get("governance", {}).get("active_profile", "prod")),
+                        "lifecycle_state": status_value,
+                        "confidence_score": round(confidence, 3),
+                        "confidence_trend": "falling" if failed else "stable",
+                        "rollback_triggered": bool(failed and retries > 0),
+                        "rollback_outcome": "triggered" if (failed and retries > 0) else "",
+                        "verification_result": "failed" if failed else ("passed" if completed else "pending"),
+                        "started_at": _parse_iso_or_now(getattr(task, "created_at", None)),
+                        "timestamp": _parse_iso_or_now(getattr(task, "created_at", None)),
+                    }
+                )
+        except Exception:
+            runs = []
+
+    return runs
+
+
+def _build_live_events(limit: int = 120) -> List[Dict[str, Any]]:
+    events = recent_events(max(1, int(limit)))
+    normalized: List[Dict[str, Any]] = []
+    for item in events:
+        execution_id = item.get("execution_id") or item.get("task_id") or item.get("correlation_id") or ""
+        to_state = item.get("to_state") or item.get("status") or item.get("event") or item.get("type") or "unknown"
+        reason = item.get("reason") or item.get("message") or item.get("event") or item.get("type") or ""
+        normalized.append(
+            {
+                "timestamp": _parse_iso_or_now(item.get("emitted_at") or item.get("timestamp")),
+                "execution_id": str(execution_id),
+                "adapter_id": str(item.get("adapter_id") or item.get("previous_worker") or item.get("claimed_by_worker") or "orchestrator.worker"),
+                "to_state": str(to_state),
+                "reason": str(reason),
+                "type": str(item.get("type") or to_state),
+                "base_score": item.get("base_score"),
+                "outcome_weight_modifier": item.get("outcome_weight_modifier"),
+                "final_score": item.get("final_score"),
+                "candidate_skill": item.get("candidate_skill"),
+                "intent_type": item.get("intent_type"),
+                "governance_profile": item.get("governance_profile"),
+                "portfolio_group": item.get("portfolio_group"),
+            }
+        )
+    return normalized[-max(1, int(limit)):]
+
+
+def _build_replay_index(runs: List[Dict[str, Any]], live_events: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+    grouped = defaultdict(int)
+    for event in live_events:
+        execution_id = event.get("execution_id")
+        if execution_id:
+            grouped[str(execution_id)] += 1
+
+    replay_index: Dict[str, Dict[str, Any]] = {}
+    for run in runs:
+        execution_id = run.get("execution_id") or ""
+        replay_index[execution_id] = {
+            "replay_available": grouped.get(execution_id, 0) > 0,
+            "events": grouped.get(execution_id, 0),
+        }
+    return replay_index
+
+
+def _build_telemetry(runs: List[Dict[str, Any]]) -> Dict[str, Any]:
+    if not runs:
+        return {
+            "risk_indicators": {
+                "rollback_frequency": 0.0,
+                "confidence_decay_rate": 0.0,
+                "telemetry_volatility_index": 0.0,
+            },
+            "by_confidence_trend": {},
+            "confidence_bands": {"low": 0, "moderate": 0, "high": 0},
+        }
+
+    rollback_frequency = sum(1 for run in runs if run.get("rollback_triggered")) / len(runs)
+    low_conf = sum(1 for run in runs if float(run.get("confidence_score", 0.0)) < 0.4)
+    high_conf = sum(1 for run in runs if float(run.get("confidence_score", 0.0)) >= 0.75)
+    moderate_conf = len(runs) - low_conf - high_conf
+
+    trend_counts: Dict[str, int] = defaultdict(int)
+    for run in runs:
+        trend_counts[str(run.get("confidence_trend", "stable"))] += 1
+
+    confidence_volatility = (low_conf / len(runs)) if runs else 0.0
+    return {
+        "risk_indicators": {
+            "rollback_frequency": round(rollback_frequency, 3),
+            "confidence_decay_rate": round(confidence_volatility, 3),
+            "telemetry_volatility_index": round((rollback_frequency + confidence_volatility) / 2.0, 3),
+        },
+        "by_confidence_trend": dict(trend_counts),
+        "confidence_bands": {
+            "low": low_conf,
+            "moderate": moderate_conf,
+            "high": high_conf,
+        },
+    }
+
+
+def _build_trust(runs: List[Dict[str, Any]]) -> Dict[str, Any]:
+    grouped: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+    for run in runs:
+        grouped[str(run.get("adapter_id", "orchestrator.worker"))].append(run)
+
+    rankings = []
+    for adapter_id, adapter_runs in grouped.items():
+        total = len(adapter_runs)
+        passed = sum(1 for run in adapter_runs if run.get("verification_result") == "passed")
+        reliability = (passed / total) if total else 0.0
+        gov_effectiveness = 1.0 - (sum(1 for run in adapter_runs if run.get("rollback_triggered")) / total if total else 0.0)
+        rankings.append(
+            {
+                "adapter_id": adapter_id,
+                "reliability_score": round(reliability, 3),
+                "governance_effectiveness_score": round(gov_effectiveness, 3),
+                "autonomy_eligible": reliability >= 0.75 and gov_effectiveness >= 0.7,
+            }
+        )
+
+    rankings.sort(key=lambda row: (row["reliability_score"], row["governance_effectiveness_score"]), reverse=True)
+    watchlist = [row for row in rankings if row["reliability_score"] < 0.65]
+
+    avg_rel = sum(row["reliability_score"] for row in rankings) / len(rankings) if rankings else 0.0
+    avg_gov = sum(row["governance_effectiveness_score"] for row in rankings) / len(rankings) if rankings else 0.0
+
+    return {
+        "adapter_rankings": rankings,
+        "top_adapters": rankings[:3],
+        "watchlist_adapters": watchlist,
+        "average_reliability_score": round(avg_rel, 3),
+        "average_governance_effectiveness": round(avg_gov, 3),
+        "autonomy_readiness": {
+            "ready": sum(1 for row in rankings if row["autonomy_eligible"]),
+            "supervised": sum(1 for row in rankings if (not row["autonomy_eligible"] and row["reliability_score"] >= 0.5)),
+            "constrained": sum(1 for row in rankings if row["reliability_score"] < 0.5),
+        },
+    }
+
+
+def _build_governance(profile: str, telemetry: Dict[str, Any], trust: Dict[str, Any]) -> Dict[str, Any]:
+    risk = telemetry.get("risk_indicators", {})
+    rollback_frequency = float(risk.get("rollback_frequency", 0.0) or 0.0)
+    volatility = float(risk.get("telemetry_volatility_index", 0.0) or 0.0)
+
+    suggestions: List[Dict[str, Any]] = []
+    if rollback_frequency >= 0.2:
+        suggestions.append(
+            {
+                "id": "tighten_on_rollback_frequency",
+                "severity": "high",
+                "signal": "rollback frequency exceeded threshold",
+                "recommended_change": {"governance": "tighten", "rollback_frequency_threshold": 0.2},
+                "reason": f"rollback_frequency={rollback_frequency:.3f}",
+                "profile": profile,
+            }
+        )
+    if volatility >= 0.2:
+        suggestions.append(
+            {
+                "id": "increase_supervision_on_volatility",
+                "severity": "advisory",
+                "signal": "telemetry volatility is elevated",
+                "recommended_change": {"governance": "watch", "supervision": "increase"},
+                "reason": f"telemetry_volatility_index={volatility:.3f}",
+                "profile": profile,
+            }
+        )
+
+    if not suggestions:
+        suggestions.append(
+            {
+                "id": "retain_current_governance_posture",
+                "severity": "none",
+                "signal": "balanced trust profile",
+                "recommended_change": {"governance": "maintain"},
+                "reason": "current risk indicators do not justify additional tightening or relaxation",
+                "profile": profile,
+            }
+        )
+
+    watchlist_count = len(trust.get("watchlist_adapters", []))
+    requires_tightening = any(item.get("severity") == "high" for item in suggestions)
+
+    projections = {}
+    for projected in ("dev", "staging", "prod"):
+        projections[projected] = {
+            "profile": projected,
+            "suggestions": suggestions,
+            "watchlist_count": watchlist_count,
+            "requires_immediate_tightening": requires_tightening if projected == "prod" else False,
+            "thresholds": {
+                "rollback_frequency": 0.45 if projected == "dev" else (0.3 if projected == "staging" else 0.2),
+                "telemetry_volatility_index": 0.5 if projected == "dev" else (0.35 if projected == "staging" else 0.25),
+                "confidence_decay_rate": 0.45 if projected == "dev" else (0.3 if projected == "staging" else 0.2),
+                "watchlist_reliability": 0.5 if projected == "dev" else (0.6 if projected == "staging" else 0.7),
+                "relax_average_reliability": 0.8 if projected == "dev" else (0.85 if projected == "staging" else 0.9),
+                "relax_risk": 0.2 if projected == "dev" else (0.12 if projected == "staging" else 0.08),
+            },
+        }
+
+    overlay_patch = {
+        "profile": profile,
+        "patch_format_version": "1.0",
+        "generated_at": _now_iso(),
+        "source": {
+            "risk_indicators": risk,
+            "average_reliability_score": trust.get("average_reliability_score", 0.0),
+            "watchlist_count": watchlist_count,
+            "requires_immediate_tightening": requires_tightening,
+        },
+        "recommended_changes": [
+            {
+                "action": "no_change" if item.get("id") == "retain_current_governance_posture" else "tighten_threshold",
+                "target": "policy",
+                "patch": item.get("recommended_change", {}),
+                "reason": item.get("reason", ""),
+                "severity": item.get("severity", "none"),
+            }
+            for item in suggestions
+        ],
+    }
+
+    return {
+        "active": {
+            "profile": profile,
+            "suggestions": suggestions,
+            "watchlist_count": watchlist_count,
+            "requires_immediate_tightening": requires_tightening,
+            "thresholds": projections[profile]["thresholds"],
+        },
+        "projections": projections,
+        "overlay_patch_candidate": overlay_patch,
+    }
+
+
+def _pressure_tier_from_snapshot(runtime_snapshot: Dict[str, Any]) -> str:
+    status_bar = runtime_snapshot.get("status_bar") or {}
+    telemetry = runtime_snapshot.get("telemetry_center") or {}
+    indicators = telemetry.get("risk_indicators") or {}
+
+    watchlist = max(0, int(status_bar.get("watchlist_count") or 0))
+    rollback = float(indicators.get("rollback_frequency") or 0.0)
+    confidence_decay = float(indicators.get("confidence_decay_rate") or 0.0)
+
+    pressure = min(1.0, (0.03 * watchlist) + (0.5 * rollback) + (0.5 * confidence_decay))
+    if pressure >= 0.85:
+        return "critical"
+    if pressure >= 0.65:
+        return "high"
+    if pressure >= 0.35:
+        return "elevated"
+    return "baseline"
+
+
+def _build_workspace_snapshot(request: Request, limit: int = 50) -> Dict[str, Any]:
+    profile = "prod"
+    runs = _build_runs(request, limit=limit)
+    live_events = _build_live_events(limit=120)
+    telemetry = _build_telemetry(runs)
+    trust = _build_trust(runs)
+    governance = _build_governance(profile, telemetry, trust)
+    replay_index = _build_replay_index(runs, live_events)
+
+    return {
+        "generated_at": _now_iso(),
+        "status_bar": {
+            "active_profile": profile,
+            "requires_immediate_tightening": governance.get("active", {}).get("requires_immediate_tightening", False),
+            "watchlist_count": governance.get("active", {}).get("watchlist_count", 0),
+            "total_records": len(runs),
+        },
+        "navigation": {
+            "sections": ["runs", "replay", "telemetry", "governance", "trust", "chat"],
+        },
+        "runs": runs,
+        "replay_index": replay_index,
+        "telemetry_center": telemetry,
+        "governance_center": governance,
+        "trust_center": trust,
+        "live_event_stream": live_events[-8:],
+    }
+
+
+@router.get("/workspace-snapshot")
+async def workspace_snapshot(request: Request, limit: int = 50):
+    return _build_workspace_snapshot(request, limit=limit)
+
+
+@router.get("/api/workspace-snapshot")
+async def workspace_snapshot_api_alias(request: Request, limit: int = 50):
+    return _build_workspace_snapshot(request, limit=limit)
+
+
+def _filter_replay_events(execution_id: str, events: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    execution_id = str(execution_id)
+    matched = []
+    for event in events:
+        if str(event.get("execution_id", "")) == execution_id:
+            matched.append(event)
+    return matched
+
+
+@router.get("/replay/{execution_id}")
+async def replay_execution(execution_id: str, request: Request):
+    events = _build_live_events(limit=500)
+    matched = _filter_replay_events(execution_id, events)
+
+    queue = getattr(request.app.state, "task_queue", None)
+    queue_task = None
+    if queue is not None and hasattr(queue, "get_task"):
+        try:
+            queue_task = queue.get_task(execution_id)
+        except Exception:
+            queue_task = None
+
+    timeline = [
+        {
+            "timestamp": item.get("timestamp"),
+            "state": item.get("to_state"),
+            "reason": item.get("reason"),
+        }
+        for item in matched
+    ]
+
+    return {
+        "execution_id": execution_id,
+        "found": bool(matched or queue_task),
+        "events": matched,
+        "timeline": timeline,
+        "summary": {
+            "event_count": len(matched),
+            "first_event_at": matched[0]["timestamp"] if matched else None,
+            "last_event_at": matched[-1]["timestamp"] if matched else None,
+        },
+    }
+
+
+@router.get("/api/replay/{execution_id}")
+async def replay_execution_api_alias(execution_id: str, request: Request):
+    return await replay_execution(execution_id, request)
+
+
+@router.websocket("/workspace-events/ws")
+async def workspace_events_ws(websocket: WebSocket):
+    await websocket_endpoint(websocket)
+
+
+@router.websocket("/api/workspace-events/ws")
+async def workspace_events_ws_api_alias(websocket: WebSocket):
+    await websocket_endpoint(websocket)
