@@ -47,6 +47,8 @@ Never allow event frames to become the system of record.
 	- governance policy overlay layer + profile application events
 - Phase 2F: bootstrap complete
 	- workspace-scoped governance profile bindings + profile provenance
+- Phase 3: foundation started
+	- agent role contracts + lifecycle event family
 
 ## Current Runtime Additions (Phase 2E Bootstrap)
 - Governance policy overlay layer is now active with profile-driven coefficients.
@@ -68,6 +70,23 @@ Never allow event frames to become the system of record.
 	- actor
 	- reason
 	- correlation_id
+
+## Current Runtime Additions (Phase 3 Foundation)
+- Agent role contracts are now first-class runtime roles:
+	- planner
+	- execution
+	- memory
+	- governance
+- Agent lifecycle events are part of the event taxonomy:
+	- `agent.assigned`
+	- `agent.completed`
+	- `agent.blocked`
+	- `agent.escalated`
+- Agent coordination API surface is available:
+	- `GET /api/agents/roles`
+	- `GET /api/agents/tasks`
+	- `POST /api/agents/assign`
+	- `POST /api/agents/{task_id}/status`
 
 ## Priority Workstreams
 

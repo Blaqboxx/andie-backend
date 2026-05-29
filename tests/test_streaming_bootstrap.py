@@ -1,6 +1,7 @@
 from fastapi.testclient import TestClient
 
 from main import (
+    AGENT_TASKS_BY_WORKSPACE,
     GOVERNANCE_PROFILE_BINDINGS,
     GOVERNANCE_PROFILE_STATE,
     GOVERNANCE_STATE,
@@ -468,3 +469,122 @@ def test_workspace_scoped_profile_binding_is_isolated() -> None:
 
     assert state_a.json()["profile"]["active"] == "aggressive"
     assert state_b.json()["profile"]["active"] == "conservative"
+
+
+def test_agent_role_contracts_assign_and_replay_event() -> None:
+    workspace_id = "ws-agent-roles"
+    AGENT_TASKS_BY_WORKSPACE.pop(workspace_id, None)
+
+    client = TestClient(app)
+    roles = client.get("/api/agents/roles")
+    assert roles.status_code == 200
+    assert {"planner", "execution", "memory", "governance"}.issubset(set(roles.json()["roles"]))
+
+    execution_id = "exec-agent-assign-1"
+    assign = client.post(
+        "/api/agents/assign",
+        json={
+            "task_id": "task-001",
+            "role": "planner",
+            "objective_id": "obj-001",
+            "payload": {"intent": "build plan"},
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+        },
+    )
+    assert assign.status_code == 200
+    body = assign.json()
+    assert body["task"]["status"] == "assigned"
+    assert body["event"]["event_type"] == "agent.assigned"
+
+    replay = client.get(f"/api/replay/{execution_id}")
+    assert replay.status_code == 200
+    event_types = [event["event_type"] for event in replay.json()["events"]]
+    assert "agent.assigned" in event_types
+
+
+def test_agent_status_lifecycle_events_emitted() -> None:
+    workspace_id = "ws-agent-lifecycle"
+    AGENT_TASKS_BY_WORKSPACE.pop(workspace_id, None)
+
+    client = TestClient(app)
+    execution_id = "exec-agent-life-1"
+
+    create = client.post(
+        "/api/agents/assign",
+        json={
+            "task_id": "task-002",
+            "role": "execution",
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+        },
+    )
+    assert create.status_code == 200
+
+    blocked = client.post(
+        "/api/agents/task-002/status",
+        json={
+            "status": "blocked",
+            "reason": "dependency missing",
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+        },
+    )
+    assert blocked.status_code == 200
+    assert blocked.json()["event"]["event_type"] == "agent.blocked"
+
+    completed = client.post(
+        "/api/agents/task-002/status",
+        json={
+            "status": "completed",
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+        },
+    )
+    assert completed.status_code == 200
+    assert completed.json()["event"]["event_type"] == "agent.completed"
+
+    replay = client.get(f"/api/replay/{execution_id}")
+    assert replay.status_code == 200
+    event_types = [event["event_type"] for event in replay.json()["events"]]
+    assert "agent.assigned" in event_types
+    assert "agent.blocked" in event_types
+    assert "agent.completed" in event_types
+
+
+def test_agent_workspace_task_isolation() -> None:
+    AGENT_TASKS_BY_WORKSPACE.pop("ws-agent-a", None)
+    AGENT_TASKS_BY_WORKSPACE.pop("ws-agent-b", None)
+
+    client = TestClient(app)
+    a = client.post(
+        "/api/agents/assign",
+        json={
+            "task_id": "shared-task-id",
+            "role": "memory",
+            "workspace_id": "ws-agent-a",
+            "execution_id": "exec-agent-ws-a",
+        },
+    )
+    assert a.status_code == 200
+
+    b = client.post(
+        "/api/agents/assign",
+        json={
+            "task_id": "shared-task-id",
+            "role": "governance",
+            "workspace_id": "ws-agent-b",
+            "execution_id": "exec-agent-ws-b",
+        },
+    )
+    assert b.status_code == 200
+
+    list_a = client.get("/api/agents/tasks", params={"workspace_id": "ws-agent-a"})
+    list_b = client.get("/api/agents/tasks", params={"workspace_id": "ws-agent-b"})
+    assert list_a.status_code == 200
+    assert list_b.status_code == 200
+
+    assert len(list_a.json()["tasks"]) == 1
+    assert len(list_b.json()["tasks"]) == 1
+    assert list_a.json()["tasks"][0]["role"] == "memory"
+    assert list_b.json()["tasks"][0]["role"] == "governance"

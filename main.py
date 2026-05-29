@@ -60,6 +60,12 @@ EVENT_FAMILIES: dict[str, set[str]] = {
         "rollback.started",
         "rollback.completed",
     },
+    "agent": {
+        "agent.assigned",
+        "agent.completed",
+        "agent.blocked",
+        "agent.escalated",
+    },
 }
 
 
@@ -331,6 +337,17 @@ GOVERNANCE_PROFILE_BINDINGS: dict[str, dict[str, Any]] = {
     "andie-default": GOVERNANCE_PROFILE_STATE,
 }
 
+AGENT_ROLES: tuple[str, ...] = (
+    "planner",
+    "execution",
+    "memory",
+    "governance",
+)
+
+AGENT_TASKS_BY_WORKSPACE: dict[str, dict[str, dict[str, Any]]] = {
+    "andie-default": {},
+}
+
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 CLIENT = Groq(api_key=GROQ_API_KEY) if (Groq and GROQ_API_KEY) else None
@@ -399,6 +416,30 @@ class GovernanceProfileApplyRequest(BaseModel):
     correlation_id: str | None = None
 
 
+class AgentAssignmentRequest(BaseModel):
+    task_id: str
+    role: str
+    objective_id: str | None = None
+    payload: dict[str, Any] = Field(default_factory=dict)
+    actor: str = "operator"
+    reason: str = "manual assignment"
+    execution_id: str | None = None
+    source: str = "agent-orchestrator"
+    workspace_id: str = "andie-default"
+    correlation_id: str | None = None
+
+
+class AgentTaskStatusRequest(BaseModel):
+    status: str
+    payload: dict[str, Any] = Field(default_factory=dict)
+    actor: str = "operator"
+    reason: str = "status update"
+    execution_id: str | None = None
+    source: str = "agent-orchestrator"
+    workspace_id: str = "andie-default"
+    correlation_id: str | None = None
+
+
 def _get_trust_state(workspace_id: str) -> dict[str, Any]:
     if workspace_id not in TRUST_STATES:
         TRUST_STATES[workspace_id] = {
@@ -432,6 +473,19 @@ def _get_governance_profile_binding(workspace_id: str) -> dict[str, Any]:
             "updated_at": _utc_now(),
         }
     return GOVERNANCE_PROFILE_BINDINGS[workspace_id]
+
+
+def _get_workspace_agent_tasks(workspace_id: str) -> dict[str, dict[str, Any]]:
+    if workspace_id not in AGENT_TASKS_BY_WORKSPACE:
+        AGENT_TASKS_BY_WORKSPACE[workspace_id] = {}
+    return AGENT_TASKS_BY_WORKSPACE[workspace_id]
+
+
+def _normalize_agent_role(role: str) -> str:
+    role_value = role.strip().lower()
+    if role_value not in AGENT_ROLES:
+        raise ValueError(f"unknown agent role: {role}")
+    return role_value
 
 
 async def _fanout_event(event: dict[str, Any]) -> None:
@@ -1065,6 +1119,118 @@ async def apply_governance_profile(request: GovernanceProfileApplyRequest) -> di
         "profile": _get_governance_profile_binding(request.workspace_id),
         "governance": governance,
         "emitted_events": [profile_event] + governance_events,
+    }
+
+
+@app.get("/api/agents/roles")
+def list_agent_roles() -> dict[str, Any]:
+    return {
+        "status": "ok",
+        "roles": list(AGENT_ROLES),
+    }
+
+
+@app.get("/api/agents/tasks")
+def list_agent_tasks(workspace_id: str = "andie-default") -> dict[str, Any]:
+    tasks = _get_workspace_agent_tasks(workspace_id)
+    return {
+        "status": "ok",
+        "workspace_id": workspace_id,
+        "tasks": list(tasks.values()),
+    }
+
+
+@app.post("/api/agents/assign")
+async def assign_agent_task(request: AgentAssignmentRequest) -> dict[str, Any]:
+    try:
+        role = _normalize_agent_role(request.role)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    workspace_tasks = _get_workspace_agent_tasks(request.workspace_id)
+    now = _utc_now()
+    task = {
+        "task_id": request.task_id,
+        "role": role,
+        "objective_id": request.objective_id,
+        "status": "assigned",
+        "payload": request.payload,
+        "actor": request.actor,
+        "reason": request.reason,
+        "workspace_id": request.workspace_id,
+        "created_at": workspace_tasks.get(request.task_id, {}).get("created_at", now),
+        "updated_at": now,
+    }
+    workspace_tasks[request.task_id] = task
+
+    event = EVENTS.append(
+        "agent.assigned",
+        {
+            "task": task,
+        },
+        execution_id=request.execution_id,
+        source=request.source,
+        workspace_id=request.workspace_id,
+        correlation_id=request.correlation_id,
+    )
+    await _fanout_event(event)
+
+    return {
+        "status": "ok",
+        "task": task,
+        "event": event,
+    }
+
+
+@app.post("/api/agents/{task_id}/status")
+async def update_agent_task_status(task_id: str, request: AgentTaskStatusRequest) -> dict[str, Any]:
+    workspace_tasks = _get_workspace_agent_tasks(request.workspace_id)
+    if task_id not in workspace_tasks:
+        raise HTTPException(status_code=404, detail=f"unknown task_id: {task_id}")
+
+    event_map = {
+        "completed": "agent.completed",
+        "blocked": "agent.blocked",
+        "escalated": "agent.escalated",
+    }
+    status_value = request.status.strip().lower()
+    if status_value not in event_map:
+        raise HTTPException(status_code=400, detail=f"unsupported agent task status: {request.status}")
+
+    task = workspace_tasks[task_id]
+    task.update(
+        {
+            "status": status_value,
+            "actor": request.actor,
+            "reason": request.reason,
+            "updated_at": _utc_now(),
+            "last_payload": request.payload,
+        }
+    )
+
+    event = EVENTS.append(
+        event_map[status_value],
+        {
+            "task_id": task_id,
+            "role": task.get("role"),
+            "objective_id": task.get("objective_id"),
+            "status": status_value,
+            "payload": request.payload,
+            "actor": request.actor,
+            "reason": request.reason,
+            "workspace_id": request.workspace_id,
+        },
+        execution_id=request.execution_id,
+        source=request.source,
+        workspace_id=request.workspace_id,
+        correlation_id=request.correlation_id,
+    )
+    await _fanout_event(event)
+
+    return {
+        "status": "ok",
+        "task": task,
+        "event": event,
     }
 
 
