@@ -71,6 +71,8 @@ Never allow event frames to become the system of record.
 	- adaptive scheduler policies
 - Phase 4F: bootstrap started
 	- runtime optimization telemetry and bounded decay
+- Phase 5A: bootstrap started
+	- runtime coordinator read-only analysis layer
 
 ## Current Runtime Additions (Phase 2E Bootstrap)
 - Governance policy overlay layer is now active with profile-driven coefficients.
@@ -256,6 +258,21 @@ Never allow event frames to become the system of record.
 	- `agent.scheduler_contention_smoothed`
 - Adaptive scheduling now records bounded optimization history and effectiveness scores.
 - Bounded decay now relaxes elevated scheduler profiles after quiet arbitration cycles.
+
+## Current Runtime Additions (Phase 5A Bootstrap)
+- A read-only runtime coordinator layer is now available.
+- Coordinator event family is replay-visible:
+	- `coordinator.recommendation_created`
+	- `coordinator.priority_ranked`
+	- `coordinator.blocked_objective_detected`
+	- `coordinator.merge_candidate_detected`
+	- `coordinator.suspension_recommended`
+	- `coordinator.escalation_recommended`
+- Coordinator API surface is available:
+	- `GET /api/coordinator/state`
+	- `GET /api/coordinator/recommendations`
+	- `POST /api/coordinator/analyze`
+- Coordinator analysis consumes objective signals, workflow health, scheduler policy context, governance state, and trust state to produce recommendations without invoking execution actions.
 
 ## Priority Workstreams
 

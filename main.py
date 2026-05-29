@@ -102,6 +102,14 @@ EVENT_FAMILIES: dict[str, set[str]] = {
         "agent.blocked",
         "agent.escalated",
     },
+    "coordinator": {
+        "coordinator.recommendation_created",
+        "coordinator.priority_ranked",
+        "coordinator.blocked_objective_detected",
+        "coordinator.merge_candidate_detected",
+        "coordinator.suspension_recommended",
+        "coordinator.escalation_recommended",
+    },
 }
 
 
@@ -418,6 +426,19 @@ SCHEDULER_POLICY_BY_WORKSPACE: dict[str, dict[str, Any]] = {
     }
 }
 
+COORDINATOR_STATE_BY_WORKSPACE: dict[str, dict[str, Any]] = {
+    "andie-default": {
+        "active_objectives": [],
+        "blocked_objectives": [],
+        "objective_dependencies": [],
+        "workflow_assignments": [],
+        "priority_ranking": [],
+        "coordination_recommendations": [],
+        "merge_candidates": [],
+        "updated_at": _utc_now(),
+    }
+}
+
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 CLIENT = Groq(api_key=GROQ_API_KEY) if (Groq and GROQ_API_KEY) else None
@@ -598,6 +619,15 @@ class AgentSchedulerPolicyApplyRequest(BaseModel):
     reason: str = "scheduler policy selection"
     execution_id: str | None = None
     source: str = "scheduler-policy"
+    workspace_id: str = "andie-default"
+    correlation_id: str | None = None
+
+
+class CoordinatorAnalyzeRequest(BaseModel):
+    reason: str = "coordinator analysis"
+    actor: str = "runtime-coordinator"
+    execution_id: str | None = None
+    source: str = "runtime-coordinator"
     workspace_id: str = "andie-default"
     correlation_id: str | None = None
 
@@ -821,6 +851,287 @@ def _apply_scheduler_policy(request: AgentSchedulerPolicyApplyRequest) -> dict[s
     policy.update(defaults)
     _ = _get_scheduler_policy(request.workspace_id)
     return policy
+
+
+def _get_coordinator_state(workspace_id: str) -> dict[str, Any]:
+    if workspace_id not in COORDINATOR_STATE_BY_WORKSPACE:
+        COORDINATOR_STATE_BY_WORKSPACE[workspace_id] = {
+            "active_objectives": [],
+            "blocked_objectives": [],
+            "objective_dependencies": [],
+            "workflow_assignments": [],
+            "priority_ranking": [],
+            "coordination_recommendations": [],
+            "merge_candidates": [],
+            "updated_at": _utc_now(),
+        }
+    return COORDINATOR_STATE_BY_WORKSPACE[workspace_id]
+
+
+def _run_coordinator_analysis(
+    *,
+    workspace_id: str,
+    reason: str,
+    actor: str,
+    execution_id: str | None,
+    source: str,
+    correlation_id: str | None,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    signals = _derive_objective_signals()
+    governance_state = _get_governance_state(workspace_id)
+    trust_state = _get_trust_state(workspace_id)
+    scheduler_policy = _get_scheduler_policy(workspace_id)
+    workflows = _get_workspace_workflows(workspace_id)
+
+    active_objectives: list[dict[str, Any]] = []
+    blocked_objectives: list[dict[str, Any]] = []
+    objective_dependencies: list[dict[str, Any]] = []
+    pressure_scores = signals.get("objective_pressure_score") or {}
+    blocked_map = signals.get("blocked") or {}
+    critical_path = signals.get("critical_path") or {}
+
+    for objective_id, objective in OBJECTIVES.items():
+        if not _is_objective_active(objective):
+            continue
+
+        record = {
+            "objective_id": objective_id,
+            "title": str(objective.get("title", "")),
+            "pressure_score": float(pressure_scores.get(objective_id, 0.0)),
+            "critical_path": int(critical_path.get(objective_id, 0)),
+            "blocked": bool(blocked_map.get(objective_id, False)),
+            "priority": int(objective.get("priority", 0)),
+            "salience": float(objective.get("salience", 0.0)),
+        }
+        active_objectives.append(record)
+
+        if record["blocked"]:
+            blocked_objectives.append(
+                {
+                    **record,
+                    "depends_on": [str(dep) for dep in objective.get("depends_on", [])],
+                    "blocked_by": [str(dep) for dep in objective.get("blocked_by", [])],
+                }
+            )
+
+        for dep in objective.get("depends_on", []):
+            objective_dependencies.append(
+                {
+                    "objective_id": objective_id,
+                    "depends_on": str(dep),
+                    "relation": "depends_on",
+                }
+            )
+
+    active_objectives.sort(key=lambda item: (item["pressure_score"], item["critical_path"], item["priority"]), reverse=True)
+
+    priority_ranking = [
+        {
+            "rank": index + 1,
+            "objective_id": item["objective_id"],
+            "pressure_score": item["pressure_score"],
+            "blocked": item["blocked"],
+            "critical_path": item["critical_path"],
+        }
+        for index, item in enumerate(active_objectives)
+    ]
+
+    workflow_assignments = [
+        {
+            "workflow_id": workflow_id,
+            "objective_id": workflow.get("objective_id"),
+            "status": workflow.get("status"),
+            "workflow": [str(role) for role in workflow.get("workflow", [])],
+            "selected_role": workflow.get("selected_role"),
+            "workflow_pressure_score": float(workflow.get("workflow_pressure_score", 0.0)),
+            "starvation_score": float(workflow.get("starvation_score", 0.0)),
+            "replan_count": int(workflow.get("replan_count", 0)),
+            "supervisor_actions": int(workflow.get("supervisor_actions", 0)),
+        }
+        for workflow_id, workflow in workflows.items()
+        if str(workflow.get("status", "")).lower() != "completed"
+    ]
+
+    grouped: dict[tuple[str, tuple[str, ...], str], list[str]] = defaultdict(list)
+    for item in workflow_assignments:
+        key = (
+            str(item.get("objective_id") or ""),
+            tuple(item.get("workflow") or []),
+            str(item.get("selected_role") or ""),
+        )
+        grouped[key].append(str(item.get("workflow_id")))
+
+    merge_candidates: list[dict[str, Any]] = []
+    for (objective_id, workflow_path, selected_role), workflow_ids in grouped.items():
+        if len(workflow_ids) < 2:
+            continue
+        merge_candidates.append(
+            {
+                "objective_id": objective_id,
+                "workflow_ids": sorted(workflow_ids),
+                "shared_workflow": list(workflow_path),
+                "selected_role": selected_role,
+                "reason": "same objective cluster and execution path",
+            }
+        )
+
+    governance_band = str(governance_state.get("band", "stable"))
+    coordination_recommendations: list[dict[str, Any]] = []
+    reverse_dependencies: dict[str, list[str]] = defaultdict(list)
+    for edge in objective_dependencies:
+        reverse_dependencies[str(edge["depends_on"])].append(str(edge["objective_id"]))
+
+    for blocked in blocked_objectives:
+        blockers = [str(x) for x in blocked.get("depends_on", []) + blocked.get("blocked_by", [])]
+        impacted = sorted({dependent for blocker in blockers for dependent in reverse_dependencies.get(blocker, [])})
+        recommendation_action = "governance_review" if governance_band == "escalated" else "escalate_dependency"
+        coordination_recommendations.append(
+            {
+                "type": "escalation_recommended",
+                "action": recommendation_action,
+                "objective_id": blocked["objective_id"],
+                "blocked_by": blockers,
+                "impacted_objectives": impacted,
+                "reason": "blocked objective in active dependency chain",
+            }
+        )
+
+    for candidate in merge_candidates:
+        coordination_recommendations.append(
+            {
+                "type": "merge_candidate_detected",
+                "action": "merge_workflows",
+                "objective_id": candidate["objective_id"],
+                "workflow_ids": candidate["workflow_ids"],
+                "reason": candidate["reason"],
+            }
+        )
+
+    if governance_band == "escalated" and priority_ranking:
+        coordination_recommendations.append(
+            {
+                "type": "escalation_recommended",
+                "action": "governance_review",
+                "objective_id": priority_ranking[0]["objective_id"],
+                "reason": "governance band escalated",
+            }
+        )
+
+    for item in workflow_assignments:
+        if item["starvation_score"] >= 0.8 and item["workflow_pressure_score"] < 0.4:
+            coordination_recommendations.append(
+                {
+                    "type": "suspension_recommended",
+                    "action": "suspend_low_priority_workflow",
+                    "workflow_id": item["workflow_id"],
+                    "reason": "high starvation with low pressure",
+                }
+            )
+
+    emitted: list[dict[str, Any]] = []
+    emitted.append(
+        EVENTS.append(
+            "coordinator.priority_ranked",
+            {
+                "workspace_id": workspace_id,
+                "priority_ranking": priority_ranking,
+                "reason": reason,
+                "actor": actor,
+            },
+            execution_id=execution_id,
+            source=source,
+            workspace_id=workspace_id,
+            correlation_id=correlation_id,
+        )
+    )
+
+    for blocked in blocked_objectives:
+        emitted.append(
+            EVENTS.append(
+                "coordinator.blocked_objective_detected",
+                {
+                    "workspace_id": workspace_id,
+                    "blocked_objective": blocked,
+                },
+                execution_id=execution_id,
+                source=source,
+                workspace_id=workspace_id,
+                correlation_id=correlation_id,
+            )
+        )
+
+    for candidate in merge_candidates:
+        emitted.append(
+            EVENTS.append(
+                "coordinator.merge_candidate_detected",
+                {
+                    "workspace_id": workspace_id,
+                    "candidate": candidate,
+                },
+                execution_id=execution_id,
+                source=source,
+                workspace_id=workspace_id,
+                correlation_id=correlation_id,
+            )
+        )
+
+    for rec in coordination_recommendations:
+        rec_type = str(rec.get("type", ""))
+        if rec_type == "suspension_recommended":
+            event_type = "coordinator.suspension_recommended"
+        elif rec_type == "escalation_recommended":
+            event_type = "coordinator.escalation_recommended"
+        else:
+            continue
+
+        emitted.append(
+            EVENTS.append(
+                event_type,
+                {
+                    "workspace_id": workspace_id,
+                    "recommendation": rec,
+                },
+                execution_id=execution_id,
+                source=source,
+                workspace_id=workspace_id,
+                correlation_id=correlation_id,
+            )
+        )
+
+    emitted.append(
+        EVENTS.append(
+            "coordinator.recommendation_created",
+            {
+                "workspace_id": workspace_id,
+                "recommendations": coordination_recommendations,
+                "governance_band": governance_band,
+                "trust_score": float(trust_state.get("score", 0.5)),
+                "scheduler_profile": str(scheduler_policy.get("scheduler_profile", "balanced")),
+                "reason": reason,
+                "actor": actor,
+            },
+            execution_id=execution_id,
+            source=source,
+            workspace_id=workspace_id,
+            correlation_id=correlation_id,
+        )
+    )
+
+    coordinator_state = _get_coordinator_state(workspace_id)
+    coordinator_state.update(
+        {
+            "active_objectives": active_objectives,
+            "blocked_objectives": blocked_objectives,
+            "objective_dependencies": objective_dependencies,
+            "workflow_assignments": workflow_assignments,
+            "priority_ranking": priority_ranking,
+            "coordination_recommendations": coordination_recommendations,
+            "merge_candidates": merge_candidates,
+            "updated_at": _utc_now(),
+        }
+    )
+
+    return coordinator_state, emitted
 
 
 def _scheduler_profile_order(profile: str) -> list[str]:
@@ -3346,6 +3657,50 @@ async def apply_scheduler_policy(request: AgentSchedulerPolicyApplyRequest) -> d
         "workspace_id": request.workspace_id,
         "policy": policy,
         "event": event,
+    }
+
+
+@app.get("/api/coordinator/state")
+async def get_coordinator_state(workspace_id: str = "andie-default") -> dict[str, Any]:
+    return {
+        "status": "ok",
+        "workspace_id": workspace_id,
+        "state": _get_coordinator_state(workspace_id),
+    }
+
+
+@app.get("/api/coordinator/recommendations")
+async def get_coordinator_recommendations(workspace_id: str = "andie-default") -> dict[str, Any]:
+    state = _get_coordinator_state(workspace_id)
+    return {
+        "status": "ok",
+        "workspace_id": workspace_id,
+        "recommendations": list(state.get("coordination_recommendations") or []),
+    }
+
+
+@app.post("/api/coordinator/analyze")
+async def analyze_coordinator(request: CoordinatorAnalyzeRequest) -> dict[str, Any]:
+    state, emitted_events = _run_coordinator_analysis(
+        workspace_id=request.workspace_id,
+        reason=request.reason,
+        actor=request.actor,
+        execution_id=request.execution_id,
+        source=request.source,
+        correlation_id=request.correlation_id,
+    )
+
+    for event in emitted_events:
+        await _fanout_event(event)
+
+    return {
+        "status": "ok",
+        "workspace_id": request.workspace_id,
+        "priority_ranking": state.get("priority_ranking") or [],
+        "blocked_objectives": state.get("blocked_objectives") or [],
+        "merge_candidates": state.get("merge_candidates") or [],
+        "recommended_actions": state.get("coordination_recommendations") or [],
+        "emitted_events": emitted_events,
     }
 
 

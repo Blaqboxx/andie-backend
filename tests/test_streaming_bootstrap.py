@@ -3,6 +3,7 @@ from fastapi.testclient import TestClient
 from main import (
     AGENT_TASKS_BY_WORKSPACE,
     AGENT_WORKFLOWS_BY_WORKSPACE,
+    GOVERNANCE_STATES,
     GOVERNANCE_PROFILE_BINDINGS,
     GOVERNANCE_PROFILE_STATE,
     GOVERNANCE_STATE,
@@ -1486,3 +1487,246 @@ def test_scheduler_optimization_emits_confidence_effectiveness_and_decay() -> No
     assert 0.0 <= float(optimization["effectiveness_score"]) <= 1.0
     assert isinstance(optimization["optimization_history"], list)
     assert len(optimization["optimization_history"]) <= 25
+
+
+def test_coordinator_priority_ranking_orders_by_objective_pressure() -> None:
+    OBJECTIVES.clear()
+    OBJECTIVE_SIGNALS["blocked"] = {}
+    OBJECTIVE_SIGNALS["pressure"] = {}
+    OBJECTIVE_SIGNALS["objective_pressure_score"] = {}
+    OBJECTIVE_SIGNALS["critical_path"] = {}
+
+    workspace_id = "ws-coordinator-1"
+    AGENT_TASKS_BY_WORKSPACE.pop(workspace_id, None)
+    AGENT_WORKFLOWS_BY_WORKSPACE.pop(workspace_id, None)
+
+    client = TestClient(app)
+    execution_id = "exec-coordinator-1"
+
+    for objective_id, priority in (("obj-a", 9), ("obj-b", 6), ("obj-c", 3)):
+        res = client.post(
+            "/api/objectives",
+            json={
+                "objective_id": objective_id,
+                "title": objective_id,
+                "priority": priority,
+                "salience": float(priority),
+                "workspace_id": workspace_id,
+                "execution_id": execution_id,
+            },
+        )
+        assert res.status_code == 200
+
+    for objective_id in ("obj-a", "obj-b", "obj-c"):
+        arb = client.post(
+            "/api/agents/arbitrate",
+            json={
+                "task_id": f"wf-{objective_id}",
+                "objective_id": objective_id,
+                "operator_forced_role": "execution",
+                "workspace_id": workspace_id,
+                "execution_id": execution_id,
+            },
+        )
+        assert arb.status_code == 200
+
+    analyze = client.post(
+        "/api/coordinator/analyze",
+        json={
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+            "reason": "rank objective portfolio",
+        },
+    )
+    assert analyze.status_code == 200
+
+    ranked = [item["objective_id"] for item in analyze.json()["priority_ranking"]]
+    assert ranked[:3] == ["obj-a", "obj-b", "obj-c"]
+
+
+def test_coordinator_dependency_block_detects_and_recommends_escalation() -> None:
+    OBJECTIVES.clear()
+    OBJECTIVE_SIGNALS["blocked"] = {}
+    OBJECTIVE_SIGNALS["pressure"] = {}
+    OBJECTIVE_SIGNALS["objective_pressure_score"] = {}
+    OBJECTIVE_SIGNALS["critical_path"] = {}
+
+    workspace_id = "ws-coordinator-2"
+    AGENT_TASKS_BY_WORKSPACE.pop(workspace_id, None)
+    AGENT_WORKFLOWS_BY_WORKSPACE.pop(workspace_id, None)
+
+    client = TestClient(app)
+    execution_id = "exec-coordinator-2"
+
+    seed = [
+        {
+            "objective_id": "obj-c",
+            "title": "Root blocker",
+            "priority": 7,
+            "salience": 7.0,
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+        },
+        {
+            "objective_id": "obj-b",
+            "title": "Blocked objective",
+            "priority": 6,
+            "salience": 6.0,
+            "depends_on": ["obj-c"],
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+        },
+        {
+            "objective_id": "obj-a",
+            "title": "Dependent objective",
+            "priority": 9,
+            "salience": 9.0,
+            "depends_on": ["obj-b"],
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+        },
+    ]
+    for payload in seed:
+        assert client.post("/api/objectives", json=payload).status_code == 200
+
+    analyze = client.post(
+        "/api/coordinator/analyze",
+        json={
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+            "reason": "dependency escalation check",
+        },
+    )
+    assert analyze.status_code == 200
+    body = analyze.json()
+
+    blocked_ids = {item["objective_id"] for item in body["blocked_objectives"]}
+    assert "obj-b" in blocked_ids
+
+    actions = body["recommended_actions"]
+    escalation_actions = [a for a in actions if a.get("type") == "escalation_recommended"]
+    assert len(escalation_actions) >= 1
+
+    emitted_types = [event["event_type"] for event in body["emitted_events"]]
+    assert "coordinator.blocked_objective_detected" in emitted_types
+    assert "coordinator.escalation_recommended" in emitted_types
+
+
+def test_coordinator_detects_merge_candidates_for_shared_cluster() -> None:
+    OBJECTIVES.clear()
+    OBJECTIVE_SIGNALS["blocked"] = {}
+    OBJECTIVE_SIGNALS["pressure"] = {}
+    OBJECTIVE_SIGNALS["objective_pressure_score"] = {}
+    OBJECTIVE_SIGNALS["critical_path"] = {}
+
+    workspace_id = "ws-coordinator-3"
+    AGENT_TASKS_BY_WORKSPACE.pop(workspace_id, None)
+    AGENT_WORKFLOWS_BY_WORKSPACE.pop(workspace_id, None)
+
+    client = TestClient(app)
+    execution_id = "exec-coordinator-3"
+
+    obj = client.post(
+        "/api/objectives",
+        json={
+            "objective_id": "obj-shared",
+            "title": "Shared cluster",
+            "priority": 8,
+            "salience": 8.0,
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+        },
+    )
+    assert obj.status_code == 200
+
+    for task_id in ("wf-x", "wf-y"):
+        arb = client.post(
+            "/api/agents/arbitrate",
+            json={
+                "task_id": task_id,
+                "objective_id": "obj-shared",
+                "operator_forced_role": "execution",
+                "workspace_id": workspace_id,
+                "execution_id": execution_id,
+            },
+        )
+        assert arb.status_code == 200
+
+    analyze = client.post(
+        "/api/coordinator/analyze",
+        json={
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+            "reason": "merge candidate detection",
+        },
+    )
+    assert analyze.status_code == 200
+    body = analyze.json()
+
+    assert len(body["merge_candidates"]) >= 1
+    emitted_types = [event["event_type"] for event in body["emitted_events"]]
+    assert "coordinator.merge_candidate_detected" in emitted_types
+
+
+def test_coordinator_governance_aware_recommendations_in_escalated_band() -> None:
+    OBJECTIVES.clear()
+    OBJECTIVE_SIGNALS["blocked"] = {}
+    OBJECTIVE_SIGNALS["pressure"] = {}
+    OBJECTIVE_SIGNALS["objective_pressure_score"] = {}
+    OBJECTIVE_SIGNALS["critical_path"] = {}
+
+    workspace_id = "ws-coordinator-4"
+    AGENT_TASKS_BY_WORKSPACE.pop(workspace_id, None)
+    AGENT_WORKFLOWS_BY_WORKSPACE.pop(workspace_id, None)
+
+    client = TestClient(app)
+    execution_id = "exec-coordinator-4"
+
+    seed = [
+        {
+            "objective_id": "obj-z",
+            "title": "dependency source",
+            "priority": 7,
+            "salience": 7.0,
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+        },
+        {
+            "objective_id": "obj-y",
+            "title": "blocked target",
+            "priority": 9,
+            "salience": 9.0,
+            "depends_on": ["obj-z"],
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+        },
+    ]
+    for payload in seed:
+        assert client.post("/api/objectives", json=payload).status_code == 200
+
+    GOVERNANCE_STATES[workspace_id] = {
+        "updated_at": "2026-01-01T00:00:00+00:00",
+        "band": "escalated",
+        "interrupt_sensitivity": 0.8,
+        "escalation_readiness": 0.9,
+        "cooldown_aggressiveness": 0.3,
+        "posture_persistence": 0.8,
+        "governance_attention": 0.9,
+        "confidence": 0.7,
+        "profile": "mission_critical",
+    }
+
+    analyze = client.post(
+        "/api/coordinator/analyze",
+        json={
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+            "reason": "governance-aware recommendation",
+        },
+    )
+    assert analyze.status_code == 200
+    actions = analyze.json()["recommended_actions"]
+
+    governance_reviews = [a for a in actions if a.get("action") == "governance_review"]
+    assert len(governance_reviews) >= 1
+    assert not any(a.get("action") == "accelerate" for a in actions)
