@@ -55,6 +55,8 @@ Never allow event frames to become the system of record.
 	- governance-aware agent selection + decision context events
 - Phase 3D: bootstrap complete
 	- multi-agent collaboration planning
+- Phase 3E: bootstrap complete
+	- dynamic workflow adaptation
 
 ## Current Runtime Additions (Phase 2E Bootstrap)
 - Governance policy overlay layer is now active with profile-driven coefficients.
@@ -131,6 +133,22 @@ Never allow event frames to become the system of record.
 	- governance -> planner -> execution
 	- memory -> planner -> execution
 	- execution -> planner
+
+## Current Runtime Additions (Phase 3E Bootstrap)
+- Workflow lifecycle events are now available:
+	- `agent.workflow_started`
+	- `agent.workflow_updated`
+	- `agent.workflow_blocked`
+	- `agent.workflow_replanned`
+	- `agent.workflow_completed`
+- Dynamic workflow update API surface is available:
+	- `GET /api/agents/workflows`
+	- `POST /api/agents/workflows/{workflow_id}/update`
+- Workflows now include `workflow_pressure_score` driven by:
+	- objective pressure
+	- blocked step count
+	- governance band
+	- trust context
 
 ## Priority Workstreams
 

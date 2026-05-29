@@ -2,6 +2,7 @@ from fastapi.testclient import TestClient
 
 from main import (
     AGENT_TASKS_BY_WORKSPACE,
+    AGENT_WORKFLOWS_BY_WORKSPACE,
     GOVERNANCE_PROFILE_BINDINGS,
     GOVERNANCE_PROFILE_STATE,
     GOVERNANCE_STATE,
@@ -593,6 +594,7 @@ def test_agent_workspace_task_isolation() -> None:
 def test_agent_arbitration_emits_assignment_strategy_event() -> None:
     workspace_id = "ws-arb-1"
     AGENT_TASKS_BY_WORKSPACE.pop(workspace_id, None)
+    AGENT_WORKFLOWS_BY_WORKSPACE.pop(workspace_id, None)
 
     client = TestClient(app)
     execution_id = "exec-arb-1"
@@ -625,8 +627,10 @@ def test_agent_arbitration_emits_assignment_strategy_event() -> None:
     assert body["emitted_events"][0]["event_type"] == "agent.decision_context"
     assert body["emitted_events"][1]["event_type"] == "agent.assignment_strategy"
     assert body["emitted_events"][2]["event_type"] == "agent.collaboration_plan"
-    assert body["emitted_events"][3]["event_type"] == "agent.assigned"
+    assert body["emitted_events"][3]["event_type"] == "agent.workflow_started"
+    assert body["emitted_events"][4]["event_type"] == "agent.assigned"
     assert "workflow" in body["collaboration_plan"]
+    assert "workflow_pressure_score" in body["workflow"]
 
     replay = client.get(f"/api/replay/{execution_id}")
     assert replay.status_code == 200
@@ -634,12 +638,14 @@ def test_agent_arbitration_emits_assignment_strategy_event() -> None:
     assert "agent.decision_context" in event_types
     assert "agent.assignment_strategy" in event_types
     assert "agent.collaboration_plan" in event_types
+    assert "agent.workflow_started" in event_types
     assert "agent.assigned" in event_types
 
 
 def test_agent_arbitration_operator_forced_strategy() -> None:
     workspace_id = "ws-arb-2"
     AGENT_TASKS_BY_WORKSPACE.pop(workspace_id, None)
+    AGENT_WORKFLOWS_BY_WORKSPACE.pop(workspace_id, None)
 
     client = TestClient(app)
     execution_id = "exec-arb-2"
@@ -663,6 +669,7 @@ def test_agent_arbitration_operator_forced_strategy() -> None:
 def test_agent_arbitration_aggressive_high_pressure_prefers_execution() -> None:
     workspace_id = "ws-arb-3"
     AGENT_TASKS_BY_WORKSPACE.pop(workspace_id, None)
+    AGENT_WORKFLOWS_BY_WORKSPACE.pop(workspace_id, None)
 
     client = TestClient(app)
     execution_id = "exec-arb-3"
@@ -711,6 +718,7 @@ def test_agent_arbitration_aggressive_high_pressure_prefers_execution() -> None:
 def test_agent_arbitration_escalated_governance_selects_governance_role() -> None:
     workspace_id = "ws-arb-4"
     AGENT_TASKS_BY_WORKSPACE.pop(workspace_id, None)
+    AGENT_WORKFLOWS_BY_WORKSPACE.pop(workspace_id, None)
 
     client = TestClient(app)
     execution_id = "exec-arb-4"
@@ -776,3 +784,99 @@ def test_agent_arbitration_escalated_governance_selects_governance_role() -> Non
     assert body["role"] == "governance"
     assert body["collaboration_plan"]["workflow"] == ["governance", "planner", "execution"]
     assert body["collaboration_plan"]["reason"] == "escalated_governance_mandatory"
+
+
+def test_workflow_update_blocked_replans_and_increases_pressure() -> None:
+    workspace_id = "ws-workflow-1"
+    AGENT_TASKS_BY_WORKSPACE.pop(workspace_id, None)
+    AGENT_WORKFLOWS_BY_WORKSPACE.pop(workspace_id, None)
+
+    client = TestClient(app)
+    execution_id = "exec-workflow-1"
+
+    seed = client.post(
+        "/api/objectives",
+        json={
+            "objective_id": "obj-workflow-1",
+            "title": "Workflow Objective",
+            "priority": 9,
+            "salience": 9.0,
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+        },
+    )
+    assert seed.status_code == 200
+
+    arb = client.post(
+        "/api/agents/arbitrate",
+        json={
+            "task_id": "wf-task-1",
+            "objective_id": "obj-workflow-1",
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+        },
+    )
+    assert arb.status_code == 200
+    before_pressure = float(arb.json()["workflow"]["workflow_pressure_score"])
+
+    update = client.post(
+        "/api/agents/workflows/wf-task-1/update",
+        json={
+            "status": "blocked",
+            "reason": "dependency timeout",
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+        },
+    )
+    assert update.status_code == 200
+    body = update.json()
+    after_pressure = float(body["workflow"]["workflow_pressure_score"])
+    assert after_pressure >= before_pressure
+
+    emitted_types = [event["event_type"] for event in body["emitted_events"]]
+    assert "agent.workflow_updated" in emitted_types
+    assert "agent.workflow_blocked" in emitted_types
+    assert "agent.workflow_replanned" in emitted_types
+
+    replay = client.get(f"/api/replay/{execution_id}")
+    assert replay.status_code == 200
+    replay_types = [event["event_type"] for event in replay.json()["events"]]
+    assert "agent.workflow_started" in replay_types
+    assert "agent.workflow_blocked" in replay_types
+    assert "agent.workflow_replanned" in replay_types
+
+
+def test_workflow_update_completed_emits_completion_event() -> None:
+    workspace_id = "ws-workflow-2"
+    AGENT_TASKS_BY_WORKSPACE.pop(workspace_id, None)
+    AGENT_WORKFLOWS_BY_WORKSPACE.pop(workspace_id, None)
+
+    client = TestClient(app)
+    execution_id = "exec-workflow-2"
+
+    arb = client.post(
+        "/api/agents/arbitrate",
+        json={
+            "task_id": "wf-task-2",
+            "operator_forced_role": "planner",
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+        },
+    )
+    assert arb.status_code == 200
+
+    done = client.post(
+        "/api/agents/workflows/wf-task-2/update",
+        json={
+            "status": "completed",
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+        },
+    )
+    assert done.status_code == 200
+    body = done.json()
+    assert body["workflow"]["status"] == "completed"
+
+    emitted_types = [event["event_type"] for event in body["emitted_events"]]
+    assert "agent.workflow_updated" in emitted_types
+    assert "agent.workflow_completed" in emitted_types

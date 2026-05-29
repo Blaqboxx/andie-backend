@@ -64,6 +64,11 @@ EVENT_FAMILIES: dict[str, set[str]] = {
         "agent.decision_context",
         "agent.assignment_strategy",
         "agent.collaboration_plan",
+        "agent.workflow_started",
+        "agent.workflow_updated",
+        "agent.workflow_blocked",
+        "agent.workflow_replanned",
+        "agent.workflow_completed",
         "agent.assigned",
         "agent.completed",
         "agent.blocked",
@@ -351,6 +356,10 @@ AGENT_TASKS_BY_WORKSPACE: dict[str, dict[str, dict[str, Any]]] = {
     "andie-default": {},
 }
 
+AGENT_WORKFLOWS_BY_WORKSPACE: dict[str, dict[str, dict[str, Any]]] = {
+    "andie-default": {},
+}
+
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 CLIENT = Groq(api_key=GROQ_API_KEY) if (Groq and GROQ_API_KEY) else None
@@ -443,6 +452,18 @@ class AgentTaskStatusRequest(BaseModel):
     correlation_id: str | None = None
 
 
+class AgentWorkflowUpdateRequest(BaseModel):
+    status: str
+    step_role: str | None = None
+    payload: dict[str, Any] = Field(default_factory=dict)
+    reason: str = "workflow update"
+    actor: str = "orchestrator"
+    execution_id: str | None = None
+    source: str = "agent-orchestrator"
+    workspace_id: str = "andie-default"
+    correlation_id: str | None = None
+
+
 class AgentArbitrationRequest(BaseModel):
     task_id: str
     objective_id: str | None = None
@@ -495,6 +516,12 @@ def _get_workspace_agent_tasks(workspace_id: str) -> dict[str, dict[str, Any]]:
     if workspace_id not in AGENT_TASKS_BY_WORKSPACE:
         AGENT_TASKS_BY_WORKSPACE[workspace_id] = {}
     return AGENT_TASKS_BY_WORKSPACE[workspace_id]
+
+
+def _get_workspace_workflows(workspace_id: str) -> dict[str, dict[str, Any]]:
+    if workspace_id not in AGENT_WORKFLOWS_BY_WORKSPACE:
+        AGENT_WORKFLOWS_BY_WORKSPACE[workspace_id] = {}
+    return AGENT_WORKFLOWS_BY_WORKSPACE[workspace_id]
 
 
 def _normalize_agent_role(role: str) -> str:
@@ -672,6 +699,85 @@ def _build_collaboration_plan(
         return (["planner", "execution"], "high_pressure_two_stage")
 
     return ([selected_role], "single_role_default")
+
+
+def _workflow_pressure_score(
+    *,
+    workspace_id: str,
+    objective_id: str | None,
+    blocked_steps: int,
+) -> float:
+    signals = _derive_objective_signals()
+    objective_pressure = float((signals.get("objective_pressure_score") or {}).get(objective_id or "", 0.0))
+    trust_score = float(_get_trust_state(workspace_id).get("score", 0.5))
+    governance_band = str(_get_governance_state(workspace_id).get("band", "stable"))
+
+    band_weight = {
+        "stable": 0.2,
+        "warning": 0.5,
+        "escalated": 0.8,
+    }.get(governance_band, 0.2)
+
+    blocked_weight = min(1.0, blocked_steps / 3.0)
+    trust_penalty = 1.0 - trust_score
+
+    score = (0.4 * objective_pressure) + (0.25 * blocked_weight) + (0.2 * band_weight) + (0.15 * trust_penalty)
+    return round(_clamp01(score), 3)
+
+
+def _build_workflow(
+    *,
+    task_id: str,
+    objective_id: str | None,
+    workflow_roles: list[str],
+    reason: str,
+    selected_strategy: str,
+    selected_role: str,
+    workspace_id: str,
+) -> dict[str, Any]:
+    now = _utc_now()
+    workflow = {
+        "workflow_id": task_id,
+        "task_id": task_id,
+        "objective_id": objective_id,
+        "workflow": workflow_roles,
+        "reason": reason,
+        "selected_strategy": selected_strategy,
+        "selected_role": selected_role,
+        "status": "started",
+        "current_step_index": 0,
+        "blocked_steps": 0,
+        "history": [
+            {
+                "at": now,
+                "status": "started",
+            }
+        ],
+        "created_at": now,
+        "updated_at": now,
+    }
+    workflow["workflow_pressure_score"] = _workflow_pressure_score(
+        workspace_id=workspace_id,
+        objective_id=objective_id,
+        blocked_steps=0,
+    )
+    return workflow
+
+
+def _replan_workflow_roles(workflow: dict[str, Any], profile: str) -> tuple[list[str], str]:
+    current_roles = [str(role) for role in workflow.get("workflow", [])]
+    if not current_roles:
+        return (["planner", "execution"], "empty_workflow_recovery")
+
+    if "memory" not in current_roles:
+        replanned = ["memory"] + current_roles
+        return (replanned, "blocked_replan_memory_injection")
+
+    if profile == "mission_critical" and "governance" not in current_roles:
+        replanned = ["governance"] + current_roles
+        return (replanned, "blocked_replan_governance_injection")
+
+    return (current_roles + ["planner"], "blocked_replan_planner_tail")
 
 
 async def _fanout_event(event: dict[str, Any]) -> None:
@@ -1326,6 +1432,16 @@ def list_agent_tasks(workspace_id: str = "andie-default") -> dict[str, Any]:
     }
 
 
+@app.get("/api/agents/workflows")
+def list_agent_workflows(workspace_id: str = "andie-default") -> dict[str, Any]:
+    workflows = _get_workspace_workflows(workspace_id)
+    return {
+        "status": "ok",
+        "workspace_id": workspace_id,
+        "workflows": list(workflows.values()),
+    }
+
+
 @app.post("/api/agents/assign")
 async def assign_agent_task(request: AgentAssignmentRequest) -> dict[str, Any]:
     try:
@@ -1440,6 +1556,31 @@ async def arbitrate_agent_task(request: AgentArbitrationRequest) -> dict[str, An
     )
     await _fanout_event(collaboration_plan_event)
 
+    workflow_store = _get_workspace_workflows(request.workspace_id)
+    workflow_state = _build_workflow(
+        task_id=request.task_id,
+        objective_id=request.objective_id,
+        workflow_roles=workflow,
+        reason=workflow_reason,
+        selected_strategy=strategy,
+        selected_role=role,
+        workspace_id=request.workspace_id,
+    )
+    workflow_store[request.task_id] = workflow_state
+
+    workflow_started_event = EVENTS.append(
+        "agent.workflow_started",
+        {
+            "workflow": workflow_state,
+            "workspace_id": request.workspace_id,
+        },
+        execution_id=request.execution_id,
+        source=request.source,
+        workspace_id=request.workspace_id,
+        correlation_id=request.correlation_id,
+    )
+    await _fanout_event(workflow_started_event)
+
     task = _create_assigned_task(
         task_id=request.task_id,
         role=role,
@@ -1471,8 +1612,136 @@ async def arbitrate_agent_task(request: AgentArbitrationRequest) -> dict[str, An
             "workflow": workflow,
             "reason": workflow_reason,
         },
+        "workflow": workflow_state,
         "task": task,
-        "emitted_events": [decision_context_event, strategy_event, collaboration_plan_event, assigned_event],
+        "emitted_events": [
+            decision_context_event,
+            strategy_event,
+            collaboration_plan_event,
+            workflow_started_event,
+            assigned_event,
+        ],
+    }
+
+
+@app.post("/api/agents/workflows/{workflow_id}/update")
+async def update_agent_workflow(workflow_id: str, request: AgentWorkflowUpdateRequest) -> dict[str, Any]:
+    workflows = _get_workspace_workflows(request.workspace_id)
+    if workflow_id not in workflows:
+        raise HTTPException(status_code=404, detail=f"unknown workflow_id: {workflow_id}")
+
+    workflow = workflows[workflow_id]
+    status_value = request.status.strip().lower()
+    now = _utc_now()
+    emitted: list[dict[str, Any]] = []
+
+    workflow["updated_at"] = now
+    workflow["history"].append(
+        {
+            "at": now,
+            "status": status_value,
+            "step_role": request.step_role,
+            "reason": request.reason,
+            "payload": request.payload,
+        }
+    )
+
+    if status_value == "blocked":
+        workflow["status"] = "blocked"
+        workflow["blocked_steps"] = int(workflow.get("blocked_steps", 0)) + 1
+        workflow["workflow_pressure_score"] = _workflow_pressure_score(
+            workspace_id=request.workspace_id,
+            objective_id=workflow.get("objective_id"),
+            blocked_steps=int(workflow.get("blocked_steps", 0)),
+        )
+
+        blocked_event = EVENTS.append(
+            "agent.workflow_blocked",
+            {
+                "workflow": workflow,
+                "workspace_id": request.workspace_id,
+                "reason": request.reason,
+            },
+            execution_id=request.execution_id,
+            source=request.source,
+            workspace_id=request.workspace_id,
+            correlation_id=request.correlation_id,
+        )
+        emitted.append(blocked_event)
+
+        profile = str(_get_governance_profile_binding(request.workspace_id).get("active", "balanced"))
+        replanned_roles, replanned_reason = _replan_workflow_roles(workflow, profile)
+        workflow["workflow"] = replanned_roles
+        workflow["status"] = "replanned"
+        workflow["current_step_index"] = 0
+        workflow["reason"] = replanned_reason
+
+        replanned_event = EVENTS.append(
+            "agent.workflow_replanned",
+            {
+                "workflow": workflow,
+                "workspace_id": request.workspace_id,
+                "reason": replanned_reason,
+            },
+            execution_id=request.execution_id,
+            source=request.source,
+            workspace_id=request.workspace_id,
+            correlation_id=request.correlation_id,
+        )
+        emitted.append(replanned_event)
+
+    elif status_value in {"updated", "in_progress"}:
+        workflow["status"] = "in_progress"
+        workflow["workflow_pressure_score"] = _workflow_pressure_score(
+            workspace_id=request.workspace_id,
+            objective_id=workflow.get("objective_id"),
+            blocked_steps=int(workflow.get("blocked_steps", 0)),
+        )
+
+    elif status_value == "completed":
+        workflow["status"] = "completed"
+        workflow["current_step_index"] = len(workflow.get("workflow", []))
+        workflow["workflow_pressure_score"] = _workflow_pressure_score(
+            workspace_id=request.workspace_id,
+            objective_id=workflow.get("objective_id"),
+            blocked_steps=int(workflow.get("blocked_steps", 0)),
+        )
+        completed_event = EVENTS.append(
+            "agent.workflow_completed",
+            {
+                "workflow": workflow,
+                "workspace_id": request.workspace_id,
+            },
+            execution_id=request.execution_id,
+            source=request.source,
+            workspace_id=request.workspace_id,
+            correlation_id=request.correlation_id,
+        )
+        emitted.append(completed_event)
+    else:
+        raise HTTPException(status_code=400, detail=f"unsupported workflow status: {request.status}")
+
+    updated_event = EVENTS.append(
+        "agent.workflow_updated",
+        {
+            "workflow": workflow,
+            "workspace_id": request.workspace_id,
+            "status": workflow.get("status"),
+        },
+        execution_id=request.execution_id,
+        source=request.source,
+        workspace_id=request.workspace_id,
+        correlation_id=request.correlation_id,
+    )
+    emitted.insert(0, updated_event)
+
+    for event in emitted:
+        await _fanout_event(event)
+
+    return {
+        "status": "ok",
+        "workflow": workflow,
+        "emitted_events": emitted,
     }
 
 
