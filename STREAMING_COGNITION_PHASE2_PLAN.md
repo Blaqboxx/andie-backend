@@ -75,6 +75,8 @@ Never allow event frames to become the system of record.
 	- runtime coordinator read-only analysis layer
 - Phase 5B: bootstrap started
 	- objective portfolio management
+- Phase 5C: bootstrap started
+	- cross-portfolio arbitration
 
 ## Current Runtime Additions (Phase 2E Bootstrap)
 - Governance policy overlay layer is now active with profile-driven coefficients.
@@ -289,6 +291,19 @@ Never allow event frames to become the system of record.
 	- `coordinator.portfolio_risk_detected`
 	- `coordinator.portfolio_health_updated`
 - Portfolio recommendations remain read-only and governance-aware.
+
+## Current Runtime Additions (Phase 5C Bootstrap)
+- Coordinator now emits cross-portfolio arbitration signals without taking execution authority.
+- Cross-portfolio arbitration outputs are now available in coordinator analysis:
+	- cross_portfolio_dependencies
+	- portfolio_resource_conflicts
+- Phase 5C event family is replay-visible:
+	- `coordinator.portfolio_priority_changed`
+	- `coordinator.portfolio_dependency_detected`
+	- `coordinator.portfolio_resource_conflict_detected`
+	- `coordinator.portfolio_escalation_recommended`
+	- `coordinator.portfolio_suspension_recommended`
+- Portfolio arbitration recommendations remain advisory and governance-aware.
 
 ## Priority Workstreams
 

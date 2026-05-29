@@ -1966,3 +1966,277 @@ def test_coordinator_portfolio_recommends_governance_review_when_escalated() -> 
         if action.get("type") == "portfolio_risk_detected" and action.get("action") == "governance_review_portfolio"
     ]
     assert len(portfolio_governance) >= 1
+
+
+def test_coordinator_cross_portfolio_dependency_detected() -> None:
+    OBJECTIVES.clear()
+    OBJECTIVE_SIGNALS["blocked"] = {}
+    OBJECTIVE_SIGNALS["pressure"] = {}
+    OBJECTIVE_SIGNALS["objective_pressure_score"] = {}
+    OBJECTIVE_SIGNALS["critical_path"] = {}
+
+    workspace_id = "ws-coordinator-9"
+    AGENT_TASKS_BY_WORKSPACE.pop(workspace_id, None)
+    AGENT_WORKFLOWS_BY_WORKSPACE.pop(workspace_id, None)
+
+    client = TestClient(app)
+    execution_id = "exec-coordinator-9"
+
+    seed = [
+        {
+            "objective_id": "cp-beta",
+            "title": "beta foundation",
+            "priority": 8,
+            "salience": 8.0,
+            "portfolio_group": "beta",
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+        },
+        {
+            "objective_id": "cp-alpha",
+            "title": "alpha dependent",
+            "priority": 6,
+            "salience": 6.0,
+            "depends_on": ["cp-beta"],
+            "portfolio_group": "alpha",
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+        },
+    ]
+    for payload in seed:
+        assert client.post("/api/objectives", json=payload).status_code == 200
+
+    analyze = client.post(
+        "/api/coordinator/analyze",
+        json={
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+            "reason": "cross-portfolio dependency check",
+        },
+    )
+    assert analyze.status_code == 200
+    body = analyze.json()
+
+    assert len(body["cross_portfolio_dependencies"]) >= 1
+    emitted_types = [event["event_type"] for event in body["emitted_events"]]
+    assert "coordinator.portfolio_dependency_detected" in emitted_types
+
+    dependency_actions = [a for a in body["recommended_actions"] if a.get("type") == "portfolio_dependency_detected"]
+    assert len(dependency_actions) >= 1
+
+
+def test_coordinator_portfolio_resource_conflict_detected() -> None:
+    OBJECTIVES.clear()
+    OBJECTIVE_SIGNALS["blocked"] = {}
+    OBJECTIVE_SIGNALS["pressure"] = {}
+    OBJECTIVE_SIGNALS["objective_pressure_score"] = {}
+    OBJECTIVE_SIGNALS["critical_path"] = {}
+
+    workspace_id = "ws-coordinator-10"
+    AGENT_TASKS_BY_WORKSPACE.pop(workspace_id, None)
+    AGENT_WORKFLOWS_BY_WORKSPACE.pop(workspace_id, None)
+
+    client = TestClient(app)
+    execution_id = "exec-coordinator-10"
+
+    for payload in [
+        {
+            "objective_id": "rc-a",
+            "title": "resource contender a",
+            "priority": 8,
+            "salience": 8.0,
+            "portfolio_group": "ra",
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+        },
+        {
+            "objective_id": "rc-b",
+            "title": "resource contender b",
+            "priority": 7,
+            "salience": 7.0,
+            "portfolio_group": "rb",
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+        },
+    ]:
+        assert client.post("/api/objectives", json=payload).status_code == 200
+
+    for task_id, objective_id in (("rc-wf-a", "rc-a"), ("rc-wf-b", "rc-b")):
+        arb = client.post(
+            "/api/agents/arbitrate",
+            json={
+                "task_id": task_id,
+                "objective_id": objective_id,
+                "operator_forced_role": "execution",
+                "workspace_id": workspace_id,
+                "execution_id": execution_id,
+            },
+        )
+        assert arb.status_code == 200
+
+    analyze = client.post(
+        "/api/coordinator/analyze",
+        json={
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+            "reason": "resource conflict check",
+        },
+    )
+    assert analyze.status_code == 200
+    body = analyze.json()
+
+    assert len(body["portfolio_resource_conflicts"]) >= 1
+    emitted_types = [event["event_type"] for event in body["emitted_events"]]
+    assert "coordinator.portfolio_resource_conflict_detected" in emitted_types
+
+    conflict_actions = [a for a in body["recommended_actions"] if a.get("type") == "portfolio_resource_conflict_detected"]
+    assert len(conflict_actions) >= 1
+
+
+def test_coordinator_portfolio_priority_change_event_emitted_on_reorder() -> None:
+    OBJECTIVES.clear()
+    OBJECTIVE_SIGNALS["blocked"] = {}
+    OBJECTIVE_SIGNALS["pressure"] = {}
+    OBJECTIVE_SIGNALS["objective_pressure_score"] = {}
+    OBJECTIVE_SIGNALS["critical_path"] = {}
+
+    workspace_id = "ws-coordinator-11"
+    AGENT_TASKS_BY_WORKSPACE.pop(workspace_id, None)
+    AGENT_WORKFLOWS_BY_WORKSPACE.pop(workspace_id, None)
+
+    client = TestClient(app)
+    execution_id = "exec-coordinator-11"
+
+    seed = [
+        {
+            "objective_id": "pc-a",
+            "title": "priority alpha",
+            "priority": 4,
+            "salience": 4.0,
+            "portfolio_group": "pa",
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+        },
+        {
+            "objective_id": "pc-b",
+            "title": "priority beta",
+            "priority": 8,
+            "salience": 8.0,
+            "portfolio_group": "pb",
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+        },
+    ]
+    for payload in seed:
+        assert client.post("/api/objectives", json=payload).status_code == 200
+
+    first = client.post(
+        "/api/coordinator/analyze",
+        json={
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+            "reason": "baseline ranking",
+        },
+    )
+    assert first.status_code == 200
+    first_types = [event["event_type"] for event in first.json()["emitted_events"]]
+    assert "coordinator.portfolio_priority_changed" not in first_types
+
+    flip = client.post(
+        "/api/objectives",
+        json={
+            "objective_id": "pc-a",
+            "title": "priority alpha",
+            "priority": 10,
+            "salience": 10.0,
+            "portfolio_group": "pa",
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+        },
+    )
+    assert flip.status_code == 200
+
+    second = client.post(
+        "/api/coordinator/analyze",
+        json={
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+            "reason": "ranking after pressure shift",
+        },
+    )
+    assert second.status_code == 200
+    body = second.json()
+
+    emitted_types = [event["event_type"] for event in body["emitted_events"]]
+    assert "coordinator.portfolio_priority_changed" in emitted_types
+    assert any(a.get("type") == "portfolio_priority_changed" for a in body["recommended_actions"])
+
+
+def test_coordinator_portfolio_escalation_and_suspension_recommendations() -> None:
+    OBJECTIVES.clear()
+    OBJECTIVE_SIGNALS["blocked"] = {}
+    OBJECTIVE_SIGNALS["pressure"] = {}
+    OBJECTIVE_SIGNALS["objective_pressure_score"] = {}
+    OBJECTIVE_SIGNALS["critical_path"] = {}
+
+    workspace_id = "ws-coordinator-12"
+    AGENT_TASKS_BY_WORKSPACE.pop(workspace_id, None)
+    AGENT_WORKFLOWS_BY_WORKSPACE.pop(workspace_id, None)
+
+    client = TestClient(app)
+    execution_id = "exec-coordinator-12"
+
+    seed = [
+        {
+            "objective_id": "ps-anchor",
+            "title": "high pressure anchor",
+            "priority": 10,
+            "salience": 10.0,
+            "portfolio_group": "anchor",
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+        },
+        {
+            "objective_id": "ps-low",
+            "title": "low pressure blocked",
+            "priority": 1,
+            "salience": 1.0,
+            "depends_on": ["ps-anchor"],
+            "portfolio_group": "fragile",
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+        },
+    ]
+    for payload in seed:
+        assert client.post("/api/objectives", json=payload).status_code == 200
+
+    GOVERNANCE_STATES[workspace_id] = {
+        "updated_at": "2026-01-01T00:00:00+00:00",
+        "band": "escalated",
+        "interrupt_sensitivity": 0.8,
+        "escalation_readiness": 0.9,
+        "cooldown_aggressiveness": 0.3,
+        "posture_persistence": 0.8,
+        "governance_attention": 0.9,
+        "confidence": 0.7,
+        "profile": "mission_critical",
+    }
+
+    analyze = client.post(
+        "/api/coordinator/analyze",
+        json={
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+            "reason": "portfolio escalation and suspension checks",
+        },
+    )
+    assert analyze.status_code == 200
+    body = analyze.json()
+
+    actions = body["recommended_actions"]
+    assert any(a.get("type") == "portfolio_escalation_recommended" for a in actions)
+    assert any(a.get("type") == "portfolio_suspension_recommended" for a in actions)
+
+    emitted_types = [event["event_type"] for event in body["emitted_events"]]
+    assert "coordinator.portfolio_escalation_recommended" in emitted_types
+    assert "coordinator.portfolio_suspension_recommended" in emitted_types

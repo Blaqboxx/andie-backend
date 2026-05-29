@@ -114,6 +114,11 @@ EVENT_FAMILIES: dict[str, set[str]] = {
         "coordinator.portfolio_blocked",
         "coordinator.portfolio_risk_detected",
         "coordinator.portfolio_health_updated",
+        "coordinator.portfolio_priority_changed",
+        "coordinator.portfolio_dependency_detected",
+        "coordinator.portfolio_resource_conflict_detected",
+        "coordinator.portfolio_escalation_recommended",
+        "coordinator.portfolio_suspension_recommended",
     },
 }
 
@@ -443,6 +448,8 @@ COORDINATOR_STATE_BY_WORKSPACE: dict[str, dict[str, Any]] = {
         "objective_portfolios": [],
         "portfolio_ranking": [],
         "portfolio_health": [],
+        "cross_portfolio_dependencies": [],
+        "portfolio_resource_conflicts": [],
         "updated_at": _utc_now(),
     }
 }
@@ -473,6 +480,7 @@ class ObjectiveUpsertRequest(BaseModel):
     depends_on: list[str] = Field(default_factory=list)
     blocked_by: list[str] = Field(default_factory=list)
     enables: list[str] = Field(default_factory=list)
+    portfolio_group: str | None = None
     status: str = "active"
     execution_id: str | None = None
     source: str = "objective-engine"
@@ -874,6 +882,8 @@ def _get_coordinator_state(workspace_id: str) -> dict[str, Any]:
             "objective_portfolios": [],
             "portfolio_ranking": [],
             "portfolio_health": [],
+            "cross_portfolio_dependencies": [],
+            "portfolio_resource_conflicts": [],
             "updated_at": _utc_now(),
         }
     return COORDINATOR_STATE_BY_WORKSPACE[workspace_id]
@@ -888,6 +898,13 @@ def _run_coordinator_analysis(
     source: str,
     correlation_id: str | None,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    previous_state = _get_coordinator_state(workspace_id)
+    previous_portfolio_ranking = [
+        str(item.get("portfolio_id"))
+        for item in (previous_state.get("portfolio_ranking") or [])
+        if str(item.get("portfolio_id") or "")
+    ]
+
     signals = _derive_objective_signals()
     governance_state = _get_governance_state(workspace_id)
     trust_state = _get_trust_state(workspace_id)
@@ -913,6 +930,7 @@ def _run_coordinator_analysis(
             "blocked": bool(blocked_map.get(objective_id, False)),
             "priority": int(objective.get("priority", 0)),
             "salience": float(objective.get("salience", 0.0)),
+            "portfolio_group": objective.get("portfolio_group"),
         }
         active_objectives.append(record)
 
@@ -1064,12 +1082,19 @@ def _run_coordinator_analysis(
         if seed in visited:
             continue
 
+        seed_group = OBJECTIVES.get(seed, {}).get("portfolio_group")
+
         stack = [seed]
         component: list[str] = []
         while stack:
             current = stack.pop()
             if current in visited:
                 continue
+
+            current_group = OBJECTIVES.get(current, {}).get("portfolio_group")
+            if current_group != seed_group:
+                continue
+
             visited.add(current)
             component.append(current)
             for nxt in adjacency.get(current, set()):
@@ -1094,9 +1119,12 @@ def _run_coordinator_analysis(
         portfolio_pressure = round(avg_pressure, 3)
 
         portfolio_id = f"portfolio-{objective_ids[0]}"
+        if seed_group:
+            portfolio_id = f"portfolio-{seed_group}"
         objective_portfolios.append(
             {
                 "portfolio_id": portfolio_id,
+                "portfolio_group": seed_group,
                 "objective_ids": objective_ids,
                 "blocked_objectives": blocked_ids,
                 "workflow_ids": workflow_ids,
@@ -1133,6 +1161,127 @@ def _run_coordinator_analysis(
         for portfolio in objective_portfolios
     ]
 
+    objective_to_portfolio: dict[str, str] = {}
+    for portfolio in objective_portfolios:
+        portfolio_id = str(portfolio["portfolio_id"])
+        for objective_id in portfolio["objective_ids"]:
+            objective_to_portfolio[str(objective_id)] = portfolio_id
+
+    dependency_index: dict[tuple[str, str], dict[str, Any]] = {}
+    for edge in objective_dependencies:
+        dependent_objective = str(edge.get("objective_id") or "")
+        blocker_objective = str(edge.get("depends_on") or "")
+        dependent_portfolio = objective_to_portfolio.get(dependent_objective)
+        blocker_portfolio = objective_to_portfolio.get(blocker_objective)
+        if not dependent_portfolio or not blocker_portfolio or dependent_portfolio == blocker_portfolio:
+            continue
+
+        key = (dependent_portfolio, blocker_portfolio)
+        if key not in dependency_index:
+            dependency_index[key] = {
+                "portfolio_id": dependent_portfolio,
+                "depends_on_portfolio_id": blocker_portfolio,
+                "objective_pairs": [],
+                "blocked_dependency_count": 0,
+            }
+
+        dep_row = dependency_index[key]
+        dep_row["objective_pairs"].append(
+            {
+                "objective_id": dependent_objective,
+                "depends_on": blocker_objective,
+            }
+        )
+        if bool(blocked_map.get(dependent_objective, False)):
+            dep_row["blocked_dependency_count"] = int(dep_row["blocked_dependency_count"]) + 1
+
+    cross_portfolio_dependencies = sorted(
+        (
+            {
+                **row,
+                "dependency_count": len(row["objective_pairs"]),
+            }
+            for row in dependency_index.values()
+        ),
+        key=lambda item: (int(item["blocked_dependency_count"]), int(item["dependency_count"])),
+        reverse=True,
+    )
+
+    supervisor_runtime = _get_supervisor_runtime(workspace_id)
+    available_slots = max(1, int(supervisor_runtime.get("available_slots", 1)))
+    active_portfolios = [portfolio for portfolio in objective_portfolios if int(portfolio.get("resource_load", 0)) > 0]
+    total_resource_load = sum(int(portfolio.get("resource_load", 0)) for portfolio in active_portfolios)
+
+    portfolio_resource_conflicts: list[dict[str, Any]] = []
+    if len(active_portfolios) >= 2 and total_resource_load > available_slots:
+        ordered = sorted(
+            active_portfolios,
+            key=lambda item: (
+                int(item.get("resource_load", 0)),
+                float(item.get("portfolio_pressure", 0.0)),
+                float(item.get("portfolio_risk", 0.0)),
+            ),
+            reverse=True,
+        )
+        portfolio_resource_conflicts.append(
+            {
+                "available_slots": available_slots,
+                "total_resource_load": total_resource_load,
+                "resource_gap": max(0, total_resource_load - available_slots),
+                "contending_portfolios": [
+                    {
+                        "portfolio_id": str(portfolio["portfolio_id"]),
+                        "resource_load": int(portfolio.get("resource_load", 0)),
+                        "portfolio_pressure": float(portfolio.get("portfolio_pressure", 0.0)),
+                        "portfolio_risk": float(portfolio.get("portfolio_risk", 0.0)),
+                    }
+                    for portfolio in ordered
+                ],
+            }
+        )
+
+    current_portfolio_ranking = [str(item["portfolio_id"]) for item in portfolio_ranking]
+    priority_changed = bool(previous_portfolio_ranking) and (previous_portfolio_ranking != current_portfolio_ranking)
+
+    if priority_changed:
+        coordination_recommendations.append(
+            {
+                "type": "portfolio_priority_changed",
+                "action": "review_portfolio_priority_shift",
+                "previous_order": previous_portfolio_ranking,
+                "current_order": current_portfolio_ranking,
+                "reason": "portfolio ranking changed between analyses",
+            }
+        )
+
+    for dependency in cross_portfolio_dependencies:
+        coordination_recommendations.append(
+            {
+                "type": "portfolio_dependency_detected",
+                "action": "sequence_portfolios",
+                "portfolio_id": dependency["portfolio_id"],
+                "depends_on_portfolio_id": dependency["depends_on_portfolio_id"],
+                "blocked_dependency_count": dependency["blocked_dependency_count"],
+                "dependency_count": dependency["dependency_count"],
+                "reason": "cross-portfolio dependency chain detected",
+            }
+        )
+
+    for conflict in portfolio_resource_conflicts:
+        coordination_recommendations.append(
+            {
+                "type": "portfolio_resource_conflict_detected",
+                "action": "governance_review_portfolio_allocation"
+                if governance_band == "escalated"
+                else "rebalance_portfolio_allocation",
+                "available_slots": conflict["available_slots"],
+                "total_resource_load": conflict["total_resource_load"],
+                "resource_gap": conflict["resource_gap"],
+                "contending_portfolios": conflict["contending_portfolios"],
+                "reason": "portfolio load exceeds available runtime slots",
+            }
+        )
+
     for portfolio in objective_portfolios:
         if portfolio["portfolio_risk"] >= 0.5:
             coordination_recommendations.append(
@@ -1142,6 +1291,31 @@ def _run_coordinator_analysis(
                     "portfolio_id": portfolio["portfolio_id"],
                     "portfolio_risk": portfolio["portfolio_risk"],
                     "reason": "elevated portfolio risk",
+                }
+            )
+
+        if float(portfolio["portfolio_risk"]) >= 0.7:
+            coordination_recommendations.append(
+                {
+                    "type": "portfolio_escalation_recommended",
+                    "action": "governance_review_portfolio"
+                    if governance_band == "escalated"
+                    else "escalate_portfolio",
+                    "portfolio_id": portfolio["portfolio_id"],
+                    "portfolio_risk": portfolio["portfolio_risk"],
+                    "reason": "portfolio risk crossed escalation threshold",
+                }
+            )
+
+        if float(portfolio["portfolio_risk"]) >= 0.65 and float(portfolio["portfolio_pressure"]) <= 0.4:
+            coordination_recommendations.append(
+                {
+                    "type": "portfolio_suspension_recommended",
+                    "action": "suspend_portfolio",
+                    "portfolio_id": portfolio["portfolio_id"],
+                    "portfolio_pressure": portfolio["portfolio_pressure"],
+                    "portfolio_risk": portfolio["portfolio_risk"],
+                    "reason": "high risk portfolio with low strategic pressure",
                 }
             )
 
@@ -1269,12 +1443,62 @@ def _run_coordinator_analysis(
         )
     )
 
+    if priority_changed:
+        emitted.append(
+            EVENTS.append(
+                "coordinator.portfolio_priority_changed",
+                {
+                    "workspace_id": workspace_id,
+                    "previous_order": previous_portfolio_ranking,
+                    "current_order": current_portfolio_ranking,
+                },
+                execution_id=execution_id,
+                source=source,
+                workspace_id=workspace_id,
+                correlation_id=correlation_id,
+            )
+        )
+
+    for dependency in cross_portfolio_dependencies:
+        emitted.append(
+            EVENTS.append(
+                "coordinator.portfolio_dependency_detected",
+                {
+                    "workspace_id": workspace_id,
+                    "dependency": dependency,
+                },
+                execution_id=execution_id,
+                source=source,
+                workspace_id=workspace_id,
+                correlation_id=correlation_id,
+            )
+        )
+
+    for conflict in portfolio_resource_conflicts:
+        emitted.append(
+            EVENTS.append(
+                "coordinator.portfolio_resource_conflict_detected",
+                {
+                    "workspace_id": workspace_id,
+                    "conflict": conflict,
+                },
+                execution_id=execution_id,
+                source=source,
+                workspace_id=workspace_id,
+                correlation_id=correlation_id,
+            )
+        )
+
     for rec in coordination_recommendations:
         rec_type = str(rec.get("type", ""))
         if rec_type == "suspension_recommended":
             event_type = "coordinator.suspension_recommended"
         elif rec_type == "escalation_recommended":
             event_type = "coordinator.escalation_recommended"
+        elif rec_type == "portfolio_escalation_recommended":
+            event_type = "coordinator.portfolio_escalation_recommended"
+        elif rec_type == "portfolio_suspension_recommended":
+            event_type = "coordinator.portfolio_suspension_recommended"
         else:
             continue
 
@@ -1324,6 +1548,8 @@ def _run_coordinator_analysis(
             "objective_portfolios": objective_portfolios,
             "portfolio_ranking": portfolio_ranking,
             "portfolio_health": portfolio_health,
+            "cross_portfolio_dependencies": cross_portfolio_dependencies,
+            "portfolio_resource_conflicts": portfolio_resource_conflicts,
             "updated_at": _utc_now(),
         }
     )
@@ -2398,6 +2624,7 @@ def _normalize_objective(obj: dict[str, Any]) -> dict[str, Any]:
         "depends_on": [str(x) for x in (obj.get("depends_on") or []) if str(x)],
         "blocked_by": [str(x) for x in (obj.get("blocked_by") or []) if str(x)],
         "enables": [str(x) for x in (obj.get("enables") or []) if str(x)],
+        "portfolio_group": (str(obj.get("portfolio_group") or "").strip() or None),
         "status": str(obj.get("status") or "active"),
     }
 
@@ -3897,6 +4124,8 @@ async def analyze_coordinator(request: CoordinatorAnalyzeRequest) -> dict[str, A
         "objective_portfolios": state.get("objective_portfolios") or [],
         "portfolio_ranking": state.get("portfolio_ranking") or [],
         "portfolio_health": state.get("portfolio_health") or [],
+        "cross_portfolio_dependencies": state.get("cross_portfolio_dependencies") or [],
+        "portfolio_resource_conflicts": state.get("portfolio_resource_conflicts") or [],
         "blocked_objectives": state.get("blocked_objectives") or [],
         "merge_candidates": state.get("merge_candidates") or [],
         "recommended_actions": state.get("coordination_recommendations") or [],
