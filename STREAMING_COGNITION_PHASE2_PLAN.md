@@ -57,6 +57,8 @@ Never allow event frames to become the system of record.
 	- multi-agent collaboration planning
 - Phase 3E: bootstrap complete
 	- dynamic workflow adaptation
+- Phase 3F: bootstrap complete
+	- delegation, review chains, and consensus scaffolding
 
 ## Current Runtime Additions (Phase 2E Bootstrap)
 - Governance policy overlay layer is now active with profile-driven coefficients.
@@ -149,6 +151,23 @@ Never allow event frames to become the system of record.
 	- blocked step count
 	- governance band
 	- trust context
+
+## Current Runtime Additions (Phase 3F Bootstrap)
+- Delegation events are now available:
+	- `agent.delegated`
+- Review chain events are now available:
+	- `agent.review_requested`
+	- `agent.review_completed`
+- Consensus events are now available:
+	- `agent.consensus_started`
+	- `agent.consensus_reached`
+	- `agent.consensus_failed`
+- Workflow health snapshots are replay-visible via:
+	- `agent.workflow_health`
+- Workflow governance API surface additions:
+	- `POST /api/agents/workflows/{workflow_id}/delegate`
+	- `POST /api/agents/workflows/{workflow_id}/review`
+	- `POST /api/agents/workflows/{workflow_id}/consensus`
 
 ## Priority Workstreams
 

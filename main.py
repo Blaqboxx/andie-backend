@@ -66,9 +66,16 @@ EVENT_FAMILIES: dict[str, set[str]] = {
         "agent.collaboration_plan",
         "agent.workflow_started",
         "agent.workflow_updated",
+        "agent.workflow_health",
         "agent.workflow_blocked",
         "agent.workflow_replanned",
         "agent.workflow_completed",
+        "agent.delegated",
+        "agent.review_requested",
+        "agent.review_completed",
+        "agent.consensus_started",
+        "agent.consensus_reached",
+        "agent.consensus_failed",
         "agent.assigned",
         "agent.completed",
         "agent.blocked",
@@ -464,6 +471,43 @@ class AgentWorkflowUpdateRequest(BaseModel):
     correlation_id: str | None = None
 
 
+class AgentWorkflowDelegationRequest(BaseModel):
+    from_role: str
+    to_role: str
+    reason: str = "delegation"
+    payload: dict[str, Any] = Field(default_factory=dict)
+    actor: str = "orchestrator"
+    execution_id: str | None = None
+    source: str = "agent-orchestrator"
+    workspace_id: str = "andie-default"
+    correlation_id: str | None = None
+
+
+class AgentWorkflowReviewRequest(BaseModel):
+    reviewer_role: str = "governance"
+    status: str = "requested"
+    reason: str = "review chain"
+    payload: dict[str, Any] = Field(default_factory=dict)
+    actor: str = "orchestrator"
+    execution_id: str | None = None
+    source: str = "agent-orchestrator"
+    workspace_id: str = "andie-default"
+    correlation_id: str | None = None
+
+
+class AgentWorkflowConsensusRequest(BaseModel):
+    participants: list[str] = Field(default_factory=list)
+    reached: bool
+    resolution: str | None = None
+    reason: str = "consensus"
+    payload: dict[str, Any] = Field(default_factory=dict)
+    actor: str = "orchestrator"
+    execution_id: str | None = None
+    source: str = "agent-orchestrator"
+    workspace_id: str = "andie-default"
+    correlation_id: str | None = None
+
+
 class AgentArbitrationRequest(BaseModel):
     task_id: str
     objective_id: str | None = None
@@ -747,6 +791,7 @@ def _build_workflow(
         "status": "started",
         "current_step_index": 0,
         "blocked_steps": 0,
+        "replan_count": 0,
         "history": [
             {
                 "at": now,
@@ -762,6 +807,20 @@ def _build_workflow(
         blocked_steps=0,
     )
     return workflow
+
+
+def _workflow_health_payload(workspace_id: str, workflow: dict[str, Any]) -> dict[str, Any]:
+    governance_band = str(_get_governance_state(workspace_id).get("band", "stable"))
+    return {
+        "workflow_id": workflow.get("workflow_id"),
+        "task_id": workflow.get("task_id"),
+        "objective_id": workflow.get("objective_id"),
+        "workflow_pressure_score": workflow.get("workflow_pressure_score"),
+        "blocked_steps": int(workflow.get("blocked_steps", 0)),
+        "replan_count": int(workflow.get("replan_count", 0)),
+        "governance_band": governance_band,
+        "status": workflow.get("status"),
+    }
 
 
 def _replan_workflow_roles(workflow: dict[str, Any], profile: str) -> tuple[list[str], str]:
@@ -1581,6 +1640,19 @@ async def arbitrate_agent_task(request: AgentArbitrationRequest) -> dict[str, An
     )
     await _fanout_event(workflow_started_event)
 
+    workflow_health_event = EVENTS.append(
+        "agent.workflow_health",
+        {
+            "health": _workflow_health_payload(request.workspace_id, workflow_state),
+            "workspace_id": request.workspace_id,
+        },
+        execution_id=request.execution_id,
+        source=request.source,
+        workspace_id=request.workspace_id,
+        correlation_id=request.correlation_id,
+    )
+    await _fanout_event(workflow_health_event)
+
     task = _create_assigned_task(
         task_id=request.task_id,
         role=role,
@@ -1619,6 +1691,7 @@ async def arbitrate_agent_task(request: AgentArbitrationRequest) -> dict[str, An
             strategy_event,
             collaboration_plan_event,
             workflow_started_event,
+            workflow_health_event,
             assigned_event,
         ],
     }
@@ -1675,6 +1748,7 @@ async def update_agent_workflow(workflow_id: str, request: AgentWorkflowUpdateRe
         workflow["status"] = "replanned"
         workflow["current_step_index"] = 0
         workflow["reason"] = replanned_reason
+        workflow["replan_count"] = int(workflow.get("replan_count", 0)) + 1
 
         replanned_event = EVENTS.append(
             "agent.workflow_replanned",
@@ -1735,6 +1809,19 @@ async def update_agent_workflow(workflow_id: str, request: AgentWorkflowUpdateRe
     )
     emitted.insert(0, updated_event)
 
+    health_event = EVENTS.append(
+        "agent.workflow_health",
+        {
+            "health": _workflow_health_payload(request.workspace_id, workflow),
+            "workspace_id": request.workspace_id,
+        },
+        execution_id=request.execution_id,
+        source=request.source,
+        workspace_id=request.workspace_id,
+        correlation_id=request.correlation_id,
+    )
+    emitted.insert(1, health_event)
+
     for event in emitted:
         await _fanout_event(event)
 
@@ -1742,6 +1829,209 @@ async def update_agent_workflow(workflow_id: str, request: AgentWorkflowUpdateRe
         "status": "ok",
         "workflow": workflow,
         "emitted_events": emitted,
+    }
+
+
+@app.post("/api/agents/workflows/{workflow_id}/delegate")
+async def delegate_agent_workflow(workflow_id: str, request: AgentWorkflowDelegationRequest) -> dict[str, Any]:
+    workflows = _get_workspace_workflows(request.workspace_id)
+    if workflow_id not in workflows:
+        raise HTTPException(status_code=404, detail=f"unknown workflow_id: {workflow_id}")
+
+    try:
+        from_role = _normalize_agent_role(request.from_role)
+        to_role = _normalize_agent_role(request.to_role)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    workflow = workflows[workflow_id]
+    workflow["history"].append(
+        {
+            "at": _utc_now(),
+            "status": "delegated",
+            "from_role": from_role,
+            "to_role": to_role,
+            "reason": request.reason,
+            "payload": request.payload,
+        }
+    )
+    workflow["updated_at"] = _utc_now()
+    if to_role not in [str(role) for role in workflow.get("workflow", [])]:
+        workflow["workflow"] = [to_role] + [str(role) for role in workflow.get("workflow", [])]
+
+    delegated_event = EVENTS.append(
+        "agent.delegated",
+        {
+            "workflow_id": workflow_id,
+            "from_role": from_role,
+            "to_role": to_role,
+            "reason": request.reason,
+            "payload": request.payload,
+            "workspace_id": request.workspace_id,
+        },
+        execution_id=request.execution_id,
+        source=request.source,
+        workspace_id=request.workspace_id,
+        correlation_id=request.correlation_id,
+    )
+
+    health_event = EVENTS.append(
+        "agent.workflow_health",
+        {
+            "health": _workflow_health_payload(request.workspace_id, workflow),
+            "workspace_id": request.workspace_id,
+        },
+        execution_id=request.execution_id,
+        source=request.source,
+        workspace_id=request.workspace_id,
+        correlation_id=request.correlation_id,
+    )
+
+    await _fanout_event(delegated_event)
+    await _fanout_event(health_event)
+
+    return {
+        "status": "ok",
+        "workflow": workflow,
+        "emitted_events": [delegated_event, health_event],
+    }
+
+
+@app.post("/api/agents/workflows/{workflow_id}/review")
+async def review_agent_workflow(workflow_id: str, request: AgentWorkflowReviewRequest) -> dict[str, Any]:
+    workflows = _get_workspace_workflows(request.workspace_id)
+    if workflow_id not in workflows:
+        raise HTTPException(status_code=404, detail=f"unknown workflow_id: {workflow_id}")
+
+    try:
+        reviewer_role = _normalize_agent_role(request.reviewer_role)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    workflow = workflows[workflow_id]
+    status_value = request.status.strip().lower()
+    if status_value not in {"requested", "completed"}:
+        raise HTTPException(status_code=400, detail=f"unsupported review status: {request.status}")
+
+    workflow["updated_at"] = _utc_now()
+    workflow["history"].append(
+        {
+            "at": _utc_now(),
+            "status": f"review_{status_value}",
+            "reviewer_role": reviewer_role,
+            "reason": request.reason,
+            "payload": request.payload,
+        }
+    )
+
+    event_type = "agent.review_requested" if status_value == "requested" else "agent.review_completed"
+    review_event = EVENTS.append(
+        event_type,
+        {
+            "workflow_id": workflow_id,
+            "reviewer_role": reviewer_role,
+            "reason": request.reason,
+            "payload": request.payload,
+            "workspace_id": request.workspace_id,
+        },
+        execution_id=request.execution_id,
+        source=request.source,
+        workspace_id=request.workspace_id,
+        correlation_id=request.correlation_id,
+    )
+
+    await _fanout_event(review_event)
+    return {
+        "status": "ok",
+        "workflow": workflow,
+        "event": review_event,
+    }
+
+
+@app.post("/api/agents/workflows/{workflow_id}/consensus")
+async def consensus_agent_workflow(workflow_id: str, request: AgentWorkflowConsensusRequest) -> dict[str, Any]:
+    workflows = _get_workspace_workflows(request.workspace_id)
+    if workflow_id not in workflows:
+        raise HTTPException(status_code=404, detail=f"unknown workflow_id: {workflow_id}")
+
+    participants: list[str] = []
+    try:
+        participants = [_normalize_agent_role(role) for role in request.participants]
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    workflow = workflows[workflow_id]
+    workflow["updated_at"] = _utc_now()
+    workflow["history"].append(
+        {
+            "at": _utc_now(),
+            "status": "consensus_started",
+            "participants": participants,
+            "reason": request.reason,
+            "payload": request.payload,
+        }
+    )
+
+    started_event = EVENTS.append(
+        "agent.consensus_started",
+        {
+            "workflow_id": workflow_id,
+            "participants": participants,
+            "reason": request.reason,
+            "payload": request.payload,
+            "workspace_id": request.workspace_id,
+        },
+        execution_id=request.execution_id,
+        source=request.source,
+        workspace_id=request.workspace_id,
+        correlation_id=request.correlation_id,
+    )
+
+    outcome_type = "agent.consensus_reached" if request.reached else "agent.consensus_failed"
+    workflow["history"].append(
+        {
+            "at": _utc_now(),
+            "status": "consensus_reached" if request.reached else "consensus_failed",
+            "participants": participants,
+            "resolution": request.resolution,
+            "reason": request.reason,
+        }
+    )
+    outcome_event = EVENTS.append(
+        outcome_type,
+        {
+            "workflow_id": workflow_id,
+            "participants": participants,
+            "resolution": request.resolution,
+            "reason": request.reason,
+            "workspace_id": request.workspace_id,
+        },
+        execution_id=request.execution_id,
+        source=request.source,
+        workspace_id=request.workspace_id,
+        correlation_id=request.correlation_id,
+    )
+
+    health_event = EVENTS.append(
+        "agent.workflow_health",
+        {
+            "health": _workflow_health_payload(request.workspace_id, workflow),
+            "workspace_id": request.workspace_id,
+        },
+        execution_id=request.execution_id,
+        source=request.source,
+        workspace_id=request.workspace_id,
+        correlation_id=request.correlation_id,
+    )
+
+    await _fanout_event(started_event)
+    await _fanout_event(outcome_event)
+    await _fanout_event(health_event)
+
+    return {
+        "status": "ok",
+        "workflow": workflow,
+        "emitted_events": [started_event, outcome_event, health_event],
     }
 
 

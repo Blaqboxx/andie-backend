@@ -628,7 +628,8 @@ def test_agent_arbitration_emits_assignment_strategy_event() -> None:
     assert body["emitted_events"][1]["event_type"] == "agent.assignment_strategy"
     assert body["emitted_events"][2]["event_type"] == "agent.collaboration_plan"
     assert body["emitted_events"][3]["event_type"] == "agent.workflow_started"
-    assert body["emitted_events"][4]["event_type"] == "agent.assigned"
+    assert body["emitted_events"][4]["event_type"] == "agent.workflow_health"
+    assert body["emitted_events"][5]["event_type"] == "agent.assigned"
     assert "workflow" in body["collaboration_plan"]
     assert "workflow_pressure_score" in body["workflow"]
 
@@ -639,6 +640,7 @@ def test_agent_arbitration_emits_assignment_strategy_event() -> None:
     assert "agent.assignment_strategy" in event_types
     assert "agent.collaboration_plan" in event_types
     assert "agent.workflow_started" in event_types
+    assert "agent.workflow_health" in event_types
     assert "agent.assigned" in event_types
 
 
@@ -835,6 +837,7 @@ def test_workflow_update_blocked_replans_and_increases_pressure() -> None:
 
     emitted_types = [event["event_type"] for event in body["emitted_events"]]
     assert "agent.workflow_updated" in emitted_types
+    assert "agent.workflow_health" in emitted_types
     assert "agent.workflow_blocked" in emitted_types
     assert "agent.workflow_replanned" in emitted_types
 
@@ -879,4 +882,100 @@ def test_workflow_update_completed_emits_completion_event() -> None:
 
     emitted_types = [event["event_type"] for event in body["emitted_events"]]
     assert "agent.workflow_updated" in emitted_types
+    assert "agent.workflow_health" in emitted_types
     assert "agent.workflow_completed" in emitted_types
+
+
+def test_workflow_delegation_emits_delegated_and_health_events() -> None:
+    workspace_id = "ws-workflow-3"
+    AGENT_TASKS_BY_WORKSPACE.pop(workspace_id, None)
+    AGENT_WORKFLOWS_BY_WORKSPACE.pop(workspace_id, None)
+
+    client = TestClient(app)
+    execution_id = "exec-workflow-3"
+
+    arb = client.post(
+        "/api/agents/arbitrate",
+        json={
+            "task_id": "wf-task-3",
+            "operator_forced_role": "planner",
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+        },
+    )
+    assert arb.status_code == 200
+
+    delegated = client.post(
+        "/api/agents/workflows/wf-task-3/delegate",
+        json={
+            "from_role": "planner",
+            "to_role": "memory",
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+            "reason": "need context recovery",
+        },
+    )
+    assert delegated.status_code == 200
+    emitted_types = [event["event_type"] for event in delegated.json()["emitted_events"]]
+    assert "agent.delegated" in emitted_types
+    assert "agent.workflow_health" in emitted_types
+
+
+def test_workflow_review_chain_events_and_consensus_events() -> None:
+    workspace_id = "ws-workflow-4"
+    AGENT_TASKS_BY_WORKSPACE.pop(workspace_id, None)
+    AGENT_WORKFLOWS_BY_WORKSPACE.pop(workspace_id, None)
+
+    client = TestClient(app)
+    execution_id = "exec-workflow-4"
+
+    arb = client.post(
+        "/api/agents/arbitrate",
+        json={
+            "task_id": "wf-task-4",
+            "operator_forced_role": "execution",
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+        },
+    )
+    assert arb.status_code == 200
+
+    review_req = client.post(
+        "/api/agents/workflows/wf-task-4/review",
+        json={
+            "reviewer_role": "governance",
+            "status": "requested",
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+        },
+    )
+    assert review_req.status_code == 200
+    assert review_req.json()["event"]["event_type"] == "agent.review_requested"
+
+    review_done = client.post(
+        "/api/agents/workflows/wf-task-4/review",
+        json={
+            "reviewer_role": "governance",
+            "status": "completed",
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+        },
+    )
+    assert review_done.status_code == 200
+    assert review_done.json()["event"]["event_type"] == "agent.review_completed"
+
+    consensus = client.post(
+        "/api/agents/workflows/wf-task-4/consensus",
+        json={
+            "participants": ["planner", "memory", "governance"],
+            "reached": True,
+            "resolution": "proceed-with-guardrails",
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+        },
+    )
+    assert consensus.status_code == 200
+    emitted_types = [event["event_type"] for event in consensus.json()["emitted_events"]]
+    assert "agent.consensus_started" in emitted_types
+    assert "agent.consensus_reached" in emitted_types
+    assert "agent.workflow_health" in emitted_types
