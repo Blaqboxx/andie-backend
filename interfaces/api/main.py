@@ -1276,6 +1276,73 @@ async def autonomy_learning():
         return {"entries": 0, "status": "error", "error": str(e)}
 
 
+@router.post("/autonomy/outcome")
+async def autonomy_outcome(request: Request):
+    try:
+        try:
+            from andie_backend.interfaces.api.event_bus import emit_event
+            from andie_backend.interfaces.api.outcome_tracking import record_skill_outcome_internal
+        except ModuleNotFoundError:
+            from interfaces.api.event_bus import emit_event
+            from interfaces.api.outcome_tracking import record_skill_outcome_internal
+        import uuid
+
+        data = await request.json()
+        execution_id = str(data.get("execution_id") or data.get("correlation_id") or uuid.uuid4())
+        payload = record_skill_outcome_internal(
+            skill_name=data.get("skill") or data.get("skill_name") or "",
+            result=data.get("result") or "",
+            context_key=data.get("context_key"),
+            replaced_from=data.get("replaced_from"),
+            latency=data.get("latency"),
+            error=data.get("error"),
+            record_execution=bool(data.get("record_execution", True)),
+            source=data.get("source") or "live",
+            intent_type=data.get("intent_type"),
+            governance_profile=data.get("governance_profile"),
+            effectiveness_score=data.get("effectiveness_score"),
+            portfolio_group=data.get("portfolio_group"),
+        )
+
+        weight_update = (payload or {}).get("outcome_weight_update") or {}
+        if weight_update.get("event"):
+            await emit_event(
+                {
+                    "type": weight_update.get("event"),
+                    "execution_id": execution_id,
+                    "timestamp": int(time.time() * 1000),
+                    "intent_type": payload.get("intent_type"),
+                    "governance_profile": payload.get("governance_profile"),
+                    "portfolio_group": payload.get("portfolio_group"),
+                    "registry": weight_update.get("registry"),
+                }
+            )
+
+        trend_update = (payload or {}).get("effectiveness_trend_update") or {}
+        for update_key in ("baseline_update", "trend_update", "window_rotation_update"):
+            update = trend_update.get(update_key) or {}
+            if not update.get("event"):
+                continue
+            event_payload = {
+                "type": update.get("event"),
+                "execution_id": execution_id,
+                "timestamp": int(time.time() * 1000),
+            }
+            for key, value in update.items():
+                if key == "event":
+                    continue
+                event_payload[key] = value
+            await emit_event(event_payload)
+
+        return {
+            "status": "ok",
+            "execution_id": execution_id,
+            "outcome": payload,
+        }
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
 # ── Autonomy control endpoints ────────────────────────────────────────────────
 _autonomy_state = {"running": False, "enabled": True, "iteration": 0}
 
@@ -1983,6 +2050,13 @@ def _build_live_events(limit: int = 120) -> List[Dict[str, Any]]:
                 "intent_type": item.get("intent_type"),
                 "governance_profile": item.get("governance_profile"),
                 "portfolio_group": item.get("portfolio_group"),
+                "window": item.get("window"),
+                "sample_count": item.get("sample_count"),
+                "previous_average": item.get("previous_average"),
+                "current_average": item.get("current_average"),
+                "trend": item.get("trend"),
+                "delta": item.get("delta"),
+                "removed_samples": item.get("removed_samples"),
             }
         )
     return normalized[-max(1, int(limit)):]

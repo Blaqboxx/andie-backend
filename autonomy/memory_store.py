@@ -4,7 +4,7 @@ import json
 import os
 import re
 import threading
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict
 
@@ -12,6 +12,8 @@ from .observability_alerts import emit_observability_alert
 
 
 ALLOW_BACKFILL = os.environ.get("ANDIE_ALLOW_BACKFILL", "false").strip().lower() in {"1", "true", "yes", "on"}
+OUTCOME_WEIGHT_REGISTRY_KEY = "__outcome_weight_registry__"
+EFFECTIVENESS_TREND_REGISTRY_KEY = "__effectiveness_trend_registry__"
 
 
 class MemoryStore:
@@ -73,10 +75,341 @@ class MemoryStore:
         compact = re.sub(r"\s+", " ", lowered)
         return compact[:120]
 
+    def _normalize_outcome_registry_field(self, value: str | None) -> str | None:
+        normalized = re.sub(r"[^a-z0-9:_|\-]+", "_", str(value or "").strip().lower()).strip("_")
+        return normalized or None
+
+    def _outcome_registry(self) -> Dict[str, Dict[str, Any]]:
+        with self._lock:
+            registry = self.data.get(OUTCOME_WEIGHT_REGISTRY_KEY)
+            if not isinstance(registry, dict):
+                registry = {}
+                self.data[OUTCOME_WEIGHT_REGISTRY_KEY] = registry
+            return registry
+
+    def _outcome_weight_key(
+        self,
+        intent_type: str | None,
+        governance_profile: str | None,
+        portfolio_group: str | None = None,
+    ) -> str | None:
+        intent = self._normalize_outcome_registry_field(intent_type)
+        governance = self._normalize_outcome_registry_field(governance_profile)
+        portfolio = self._normalize_outcome_registry_field(portfolio_group)
+        if not intent or not governance:
+            return None
+        if portfolio:
+            return f"{intent}::{governance}::{portfolio}"
+        return f"{intent}::{governance}"
+
+    def _parse_event_timestamp(self, observed_at: str | None = None) -> datetime:
+        if not observed_at:
+            return datetime.now(timezone.utc)
+        try:
+            normalized = str(observed_at).strip()
+            if normalized.endswith("Z"):
+                normalized = normalized[:-1] + "+00:00"
+            parsed = datetime.fromisoformat(normalized)
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            return parsed.astimezone(timezone.utc)
+        except Exception:
+            return datetime.now(timezone.utc)
+
+    def _effectiveness_registry(self) -> Dict[str, Dict[str, Any]]:
+        with self._lock:
+            registry = self.data.get(EFFECTIVENESS_TREND_REGISTRY_KEY)
+            if not isinstance(registry, dict):
+                registry = {}
+                self.data[EFFECTIVENESS_TREND_REGISTRY_KEY] = registry
+            return registry
+
+    def _window_stats(self, samples: list[Dict[str, Any]], now: datetime, days: int) -> Dict[str, Any]:
+        cutoff = now - timedelta(days=max(1, int(days)))
+        window_scores: list[float] = []
+        for sample in samples:
+            sample_ts = self._parse_event_timestamp(sample.get("timestamp"))
+            if sample_ts >= cutoff:
+                try:
+                    score = max(0.0, min(float(sample.get("effectiveness_score", 0.0) or 0.0), 1.0))
+                except Exception:
+                    score = 0.0
+                window_scores.append(score)
+        sample_count = len(window_scores)
+        average = (sum(window_scores) / sample_count) if sample_count else 0.0
+        return {
+            "sample_count": sample_count,
+            "avg_effectiveness": round(average, 4),
+        }
+
+    def record_effectiveness_trend(
+        self,
+        *,
+        intent_type: str,
+        governance_profile: str,
+        effectiveness_score: float,
+        portfolio_group: str | None = None,
+        observed_at: str | None = None,
+    ) -> Dict[str, Any]:
+        with self._lock:
+            key = self._outcome_weight_key(intent_type, governance_profile, portfolio_group)
+            if not key:
+                raise ValueError("intent_type and governance_profile are required")
+
+            now_dt = self._parse_event_timestamp(observed_at)
+            now_iso = now_dt.isoformat()
+            effectiveness = max(0.0, min(float(effectiveness_score), 1.0))
+
+            registry = self._effectiveness_registry()
+            bucket = registry.setdefault(
+                key,
+                {
+                    "intent_type": self._normalize_outcome_registry_field(intent_type),
+                    "governance_profile": self._normalize_outcome_registry_field(governance_profile),
+                    "portfolio_group": self._normalize_outcome_registry_field(portfolio_group),
+                    "samples": [],
+                    "window_30d": {"sample_count": 0, "avg_effectiveness": 0.0},
+                    "window_90d": {"sample_count": 0, "avg_effectiveness": 0.0},
+                    "last_updated": None,
+                },
+            )
+
+            previous_30d = dict(bucket.get("window_30d") or {})
+            previous_90d = dict(bucket.get("window_90d") or {})
+
+            samples = bucket.setdefault("samples", [])
+            samples.append(
+                {
+                    "timestamp": now_iso,
+                    "effectiveness_score": round(effectiveness, 4),
+                }
+            )
+
+            cutoff_90 = now_dt - timedelta(days=90)
+            retained = [
+                sample
+                for sample in samples
+                if self._parse_event_timestamp(sample.get("timestamp")) >= cutoff_90
+            ]
+            removed_samples = max(0, len(samples) - len(retained))
+            bucket["samples"] = retained
+
+            window_30d = self._window_stats(retained, now_dt, 30)
+            window_90d = self._window_stats(retained, now_dt, 90)
+
+            bucket["window_30d"] = window_30d
+            bucket["window_90d"] = window_90d
+            bucket["last_updated"] = now_iso
+
+            previous_30_avg = float(previous_30d.get("avg_effectiveness", 0.0) or 0.0)
+            current_30_avg = float(window_30d.get("avg_effectiveness", 0.0) or 0.0)
+            trend_delta = round(current_30_avg - previous_30_avg, 4)
+            if trend_delta > 0.01:
+                trend_direction = "improving"
+            elif trend_delta < -0.01:
+                trend_direction = "declining"
+            else:
+                trend_direction = "stable"
+
+            snapshot = {
+                "intent_type": bucket.get("intent_type"),
+                "governance_profile": bucket.get("governance_profile"),
+                "portfolio_group": bucket.get("portfolio_group"),
+                "window_30d": window_30d,
+                "window_90d": window_90d,
+                "last_updated": bucket.get("last_updated"),
+                "available": window_90d.get("sample_count", 0) > 0,
+            }
+
+            baseline_update = {
+                "event": "coordinator.effectiveness_baseline_updated",
+                "window": "90d",
+                "previous_average": round(float(previous_90d.get("avg_effectiveness", 0.0) or 0.0), 4),
+                "current_average": window_90d.get("avg_effectiveness", 0.0),
+                "sample_count": int(window_90d.get("sample_count", 0) or 0),
+                "intent_type": snapshot.get("intent_type"),
+                "governance_profile": snapshot.get("governance_profile"),
+                "portfolio_group": snapshot.get("portfolio_group"),
+                "timestamp": now_iso,
+            }
+
+            trend_update = {
+                "event": "coordinator.effectiveness_trend_updated",
+                "window": "30d",
+                "previous_average": round(previous_30_avg, 4),
+                "current_average": window_30d.get("avg_effectiveness", 0.0),
+                "trend": trend_direction,
+                "delta": trend_delta,
+                "sample_count": int(window_30d.get("sample_count", 0) or 0),
+                "intent_type": snapshot.get("intent_type"),
+                "governance_profile": snapshot.get("governance_profile"),
+                "portfolio_group": snapshot.get("portfolio_group"),
+                "timestamp": now_iso,
+            }
+
+            window_rotation_update = None
+            if removed_samples > 0:
+                window_rotation_update = {
+                    "event": "coordinator.effectiveness_window_rotated",
+                    "window": "90d",
+                    "removed_samples": int(removed_samples),
+                    "sample_count": int(window_90d.get("sample_count", 0) or 0),
+                    "intent_type": snapshot.get("intent_type"),
+                    "governance_profile": snapshot.get("governance_profile"),
+                    "portfolio_group": snapshot.get("portfolio_group"),
+                    "timestamp": now_iso,
+                }
+
+        self.save()
+        return {
+            "registry": snapshot,
+            "baseline_update": baseline_update,
+            "trend_update": trend_update,
+            "window_rotation_update": window_rotation_update,
+        }
+
+    def get_effectiveness_trend(
+        self,
+        *,
+        intent_type: str | None,
+        governance_profile: str | None,
+        portfolio_group: str | None = None,
+    ) -> Dict[str, Any]:
+        key = self._outcome_weight_key(intent_type, governance_profile, portfolio_group)
+        normalized_intent = self._normalize_outcome_registry_field(intent_type)
+        normalized_governance = self._normalize_outcome_registry_field(governance_profile)
+        normalized_portfolio = self._normalize_outcome_registry_field(portfolio_group)
+        if not key:
+            return {
+                "intent_type": normalized_intent,
+                "governance_profile": normalized_governance,
+                "portfolio_group": normalized_portfolio,
+                "window_30d": {"sample_count": 0, "avg_effectiveness": 0.0},
+                "window_90d": {"sample_count": 0, "avg_effectiveness": 0.0},
+                "available": False,
+                "last_updated": None,
+            }
+
+        registry = self._effectiveness_registry()
+        bucket = registry.get(key) or {}
+        window_30d = dict(bucket.get("window_30d") or {"sample_count": 0, "avg_effectiveness": 0.0})
+        window_90d = dict(bucket.get("window_90d") or {"sample_count": 0, "avg_effectiveness": 0.0})
+
+        return {
+            "intent_type": bucket.get("intent_type", normalized_intent),
+            "governance_profile": bucket.get("governance_profile", normalized_governance),
+            "portfolio_group": bucket.get("portfolio_group", normalized_portfolio),
+            "window_30d": {
+                "sample_count": int(window_30d.get("sample_count", 0) or 0),
+                "avg_effectiveness": round(float(window_30d.get("avg_effectiveness", 0.0) or 0.0), 4),
+            },
+            "window_90d": {
+                "sample_count": int(window_90d.get("sample_count", 0) or 0),
+                "avg_effectiveness": round(float(window_90d.get("avg_effectiveness", 0.0) or 0.0), 4),
+            },
+            "available": int(window_90d.get("sample_count", 0) or 0) > 0,
+            "last_updated": bucket.get("last_updated"),
+        }
+
+    def record_outcome_weight(
+        self,
+        *,
+        intent_type: str,
+        governance_profile: str,
+        effectiveness_score: float,
+        portfolio_group: str | None = None,
+    ) -> Dict[str, Any]:
+        with self._lock:
+            key = self._outcome_weight_key(intent_type, governance_profile, portfolio_group)
+            if not key:
+                raise ValueError("intent_type and governance_profile are required")
+
+            registry = self._outcome_registry()
+            effectiveness = max(0.0, min(float(effectiveness_score), 1.0))
+            ts = datetime.now(timezone.utc).isoformat()
+            bucket = registry.setdefault(
+                key,
+                {
+                    "intent_type": self._normalize_outcome_registry_field(intent_type),
+                    "governance_profile": self._normalize_outcome_registry_field(governance_profile),
+                    "portfolio_group": self._normalize_outcome_registry_field(portfolio_group),
+                    "sample_count": 0,
+                    "success_count": 0,
+                    "average_effectiveness": 0.0,
+                    "recommendation_weight": 0.5,
+                    "last_updated": None,
+                },
+            )
+
+            sample_count = int(bucket.get("sample_count", 0) or 0) + 1
+            previous_average = float(bucket.get("average_effectiveness", 0.0) or 0.0)
+            average_effectiveness = ((previous_average * (sample_count - 1)) + effectiveness) / sample_count
+            success_count = int(bucket.get("success_count", 0) or 0) + (1 if effectiveness >= 0.7 else 0)
+
+            bucket["sample_count"] = sample_count
+            bucket["success_count"] = success_count
+            bucket["average_effectiveness"] = round(average_effectiveness, 4)
+            bucket["recommendation_weight"] = round(average_effectiveness, 4)
+            bucket["last_updated"] = ts
+
+            snapshot = self.get_outcome_weight(
+                intent_type=intent_type,
+                governance_profile=governance_profile,
+                portfolio_group=portfolio_group,
+            )
+        self.save()
+        return snapshot
+
+    def get_outcome_weight(
+        self,
+        *,
+        intent_type: str | None,
+        governance_profile: str | None,
+        portfolio_group: str | None = None,
+    ) -> Dict[str, Any]:
+        key = self._outcome_weight_key(intent_type, governance_profile, portfolio_group)
+        normalized_intent = self._normalize_outcome_registry_field(intent_type)
+        normalized_governance = self._normalize_outcome_registry_field(governance_profile)
+        normalized_portfolio = self._normalize_outcome_registry_field(portfolio_group)
+        if not key:
+            return {
+                "intent_type": normalized_intent,
+                "governance_profile": normalized_governance,
+                "portfolio_group": normalized_portfolio,
+                "sample_count": 0,
+                "success_count": 0,
+                "average_effectiveness": 0.0,
+                "recommendation_weight": 0.5,
+                "modifier": 0.0,
+                "available": False,
+                "last_updated": None,
+            }
+
+        registry = self._outcome_registry()
+        bucket = registry.get(key) or {}
+        sample_count = int(bucket.get("sample_count", 0) or 0)
+        average_effectiveness = max(0.0, min(float(bucket.get("average_effectiveness", 0.0) or 0.0), 1.0))
+        sample_factor = min(sample_count / 5.0, 1.0)
+        modifier = max(-0.15, min((average_effectiveness - 0.5) * 0.30 * sample_factor, 0.15)) if sample_count else 0.0
+        return {
+            "intent_type": bucket.get("intent_type", normalized_intent),
+            "governance_profile": bucket.get("governance_profile", normalized_governance),
+            "portfolio_group": bucket.get("portfolio_group", normalized_portfolio),
+            "sample_count": sample_count,
+            "success_count": int(bucket.get("success_count", 0) or 0),
+            "average_effectiveness": round(average_effectiveness, 4),
+            "recommendation_weight": round(float(bucket.get("recommendation_weight", 0.5) or 0.5), 4),
+            "modifier": round(modifier, 4),
+            "available": sample_count > 0,
+            "last_updated": bucket.get("last_updated"),
+        }
+
     def compact(self, decay: float = 0.99) -> None:
         with self._lock:
             decay = max(0.90, min(float(decay), 1.0))
-            for _, entry in self.data.items():
+            for key, entry in self.data.items():
+                if key in {OUTCOME_WEIGHT_REGISTRY_KEY, EFFECTIVENESS_TREND_REGISTRY_KEY}:
+                    continue
                 successes = float(entry.get("successes", 0) or 0)
                 failures = float(entry.get("failures", 0) or 0)
                 executions = float(entry.get("executions", 0) or 0)
@@ -256,6 +589,8 @@ class MemoryStore:
         """Return a mapping of all skills that have received operator feedback."""
         result: Dict[str, Any] = {}
         for key, entry in self.data.items():
+            if key in {OUTCOME_WEIGHT_REGISTRY_KEY, EFFECTIVENESS_TREND_REGISTRY_KEY}:
+                continue
             fb = entry.get("operator_feedback") or {}
             outcomes = entry.get("replacement_outcomes") or {}
             total_outcomes = float(outcomes.get("total", 0) or 0)

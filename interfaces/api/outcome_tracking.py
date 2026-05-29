@@ -6,11 +6,22 @@ from typing import Any, Dict
 from fastapi import HTTPException
 
 import andie_backend.autonomy.learning_engine as learning_engine
+
+try:
+    import autonomy.learning_engine as local_learning_engine
+except Exception:  # pragma: no cover - runtime import layout dependent
+    local_learning_engine = None
 from andie_backend.autonomy.control_plane_metrics import control_plane_metrics
 from andie_backend.autonomy.learning_engine import score_skill as _score_skill
 from andie_backend.autonomy.learning_engine import skill_memory_snapshot
 from andie_backend.autonomy.observability_alerts import emit_observability_alert
 from andie_backend.autonomy.runtime_config import get_runtime_config
+
+
+def _active_learning_engine():
+    if local_learning_engine is not None:
+        return local_learning_engine
+    return learning_engine
 
 
 def first_non_empty(*values: Any) -> str | None:
@@ -50,6 +61,10 @@ def record_skill_outcome_internal(
     error: str | None = None,
     record_execution: bool = True,
     source: str = "live",  # "live" | "synthetic"
+    intent_type: str | None = None,
+    governance_profile: str | None = None,
+    effectiveness_score: float | None = None,
+    portfolio_group: str | None = None,
 ) -> Dict[str, Any]:
     normalized_skill = str(skill_name or "").strip()
     normalized_result = str(result or "").strip().lower()
@@ -75,11 +90,16 @@ def record_skill_outcome_internal(
 
     ctx = str(context_key or "").strip() or None
     original = str(replaced_from or "").strip() or None
-    before = _score_skill(normalized_skill, context_key=ctx, replaced_from=original)
+    normalized_intent = first_non_empty(intent_type)
+    normalized_governance = first_non_empty(governance_profile)
+    normalized_portfolio = first_non_empty(portfolio_group)
+    normalized_effectiveness = None if effectiveness_score is None else max(0.0, min(float(effectiveness_score), 1.0))
+    engine = _active_learning_engine()
+    before = engine.score_skill(normalized_skill, context_key=ctx, replaced_from=original)
 
     try:
         if record_execution:
-            learning_engine.memory.log_execution(
+            engine.memory.log_execution(
                 skill_name=normalized_skill,
                 success=normalized_result == "success",
                 latency=float(latency or 0.0),
@@ -87,7 +107,7 @@ def record_skill_outcome_internal(
                 context_key=ctx,
             )
         if original:
-            learning_engine.memory.log_replacement_outcome(
+            engine.memory.log_replacement_outcome(
                 normalized_skill,
                 result=normalized_result,
                 replaced_from=original,
@@ -103,7 +123,27 @@ def record_skill_outcome_internal(
         if normalized_source == "live":
             control_plane_metrics.increment("real_outcome_events_total")
 
-        snapshot = skill_memory_snapshot(normalized_skill, context_key=ctx, replaced_from=original)
+        outcome_weight_update = None
+        effectiveness_trend_update = None
+        if normalized_intent and normalized_governance and normalized_effectiveness is not None:
+            registry_snapshot = engine.memory.record_outcome_weight(
+                intent_type=normalized_intent,
+                governance_profile=normalized_governance,
+                effectiveness_score=normalized_effectiveness,
+                portfolio_group=normalized_portfolio,
+            )
+            outcome_weight_update = {
+                "event": "coordinator.outcome_weight_updated",
+                "registry": registry_snapshot,
+            }
+            effectiveness_trend_update = engine.memory.record_effectiveness_trend(
+                intent_type=normalized_intent,
+                governance_profile=normalized_governance,
+                effectiveness_score=normalized_effectiveness,
+                portfolio_group=normalized_portfolio,
+            )
+
+        snapshot = engine.skill_memory_snapshot(normalized_skill, context_key=ctx, replaced_from=original)
         updated = snapshot.get("score")
 
         config = get_runtime_config()
@@ -133,6 +173,12 @@ def record_skill_outcome_internal(
             "previous_score": before,
             "updated_score": updated,
             "source": normalized_source,
+            "intent_type": normalized_intent,
+            "governance_profile": normalized_governance,
+            "portfolio_group": normalized_portfolio,
+            "effectiveness_score": normalized_effectiveness,
+            "outcome_weight_update": outcome_weight_update,
+            "effectiveness_trend_update": effectiveness_trend_update,
             "snapshot": snapshot,
         }
     except Exception as exc:

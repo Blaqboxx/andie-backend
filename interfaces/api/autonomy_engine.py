@@ -317,7 +317,7 @@ def autonomy_loop() -> None:
                     try:
                         exec_ms = (time.monotonic() - exec_start) * 1000
                         outcome = "failure" if (workflow_result or {}).get("status") == "failed" else "success"
-                        _record_outcome(
+                        outcome_payload = _record_outcome(
                             skill_name=validated_decision,
                             result=outcome,
                             context_key="autonomy",
@@ -331,6 +331,36 @@ def autonomy_loop() -> None:
                             "outcome": outcome,
                             "latencyMs": int(exec_ms),
                         })
+                        weight_update = (outcome_payload or {}).get("outcome_weight_update") or {}
+                        if weight_update.get("event"):
+                            _emit({
+                                "type": weight_update.get("event"),
+                                "iteration": iteration,
+                                "decision": validated_decision,
+                                "execution_id": workflow_id,
+                                "workflowId": workflow_id,
+                                "registry": weight_update.get("registry"),
+                                "timestamp": int(time.time() * 1000),
+                            })
+
+                        trend_update = (outcome_payload or {}).get("effectiveness_trend_update") or {}
+                        for update_key in ("baseline_update", "trend_update", "window_rotation_update"):
+                            update = trend_update.get(update_key) or {}
+                            if not update.get("event"):
+                                continue
+                            payload = {
+                                "type": update.get("event"),
+                                "iteration": iteration,
+                                "decision": validated_decision,
+                                "execution_id": workflow_id,
+                                "workflowId": workflow_id,
+                                "timestamp": int(time.time() * 1000),
+                            }
+                            for key, value in update.items():
+                                if key == "event":
+                                    continue
+                                payload[key] = value
+                            _emit(payload)
                     except Exception as _outcome_exc:
                         _emit({"type": "autonomy_outcome_error", "iteration": iteration, "error": str(_outcome_exc)})
             elif blocked:
