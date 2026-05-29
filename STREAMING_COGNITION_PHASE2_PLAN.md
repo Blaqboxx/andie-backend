@@ -53,6 +53,8 @@ Never allow event frames to become the system of record.
 	- objective-to-agent arbitration with strategy visibility
 - Phase 3C: bootstrap complete
 	- governance-aware agent selection + decision context events
+- Phase 3D: bootstrap complete
+	- multi-agent collaboration planning
 
 ## Current Runtime Additions (Phase 2E Bootstrap)
 - Governance policy overlay layer is now active with profile-driven coefficients.
@@ -114,6 +116,21 @@ Never allow event frames to become the system of record.
 	- workspace profile
 	- selected strategy
 	- selected role
+
+## Current Runtime Additions (Phase 3D Bootstrap)
+- Arbitration now emits collaboration workflow plans:
+	- `agent.collaboration_plan`
+- Collaboration plans include:
+	- objective/task context
+	- ordered workflow role chain
+	- collaboration reason
+	- selected strategy and role context
+- Collaboration planning bootstrap patterns currently include:
+	- planner -> execution
+	- planner -> governance -> execution
+	- governance -> planner -> execution
+	- memory -> planner -> execution
+	- execution -> planner
 
 ## Priority Workstreams
 

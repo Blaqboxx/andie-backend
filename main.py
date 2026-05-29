@@ -63,6 +63,7 @@ EVENT_FAMILIES: dict[str, set[str]] = {
     "agent": {
         "agent.decision_context",
         "agent.assignment_strategy",
+        "agent.collaboration_plan",
         "agent.assigned",
         "agent.completed",
         "agent.blocked",
@@ -638,6 +639,39 @@ def _create_assigned_task(
     }
     workspace_tasks[task_id] = task
     return task
+
+
+def _build_collaboration_plan(
+    selected_role: str,
+    strategy: str,
+    strategy_inputs: dict[str, Any],
+) -> tuple[list[str], str]:
+    pressure_score = float(strategy_inputs.get("pressure_score") or 0.0)
+    trust_score = float(strategy_inputs.get("trust_score") or 0.5)
+    governance_band = str(strategy_inputs.get("governance_band") or "stable")
+    workspace_profile = str(strategy_inputs.get("workspace_profile") or "balanced")
+
+    if strategy == "operator_forced":
+        return ([selected_role], "operator_forced_single_role")
+
+    if governance_band == "escalated":
+        return (["governance", "planner", "execution"], "escalated_governance_mandatory")
+
+    if strategy == "trust_based" or trust_score < 0.4:
+        return (["memory", "planner", "execution"], "trust_recovery_knowledge_gap")
+
+    if workspace_profile == "mission_critical" and pressure_score >= 0.6:
+        return (["planner", "governance", "execution"], "mission_critical_high_pressure")
+
+    if strategy == "governance_directed":
+        return (["planner", "governance", "execution"], "governance_directed_review_chain")
+
+    if strategy == "pressure_based" and pressure_score >= 0.75:
+        if workspace_profile == "aggressive":
+            return (["execution", "planner"], "aggressive_high_pressure_fast_path")
+        return (["planner", "execution"], "high_pressure_two_stage")
+
+    return ([selected_role], "single_role_default")
 
 
 async def _fanout_event(event: dict[str, Any]) -> None:
@@ -1383,6 +1417,29 @@ async def arbitrate_agent_task(request: AgentArbitrationRequest) -> dict[str, An
     )
     await _fanout_event(strategy_event)
 
+    workflow, workflow_reason = _build_collaboration_plan(
+        selected_role=role,
+        strategy=strategy,
+        strategy_inputs=strategy_inputs,
+    )
+    collaboration_plan_event = EVENTS.append(
+        "agent.collaboration_plan",
+        {
+            "task_id": request.task_id,
+            "objective_id": request.objective_id,
+            "workflow": workflow,
+            "reason": workflow_reason,
+            "workspace_id": request.workspace_id,
+            "selected_strategy": strategy,
+            "selected_role": role,
+        },
+        execution_id=request.execution_id,
+        source=request.source,
+        workspace_id=request.workspace_id,
+        correlation_id=request.correlation_id,
+    )
+    await _fanout_event(collaboration_plan_event)
+
     task = _create_assigned_task(
         task_id=request.task_id,
         role=role,
@@ -1410,8 +1467,12 @@ async def arbitrate_agent_task(request: AgentArbitrationRequest) -> dict[str, An
         "status": "ok",
         "strategy": strategy,
         "role": role,
+        "collaboration_plan": {
+            "workflow": workflow,
+            "reason": workflow_reason,
+        },
         "task": task,
-        "emitted_events": [decision_context_event, strategy_event, assigned_event],
+        "emitted_events": [decision_context_event, strategy_event, collaboration_plan_event, assigned_event],
     }
 
 

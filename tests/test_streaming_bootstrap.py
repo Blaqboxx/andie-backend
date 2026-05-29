@@ -624,13 +624,16 @@ def test_agent_arbitration_emits_assignment_strategy_event() -> None:
     assert body["strategy"] in {"pressure_based", "governance_directed", "trust_based", "operator_forced"}
     assert body["emitted_events"][0]["event_type"] == "agent.decision_context"
     assert body["emitted_events"][1]["event_type"] == "agent.assignment_strategy"
-    assert body["emitted_events"][2]["event_type"] == "agent.assigned"
+    assert body["emitted_events"][2]["event_type"] == "agent.collaboration_plan"
+    assert body["emitted_events"][3]["event_type"] == "agent.assigned"
+    assert "workflow" in body["collaboration_plan"]
 
     replay = client.get(f"/api/replay/{execution_id}")
     assert replay.status_code == 200
     event_types = [event["event_type"] for event in replay.json()["events"]]
     assert "agent.decision_context" in event_types
     assert "agent.assignment_strategy" in event_types
+    assert "agent.collaboration_plan" in event_types
     assert "agent.assigned" in event_types
 
 
@@ -701,6 +704,8 @@ def test_agent_arbitration_aggressive_high_pressure_prefers_execution() -> None:
     body = arb.json()
     assert body["strategy"] == "pressure_based"
     assert body["role"] == "execution"
+    assert body["collaboration_plan"]["workflow"][:2] == ["execution", "planner"]
+    assert body["collaboration_plan"]["reason"] == "aggressive_high_pressure_fast_path"
 
 
 def test_agent_arbitration_escalated_governance_selects_governance_role() -> None:
@@ -769,3 +774,5 @@ def test_agent_arbitration_escalated_governance_selects_governance_role() -> Non
     body = arb.json()
     assert body["strategy"] == "governance_directed"
     assert body["role"] == "governance"
+    assert body["collaboration_plan"]["workflow"] == ["governance", "planner", "execution"]
+    assert body["collaboration_plan"]["reason"] == "escalated_governance_mandatory"
