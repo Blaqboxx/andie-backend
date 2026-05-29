@@ -67,6 +67,8 @@ Never allow event frames to become the system of record.
 	- fairness and aging for anti-starvation scheduling
 - Phase 4D: bootstrap started
 	- runtime scheduling policy profiles
+- Phase 4E: bootstrap started
+	- adaptive scheduler policies
 
 ## Current Runtime Additions (Phase 2E Bootstrap)
 - Governance policy overlay layer is now active with profile-driven coefficients.
@@ -233,6 +235,15 @@ Never allow event frames to become the system of record.
 	- preemption policy
 	- fairness window
 	- starvation threshold
+
+## Current Runtime Additions (Phase 4E Bootstrap)
+- Scheduler policy adaptation is now supported when `adaptive_mode` is enabled.
+- Adaptive policy events are replay-visible:
+	- `agent.scheduler_policy_changed`
+	- `agent.scheduler_policy_escalated`
+	- `agent.scheduler_policy_relaxed`
+	- `agent.scheduler_policy_recommended`
+- Arbitration can now promote policy changes under starvation pressure and emit the resulting policy transition for replay and audit.
 
 ## Priority Workstreams
 

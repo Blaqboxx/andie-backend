@@ -1333,3 +1333,64 @@ def test_scheduler_policy_never_preempts_active_workflows() -> None:
     assert "agent.supervisor_preempted" not in emitted_types
     assert "agent.supervisor_reallocated" not in emitted_types
     assert "agent.supervisor_transferred" not in emitted_types
+
+
+def test_scheduler_policy_adapts_under_starvation_pressure() -> None:
+    workspace_id = "ws-scheduler-policy-3"
+    AGENT_TASKS_BY_WORKSPACE.pop(workspace_id, None)
+    AGENT_WORKFLOWS_BY_WORKSPACE.pop(workspace_id, None)
+
+    client = TestClient(app)
+    execution_id = "exec-scheduler-policy-3"
+
+    applied = client.post(
+        "/api/agents/scheduler/policy",
+        json={
+            "scheduler_profile": "balanced",
+            "adaptive_mode": True,
+            "fairness_window": 2,
+            "starvation_threshold": 2,
+            "workspace_id": workspace_id,
+            "execution_id": execution_id,
+            "reason": "enable adaptive scheduler for contention test",
+        },
+    )
+    assert applied.status_code == 200
+
+    for workflow_id in ("wf-adapt-a", "wf-adapt-b", "wf-adapt-c"):
+        response = client.post(
+            "/api/agents/arbitrate",
+            json={
+                "task_id": workflow_id,
+                "operator_forced_role": "execution",
+                "workspace_id": workspace_id,
+                "execution_id": execution_id,
+            },
+        )
+        assert response.status_code == 200
+
+    runs = []
+    for _ in range(3):
+        arbitration = client.post(
+            "/api/agents/supervisor/arbitrate",
+            json={
+                "workspace_id": workspace_id,
+                "available_slots": 1,
+                "execution_id": execution_id,
+                "reason": "adaptive policy sweep",
+            },
+        )
+        assert arbitration.status_code == 200
+        runs.append(arbitration.json())
+
+    emitted_types = [event["event_type"] for run in runs for event in run["emitted_events"]]
+    assert "agent.scheduler_policy_recommended" in emitted_types
+    assert "agent.scheduler_policy_changed" in emitted_types
+    assert "agent.scheduler_policy_escalated" in emitted_types
+
+    policy = client.get(
+        "/api/agents/scheduler/policy",
+        params={"workspace_id": workspace_id},
+    )
+    assert policy.status_code == 200
+    assert policy.json()["policy"]["scheduler_profile"] in {"fair", "mission_critical"}
