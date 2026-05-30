@@ -59,6 +59,7 @@ class ExecutiveStore:
             'cycle_audits': {},
             'operational_metrics': {},
             'intent_outcomes': [],
+            'autonomy_sessions': {},
         }
 
     def _load(self) -> Dict[str, Any]:
@@ -324,6 +325,32 @@ class ExecutiveStore:
         if not isinstance(raw, list):
             return []
         return [dict(item) for item in raw if isinstance(item, dict)]
+
+    def upsert_autonomy_session(self, session: Dict[str, Any]) -> Dict[str, Any]:
+        session_id = str((session or {}).get('session_id', '')).strip()
+        if not session_id:
+            raise ValueError('session_id_required')
+        with self._lock:
+            sessions = dict(self._state.get('autonomy_sessions') or {})
+            sessions[session_id] = dict(session or {})
+            self._state['autonomy_sessions'] = sessions
+            self._save()
+            return dict(sessions[session_id])
+
+    def get_autonomy_session(self, session_id: str) -> Optional[Dict[str, Any]]:
+        sessions = self._state.get('autonomy_sessions')
+        if not isinstance(sessions, dict):
+            return None
+        raw = sessions.get(session_id)
+        return dict(raw) if isinstance(raw, dict) else None
+
+    def list_autonomy_sessions(self) -> List[Dict[str, Any]]:
+        sessions = self._state.get('autonomy_sessions')
+        if not isinstance(sessions, dict):
+            return []
+        items = [dict(item) for item in sessions.values() if isinstance(item, dict)]
+        items.sort(key=lambda item: str(item.get('started_at', '')))
+        return items
 
     def get_operational_metrics(self) -> Dict[str, Any]:
         raw = self._state.get('operational_metrics')

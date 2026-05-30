@@ -336,6 +336,43 @@ class ExecutiveAgendaApiTests(unittest.TestCase):
         self.assertEqual(until_halt_payload['result']['reason'], 'policy_violation_rate')
         self.assertEqual(until_halt_payload['result']['executed_cycles'], 0)
 
+    def test_scheduler_sessions_expose_single_run_source_of_truth(self) -> None:
+        scheduler = BoundedScheduler(self.controller, interval_seconds=3)
+        app.state.bounded_scheduler = scheduler
+
+        started = self.client.post('/scheduler/run-cycles', json={'cycles': 2})
+        self.assertEqual(started.status_code, 200)
+        started_payload = started.json()
+        session_id = started_payload['result']['session_id']
+        self.assertTrue(isinstance(session_id, str) and session_id.startswith('session_'))
+
+        sessions = self.client.get('/scheduler/sessions?limit=10')
+        self.assertEqual(sessions.status_code, 200)
+        sessions_payload = sessions.json()
+        self.assertEqual(sessions_payload['status'], 'ok')
+        self.assertGreaterEqual(sessions_payload['count'], 1)
+        self.assertEqual(sessions_payload['items'][0]['session_id'], session_id)
+
+        detail = self.client.get(f'/scheduler/sessions/{session_id}')
+        self.assertEqual(detail.status_code, 200)
+        detail_payload = detail.json()['session']
+        self.assertEqual(detail_payload['session_id'], session_id)
+        self.assertIn(detail_payload['state'], {'completed', 'halted', 'aborted'})
+        self.assertEqual(detail_payload['cycles_executed'], 2)
+        self.assertIn('summary', detail_payload)
+        self.assertIn('intents_created', detail_payload)
+        self.assertIn('policy_violations', detail_payload)
+
+        replay = self.client.get(f'/scheduler/sessions/{session_id}/replay')
+        self.assertEqual(replay.status_code, 200)
+        replay_payload = replay.json()['replay']
+        self.assertTrue(replay_payload['found'])
+        self.assertEqual(replay_payload['session_id'], session_id)
+        self.assertGreaterEqual(replay_payload['count'], 2)
+
+        missing = self.client.get('/scheduler/sessions/session_missing/replay')
+        self.assertEqual(missing.status_code, 404)
+
 
 if __name__ == '__main__':
     unittest.main()

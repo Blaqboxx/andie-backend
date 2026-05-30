@@ -3226,6 +3226,42 @@ async def scheduler_run_until_halt(request: Request):
     }
 
 
+@router.get('/scheduler/sessions')
+async def scheduler_sessions(request: Request, limit: int = 50):
+    scheduler = _get_bounded_scheduler(request)
+    normalized_limit = max(1, min(int(limit), 500))
+    sessions = scheduler.list_sessions(limit=normalized_limit)
+    return {
+        'status': 'ok',
+        'count': len(sessions),
+        'items': sessions,
+    }
+
+
+@router.get('/scheduler/sessions/{session_id}')
+async def scheduler_session_by_id(session_id: str, request: Request):
+    scheduler = _get_bounded_scheduler(request)
+    session = scheduler.get_session(session_id)
+    if not isinstance(session, dict):
+        raise HTTPException(status_code=404, detail='scheduler session not found')
+    return {
+        'status': 'ok',
+        'session': session,
+    }
+
+
+@router.get('/scheduler/sessions/{session_id}/replay')
+async def scheduler_session_replay(session_id: str, request: Request):
+    scheduler = _get_bounded_scheduler(request)
+    replay = scheduler.replay_session(session_id)
+    if not bool(replay.get('found')):
+        raise HTTPException(status_code=404, detail='scheduler session not found')
+    return {
+        'status': 'ok',
+        'replay': replay,
+    }
+
+
 
 # ---- Legacy Compatibility Endpoints ----
 _AGENT_ALIASES = {"cryptonia_historical_agent": "coinmarketcap_agent"}
