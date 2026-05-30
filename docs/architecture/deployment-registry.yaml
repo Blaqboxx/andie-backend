@@ -46,6 +46,7 @@ registry:
     role: valhalla_core
     confidence: medium
     verification_status: needs_node_level_confirmation
+    inventory_file: ../inventory/blaqtower2.md
     services:
       - executive_controller
       - scheduler
@@ -57,6 +58,7 @@ registry:
     role: institutions
     confidence: low
     verification_status: needs_node_level_confirmation
+    inventory_file: ../inventory/nuc1.md
     services:
       - sentinel
       - academy
@@ -67,6 +69,7 @@ registry:
     role: inference
     confidence: low
     verification_status: needs_node_level_confirmation
+    inventory_file: ../inventory/gpu-pc.md
     services:
       - llm_server
       - embedding_server

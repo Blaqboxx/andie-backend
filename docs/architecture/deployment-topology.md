@@ -57,4 +57,6 @@ A placement should not be promoted from "best-known" to "verified" unless it is 
 
 ## Next Step
 
-Create a node-level inventory for each host so the registry can be promoted from logical topology to verified deployment topology.
+See [docs/inventory/README.md](../inventory/README.md) for node-level verification records.
+
+The inventory records are the promotion path from logical topology to verified deployment topology.
