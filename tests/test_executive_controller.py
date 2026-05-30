@@ -146,6 +146,47 @@ class ExecutiveControllerTests(unittest.TestCase):
         self.assertGreaterEqual(latest.proposals_generated, 1)
         self.assertTrue(latest.rollback_triggered)
 
+    def test_g14_operational_slo_snapshot_tracks_latency_and_stale_intents(self) -> None:
+        self.controller.run_agenda_loop(
+            [
+                {
+                    'signal_id': 'sentinel:alert:slo',
+                    'institution_id': 'sentinel',
+                    'type': 'security_alert',
+                }
+            ],
+            defer_threshold=45,
+        )
+        self.controller.simulate_agenda_loop(
+            [
+                {
+                    'signal_id': 'workshop:proposal:slo',
+                    'institution_id': 'workshop',
+                    'type': 'tool_proposal',
+                }
+            ],
+            defer_threshold=45,
+        )
+
+        # Age an open intent past stale-intent threshold cycles.
+        for _ in range(11):
+            self.controller.run_agenda_loop([], defer_threshold=45)
+
+        snapshot = self.controller.get_operational_slo_snapshot()
+        self.assertEqual(snapshot['status'], 'ok')
+
+        executive = snapshot['metrics']['executive']
+        self.assertGreaterEqual(executive['decision_latency']['p95_ms'], 0)
+        self.assertGreaterEqual(executive['simulation_latency']['p95_ms'], 0)
+        self.assertGreaterEqual(executive['agenda_rebuild_time']['p95_seconds'], 0)
+
+        intent = snapshot['metrics']['intent']
+        self.assertGreaterEqual(intent['intent_creation_success']['success_rate_percent'], 99.9)
+        self.assertGreaterEqual(intent['stale_intents']['count'], 1)
+
+        governance = snapshot['metrics']['governance']
+        self.assertEqual(governance['simulation_state_mutations']['value'], 0)
+
 
 if __name__ == '__main__':
     unittest.main()

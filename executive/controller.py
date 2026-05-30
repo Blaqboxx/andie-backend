@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
 import os
 
 from .agenda_policy import load_agenda_policy, normalize_agenda_policy
+from .operational_slo import load_operational_slos
 from .dispatcher import DispatchEngine
 from .identity import FileBackedIdentityProvider, IdentityProvider
 from .models import (
@@ -79,6 +81,12 @@ class ExecutiveController:
         self.world = WorldModelEngine(self.store)
         self._agenda_policy_path = os.environ.get('ANDIE_AGENDA_POLICY_PATH', 'storage/executive/agenda_policy.json')
         self._agenda_policy = load_agenda_policy(self._agenda_policy_path)
+        self._operational_slo_path = os.environ.get(
+            'ANDIE_EXECUTIVE_SLO_PATH',
+            'storage/executive/operational_slos.json',
+        )
+        self._operational_slos = load_operational_slos(self._operational_slo_path)
+        self._operational_metric_window = max(20, int(os.environ.get('ANDIE_EXECUTIVE_METRIC_WINDOW', '200')))
         if self.store.get_config() is None:
             self.store.set_config(self.config)
         self.world.bootstrap_valhalla()
@@ -195,9 +203,15 @@ class ExecutiveController:
         if institution is None:
             raise ValueError(f'unknown institution: {institution_id}')
 
-        profile = self._get_institution_profile(institution_id)
-        self._validate_proposal_type(profile, proposal_type)
-        self._enforce_resource_limits(profile, proposal_type, payload)
+        metrics = self._load_operational_metrics()
+        try:
+            profile = self._get_institution_profile(institution_id)
+            self._validate_proposal_type(profile, proposal_type)
+            self._enforce_resource_limits(profile, proposal_type, payload)
+        except PermissionError:
+            self._record_policy_violation(metrics)
+            self._save_operational_metrics(metrics)
+            raise
 
         proposal = InstitutionProposal(
             proposal_id=f'proposal_{uuid4().hex}',
@@ -221,11 +235,15 @@ class ExecutiveController:
         if proposal.status != ProposalStatus.PENDING:
             raise ValueError('proposal_not_pending')
 
+        metrics = self._load_operational_metrics()
         allowed, reason = self.identity.check_action(
             action=f'proposal_review:{proposal.proposal_type}',
             context={'proposal_id': proposal.proposal_id, 'institution_id': proposal.institution_id},
         )
         if not allowed:
+            self._record_identity_bypass_attempt(metrics)
+            self._record_policy_violation(metrics)
+            self._save_operational_metrics(metrics)
             raise PermissionError(reason)
 
         profile = self._get_institution_profile(proposal.institution_id)
@@ -250,8 +268,11 @@ class ExecutiveController:
         if proposal.status not in {ProposalStatus.PENDING, ProposalStatus.APPROVED}:
             raise ValueError('proposal_not_vetoable')
 
+        metrics = self._load_operational_metrics()
         profile = self._get_institution_profile(veto_institution_id)
         if not profile.can_veto:
+            self._record_policy_violation(metrics)
+            self._save_operational_metrics(metrics)
             raise PermissionError(f'veto_not_allowed:{veto_institution_id}')
 
         proposal.status = ProposalStatus.REJECTED
@@ -284,6 +305,7 @@ class ExecutiveController:
         if not mutation_type or not target_entity:
             raise ValueError('invalid_world_mutation_proposal_payload')
 
+        metrics = self._load_operational_metrics()
         allowed, reason = self.identity.check_action(
             action=f'world_mutation:{mutation_type}',
             context={
@@ -294,6 +316,9 @@ class ExecutiveController:
             },
         )
         if not allowed:
+            self._record_identity_bypass_attempt(metrics)
+            self._record_policy_violation(metrics)
+            self._save_operational_metrics(metrics)
             raise PermissionError(reason)
 
         mutation = self.world.record_mutation(
@@ -504,6 +529,203 @@ class ExecutiveController:
             merged.update(override)
         return normalize_agenda_policy(merged)
 
+    def _default_operational_metrics(self) -> Dict[str, Any]:
+        return {
+            'window_size': int(self._operational_metric_window),
+            'decision_latency_ms': [],
+            'agenda_rebuild_ms': [],
+            'simulation_latency_ms': [],
+            'decision_count': 0,
+            'simulation_runs': 0,
+            'policy_violations': 0,
+            'simulation_state_mutations': 0,
+            'identity_bypass_attempts': 0,
+            'intent_creation_attempts': 0,
+            'intent_creation_successes': 0,
+            'intent_completion_count': 0,
+            'intent_completion_hours': [],
+            'current_cycle': 0,
+            'stale_intents': {
+                'threshold_cycles': int(self._operational_slos['intent']['stale_intents']['threshold_cycles']),
+                'count': 0,
+                'intent_ids': [],
+            },
+            'updated_at': utc_now(),
+        }
+
+    def _load_operational_metrics(self) -> Dict[str, Any]:
+        metrics = self.store.get_operational_metrics()
+        baseline = self._default_operational_metrics()
+        if not isinstance(metrics, dict):
+            return baseline
+        baseline.update({key: metrics.get(key, baseline[key]) for key in baseline})
+        baseline['window_size'] = int(self._operational_metric_window)
+        stale = dict(baseline.get('stale_intents') or {})
+        stale['threshold_cycles'] = int(self._operational_slos['intent']['stale_intents']['threshold_cycles'])
+        stale['count'] = int(stale.get('count', 0))
+        stale['intent_ids'] = [str(item) for item in stale.get('intent_ids', [])]
+        baseline['stale_intents'] = stale
+        return baseline
+
+    def _save_operational_metrics(self, metrics: Dict[str, Any]) -> Dict[str, Any]:
+        payload = dict(metrics or {})
+        payload['updated_at'] = utc_now()
+        return self.store.set_operational_metrics(payload)
+
+    def _append_metric_value(self, metrics: Dict[str, Any], key: str, value: float) -> None:
+        window_size = int(self._operational_metric_window)
+        current = list(metrics.get(key) or [])
+        current.append(round(float(value), 3))
+        metrics[key] = current[-window_size:]
+
+    def _record_policy_violation(self, metrics: Dict[str, Any]) -> None:
+        metrics['policy_violations'] = int(metrics.get('policy_violations', 0)) + 1
+
+    def _record_identity_bypass_attempt(self, metrics: Dict[str, Any]) -> None:
+        metrics['identity_bypass_attempts'] = int(metrics.get('identity_bypass_attempts', 0)) + 1
+
+    def _advance_intent_health(self, metrics: Dict[str, Any]) -> None:
+        threshold = int(self._operational_slos['intent']['stale_intents']['threshold_cycles'])
+        current_cycle = int(metrics.get('current_cycle', 0))
+        stale_ids: List[str] = []
+
+        for intent in self.store.list_intents():
+            if intent.status in {IntentStatus.COMPLETED, IntentStatus.FAILED, IntentStatus.CANCELLED}:
+                continue
+            intent_meta = dict(intent.metadata or {})
+            created_cycle = int(intent_meta.get('created_cycle', 0))
+            age_cycles = max(0, current_cycle - created_cycle)
+            if age_cycles >= threshold:
+                stale_ids.append(intent.intent_id)
+
+        metrics['stale_intents'] = {
+            'threshold_cycles': threshold,
+            'count': len(stale_ids),
+            'intent_ids': stale_ids,
+        }
+
+    def _p95(self, values: List[float]) -> float:
+        if not values:
+            return 0.0
+        ordered = sorted(float(item) for item in values)
+        index = max(0, min(len(ordered) - 1, int(round(0.95 * (len(ordered) - 1)))))
+        return round(float(ordered[index]), 3)
+
+    def get_operational_slos(self) -> Dict[str, Any]:
+        return dict(self._operational_slos)
+
+    def get_operational_slo_snapshot(self) -> Dict[str, Any]:
+        metrics = self._load_operational_metrics()
+        targets = self.get_operational_slos()
+
+        decision_p95_ms = self._p95([float(item) for item in metrics.get('decision_latency_ms', [])])
+        simulation_p95_ms = self._p95([float(item) for item in metrics.get('simulation_latency_ms', [])])
+        rebuild_p95_ms = self._p95([float(item) for item in metrics.get('agenda_rebuild_ms', [])])
+        completion_p95_hours = self._p95([float(item) for item in metrics.get('intent_completion_hours', [])])
+
+        creation_attempts = int(metrics.get('intent_creation_attempts', 0))
+        creation_successes = int(metrics.get('intent_creation_successes', 0))
+        creation_success_rate = (
+            round((float(creation_successes) / float(creation_attempts)) * 100.0, 3)
+            if creation_attempts > 0
+            else 100.0
+        )
+
+        decision_count = max(1, int(metrics.get('decision_count', 0)))
+        policy_violation_rate = round(float(metrics.get('policy_violations', 0)) / float(decision_count), 6)
+
+        executive_metrics = {
+            'decision_latency': {
+                'p95_ms': decision_p95_ms,
+                'target_p95_ms': int(targets['executive']['decision_latency']['target_p95_ms']),
+                'compliant': decision_p95_ms <= float(targets['executive']['decision_latency']['target_p95_ms']),
+            },
+            'agenda_rebuild_time': {
+                'p95_seconds': round(rebuild_p95_ms / 1000.0, 3),
+                'target_seconds': int(targets['executive']['agenda_rebuild_time']['target_seconds']),
+                'compliant': (rebuild_p95_ms / 1000.0)
+                <= float(targets['executive']['agenda_rebuild_time']['target_seconds']),
+            },
+            'simulation_latency': {
+                'p95_ms': simulation_p95_ms,
+                'target_p95_ms': int(targets['executive']['simulation_latency']['target_p95_ms']),
+                'compliant': simulation_p95_ms <= float(targets['executive']['simulation_latency']['target_p95_ms']),
+            },
+        }
+
+        stale = dict(metrics.get('stale_intents') or {})
+        intent_metrics = {
+            'intent_creation_success': {
+                'success_rate_percent': creation_success_rate,
+                'target_percent': float(targets['intent']['intent_creation_success']['target_percent']),
+                'attempts': creation_attempts,
+                'successes': creation_successes,
+                'compliant': creation_success_rate >= float(targets['intent']['intent_creation_success']['target_percent']),
+            },
+            'intent_completion_time': {
+                'p95_hours': completion_p95_hours,
+                'target_hours': float(targets['intent']['intent_completion_time']['target_hours']),
+                'completed_count': int(metrics.get('intent_completion_count', 0)),
+                'compliant': completion_p95_hours <= float(targets['intent']['intent_completion_time']['target_hours']),
+            },
+            'stale_intents': {
+                'threshold_cycles': int(targets['intent']['stale_intents']['threshold_cycles']),
+                'count': int(stale.get('count', 0)),
+                'intent_ids': [str(item) for item in stale.get('intent_ids', [])],
+                'compliant': int(stale.get('count', 0)) == 0,
+            },
+        }
+
+        governance_metrics = {
+            'policy_violation_rate': {
+                'value': policy_violation_rate,
+                'target': float(targets['governance']['policy_violation_rate']['target']),
+                'violations': int(metrics.get('policy_violations', 0)),
+                'decisions': int(metrics.get('decision_count', 0)),
+                'compliant': policy_violation_rate <= float(targets['governance']['policy_violation_rate']['target']),
+            },
+            'simulation_state_mutations': {
+                'value': int(metrics.get('simulation_state_mutations', 0)),
+                'target': int(targets['governance']['simulation_state_mutations']['target']),
+                'compliant': int(metrics.get('simulation_state_mutations', 0))
+                <= int(targets['governance']['simulation_state_mutations']['target']),
+            },
+            'identity_bypass_attempts': {
+                'value': int(metrics.get('identity_bypass_attempts', 0)),
+                'target': int(targets['governance']['identity_bypass_attempts']['target']),
+                'compliant': int(metrics.get('identity_bypass_attempts', 0))
+                <= int(targets['governance']['identity_bypass_attempts']['target']),
+            },
+        }
+
+        all_checks = [
+            executive_metrics['decision_latency']['compliant'],
+            executive_metrics['agenda_rebuild_time']['compliant'],
+            executive_metrics['simulation_latency']['compliant'],
+            intent_metrics['intent_creation_success']['compliant'],
+            intent_metrics['intent_completion_time']['compliant'],
+            intent_metrics['stale_intents']['compliant'],
+            governance_metrics['policy_violation_rate']['compliant'],
+            governance_metrics['simulation_state_mutations']['compliant'],
+            governance_metrics['identity_bypass_attempts']['compliant'],
+        ]
+
+        return {
+            'status': 'ok',
+            'targets': targets,
+            'metrics': {
+                'executive': executive_metrics,
+                'intent': intent_metrics,
+                'governance': governance_metrics,
+            },
+            'summary': {
+                'overall_compliant': all(all_checks),
+                'window_size': int(metrics.get('window_size', self._operational_metric_window)),
+                'current_cycle': int(metrics.get('current_cycle', 0)),
+                'updated_at': str(metrics.get('updated_at', utc_now())),
+            },
+        }
+
     def _rank_signals(
         self,
         observed_signals: List[Dict[str, Any]],
@@ -557,6 +779,7 @@ class ExecutiveController:
         defer_threshold: int = 45,
         policy_override: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
+        started = time.perf_counter()
         observed_signals = [dict(item) for item in (signals or [])]
         previous_agenda = self.store.get_executive_agenda()
         previous_state = dict((previous_agenda.agenda_item_state if previous_agenda else {}) or {})
@@ -605,7 +828,7 @@ class ExecutiveController:
             if int(item.get('escalation_boost', 0)) > 0
         ]
 
-        return {
+        result = {
             'predicted_priority_order': [item['signal_id'] for item in ranked],
             'expected_escalations': expected_escalations,
             'budget_effects': budget_effects,
@@ -614,6 +837,15 @@ class ExecutiveController:
             'policy': policy,
             'state_mutated': False,
         }
+
+        metrics = self._load_operational_metrics()
+        metrics['simulation_runs'] = int(metrics.get('simulation_runs', 0)) + 1
+        self._append_metric_value(metrics, 'simulation_latency_ms', (time.perf_counter() - started) * 1000.0)
+        if bool(result.get('state_mutated')):
+            metrics['simulation_state_mutations'] = int(metrics.get('simulation_state_mutations', 0)) + 1
+            self._record_policy_violation(metrics)
+        self._save_operational_metrics(metrics)
+        return result
 
     def _intent_for_signal(self, signal: Dict[str, Any]) -> str:
         institution_id = str(signal.get('institution_id', '')).strip().lower()
@@ -633,7 +865,14 @@ class ExecutiveController:
             return institution_id
         return 'mission_control'
 
-    def _create_intent_record(self, signal: Dict[str, Any], intent_type: str, priority_score: int) -> Intent:
+    def _create_intent_record(
+        self,
+        signal: Dict[str, Any],
+        intent_type: str,
+        priority_score: int,
+        *,
+        created_cycle: int,
+    ) -> Intent:
         intent = Intent(
             intent_id=f'intent_{uuid4().hex}',
             source_priority=str(signal.get('signal_id') or ''),
@@ -644,6 +883,7 @@ class ExecutiveController:
             metadata={
                 'priority': int(priority_score),
                 'signal_type': str(signal.get('type') or ''),
+                'created_cycle': int(created_cycle),
             },
         )
         return self.store.upsert_intent(intent)
@@ -652,13 +892,31 @@ class ExecutiveController:
         intent = self.store.get_intent(intent_id)
         if intent is None:
             raise ValueError(f'unknown intent: {intent_id}')
+        prior_status = intent.status
         intent.status = IntentStatus(str(status))
         if completion_state is not None:
             intent.completion_state = str(completion_state)
         intent.updated_at = utc_now()
-        return self.store.upsert_intent(intent)
+        updated = self.store.upsert_intent(intent)
+
+        if prior_status != IntentStatus.COMPLETED and updated.status == IntentStatus.COMPLETED:
+            metrics = self._load_operational_metrics()
+            metrics['intent_completion_count'] = int(metrics.get('intent_completion_count', 0)) + 1
+            try:
+                created_at = datetime.fromisoformat(str(updated.created_at).replace('Z', '+00:00'))
+                completed_at = datetime.fromisoformat(str(updated.updated_at).replace('Z', '+00:00'))
+                elapsed_hours = max(0.0, (completed_at - created_at).total_seconds() / 3600.0)
+                self._append_metric_value(metrics, 'intent_completion_hours', elapsed_hours)
+            except Exception:
+                pass
+            self._save_operational_metrics(metrics)
+
+        return updated
 
     def run_agenda_loop(self, signals: Optional[List[Dict[str, Any]]] = None, *, defer_threshold: int = 45) -> Dict[str, Any]:
+        started = time.perf_counter()
+        metrics = self._load_operational_metrics()
+        metrics['current_cycle'] = int(metrics.get('current_cycle', 0)) + 1
         observed_signals = [dict(item) for item in (signals or [])]
         previous_agenda = self.store.get_executive_agenda()
         previous_state = dict((previous_agenda.agenda_item_state if previous_agenda else {}) or {})
@@ -675,7 +933,14 @@ class ExecutiveController:
             if int(item.get('score', 0)) < defer_threshold:
                 continue
             intent_type = self._intent_for_signal(item)
-            intent = self._create_intent_record(item, intent_type, int(item['score']))
+            metrics['intent_creation_attempts'] = int(metrics.get('intent_creation_attempts', 0)) + 1
+            intent = self._create_intent_record(
+                item,
+                intent_type,
+                int(item['score']),
+                created_cycle=int(metrics['current_cycle']),
+            )
+            metrics['intent_creation_successes'] = int(metrics.get('intent_creation_successes', 0)) + 1
             intents.append(
                 {
                     'intent_id': intent.intent_id,
@@ -705,8 +970,12 @@ class ExecutiveController:
         )
         if not identity_allowed:
             rationale = f'{rationale}; identity caution: {identity_result}'
+            self._record_identity_bypass_attempt(metrics)
+            self._record_policy_violation(metrics)
 
+        rebuild_started = time.perf_counter()
         agenda = self._refresh_executive_agenda()
+        self._append_metric_value(metrics, 'agenda_rebuild_ms', (time.perf_counter() - rebuild_started) * 1000.0)
 
         total_ready_score = sum(int(item['score']) for item in ranked if item['status'] == 'ready')
         attention_budget: Dict[str, float] = {}
@@ -795,6 +1064,10 @@ class ExecutiveController:
             emitted_intents=[item['intent_type'] for item in intents],
         )
         self.store.append_agenda_decision(decision)
+        metrics['decision_count'] = int(metrics.get('decision_count', 0)) + 1
+        self._append_metric_value(metrics, 'decision_latency_ms', (time.perf_counter() - started) * 1000.0)
+        self._advance_intent_health(metrics)
+        self._save_operational_metrics(metrics)
 
         return {
             'agenda': agenda.to_dict(),

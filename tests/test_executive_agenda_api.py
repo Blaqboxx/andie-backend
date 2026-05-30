@@ -200,6 +200,35 @@ class ExecutiveAgendaApiTests(unittest.TestCase):
         missing = self.client.get('/executive/intents/intent_missing')
         self.assertEqual(missing.status_code, 404)
 
+    def test_get_executive_slo_returns_operational_readiness_snapshot(self) -> None:
+        self.controller.run_agenda_loop(
+            [
+                {'signal_id': 'sentinel:alert:slo-api', 'institution_id': 'sentinel', 'type': 'security_alert'},
+                {'signal_id': 'academy:research:slo-api', 'institution_id': 'academy', 'type': 'research_result'},
+            ],
+            defer_threshold=45,
+        )
+        self.controller.simulate_agenda_loop(
+            [
+                {'signal_id': 'workshop:proposal:slo-api', 'institution_id': 'workshop', 'type': 'tool_proposal'},
+            ],
+            defer_threshold=45,
+        )
+
+        response = self.client.get('/executive/slo')
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+
+        self.assertEqual(payload['status'], 'ok')
+        self.assertIn('targets', payload)
+        self.assertIn('metrics', payload)
+        self.assertIn('summary', payload)
+        self.assertIn('executive', payload['metrics'])
+        self.assertIn('intent', payload['metrics'])
+        self.assertIn('governance', payload['metrics'])
+        self.assertGreaterEqual(payload['metrics']['executive']['decision_latency']['p95_ms'], 0)
+        self.assertEqual(payload['metrics']['governance']['simulation_state_mutations']['value'], 0)
+
 
 if __name__ == '__main__':
     unittest.main()

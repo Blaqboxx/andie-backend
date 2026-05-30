@@ -31,6 +31,7 @@ The executive stack now supports:
 - G1.1: Policy governance + explainability.
 - G1.2: Simulation and prediction (read-only, no state mutation).
 - G1.3: Intent lifecycle (create, assign, track, complete).
+- G1.4: Operational readiness (SLO telemetry for decision, intent, governance).
 
 ### 🔒 Freeze and Protection Guidance
 

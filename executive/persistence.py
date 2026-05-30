@@ -57,6 +57,7 @@ class ExecutiveStore:
             'callbacks': {},
             'cycle_log': [],
             'cycle_audits': {},
+            'operational_metrics': {},
         }
 
     def _load(self) -> Dict[str, Any]:
@@ -308,3 +309,15 @@ class ExecutiveStore:
 
     def list_cycle_audits(self) -> List[CycleAudit]:
         return [CycleAudit.from_dict(item) for item in self._state['cycle_audits'].values()]
+
+    def get_operational_metrics(self) -> Dict[str, Any]:
+        raw = self._state.get('operational_metrics')
+        if not isinstance(raw, dict):
+            return {}
+        return dict(raw)
+
+    def set_operational_metrics(self, metrics: Dict[str, Any]) -> Dict[str, Any]:
+        with self._lock:
+            self._state['operational_metrics'] = dict(metrics or {})
+            self._save()
+            return dict(self._state['operational_metrics'])

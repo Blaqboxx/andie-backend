@@ -3107,6 +3107,12 @@ async def executive_intent_status_update(intent_id: str, request: Request):
     return {'status': 'ok', 'intent': updated.to_dict()}
 
 
+@router.get('/executive/slo')
+async def executive_operational_slo(request: Request):
+    controller = _get_executive_controller(request)
+    return controller.get_operational_slo_snapshot()
+
+
 
 # ---- Legacy Compatibility Endpoints ----
 _AGENT_ALIASES = {"cryptonia_historical_agent": "coinmarketcap_agent"}

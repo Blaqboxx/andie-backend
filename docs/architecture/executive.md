@@ -23,6 +23,26 @@ Current executive maturity is tracked as:
 - G1.1 Policy and Explainability: complete.
 - G1.2 Simulation and Prediction: complete.
 - G1.3 Intent Lifecycle: complete.
+- G1.4 Operational Readiness: complete (initial SLO instrumentation).
+
+## G1.4 Operational Readiness
+
+Operational SLOs are now first-class executive capabilities exposed through `GET /executive/slo`.
+
+- Executive SLOs
+	- decision latency p95 target.
+	- agenda rebuild time p95 target.
+	- simulation latency p95 target.
+- Intent SLOs
+	- intent creation success target.
+	- intent completion time target.
+	- stale intent threshold by cycle age.
+- Governance SLOs
+	- policy violation rate target.
+	- simulation state mutation target.
+	- identity bypass attempt target.
+
+This keeps G2 ordering disciplined: autonomy must be gated by measurable operational quality and governance integrity.
 
 ## A2A Placement
 
