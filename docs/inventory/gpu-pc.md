@@ -1,8 +1,13 @@
-# GPU PC Node Inventory
+# Blaqtower3 Node Inventory
 
 ## Verification Status
 
 Unverified. This record captures the intended role and the fields that should be confirmed from the node itself.
+
+## Host Identity
+
+- Hostname: Blaqtower3
+- Alias: GPU PC
 
 ## Verification
 

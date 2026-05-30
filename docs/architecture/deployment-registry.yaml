@@ -26,6 +26,9 @@ operational_topology:
       - mission_control
       - a2a_router
   nuc1:
+    hostname: Blaqtower1
+    aliases:
+      - NUC 1
     role: institutions
     responsibilities:
       - sentinel
@@ -74,6 +77,9 @@ registry:
       - monitoring
       - mcp_services
   gpu_pc:
+    hostname: Blaqtower3
+    aliases:
+      - GPU PC
     role: inference
     confidence: low
     verification_status: needs_node_level_confirmation
