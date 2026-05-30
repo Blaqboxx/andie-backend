@@ -90,6 +90,8 @@ G3.0 scope is a local A2A protocol only (no multi-node networking).
 
 Implemented as a local process protocol with no networking layer.
 
+Frozen local protocol contract is documented in `docs/architecture/g3-local-a2a-spec.md`.
+
 - Message model includes `message_id`, `session_id`, `sender`, `receiver`, `timestamp`, `message_type`, `request`, `response`, and `status`.
 - Message ledger supports append, get-by-id, and session-scoped listing.
 - Router supports send, respond, inbox, and session replay-style retrieval.

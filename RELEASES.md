@@ -1,5 +1,31 @@
 # ANDIE Release Milestones
 
+## 📜 v0.9-g3-local-a2a-spec
+
+**Release Date:** May 30, 2026
+**Status:** ✅ Contract Freeze (Local A2A Specification)
+**Git Tag:** `valhalla-g3-local-a2a-spec`
+
+### 🎯 Strategic Significance
+
+This milestone freezes the local A2A protocol contract before any inter-node transport code.
+
+### ✅ Contract Scope
+
+- Canonical message envelope (including correlation and session linkage).
+- Mandatory identity and governance checks on send path.
+- Timeout rules and deterministic failure classes.
+- Audit and replay requirements for both successful and failed exchanges.
+- Message state-machine constraints.
+
+### 📄 Specification
+
+See `docs/architecture/g3-local-a2a-spec.md`.
+
+### 🚀 What This Unblocks
+
+Disciplined implementation and validation of G3.0 contract behavior before G3.1 inter-node transport work.
+
 ## 🛰️ v0.8-infrastructure-verified
 
 **Release Date:** May 30, 2026
