@@ -44,6 +44,24 @@ Operational SLOs are now first-class executive capabilities exposed through `GET
 
 This keeps G2 ordering disciplined: autonomy must be gated by measurable operational quality and governance integrity.
 
+## G2 Alpha Constraints (Pre-Implementation Freeze)
+
+Before any continuous autonomy code is introduced, G2 Alpha is constrained to a bounded scheduler only.
+
+- Constraint 1: Scheduler cannot bypass ExecutiveAgenda.
+- Constraint 2: Scheduler cannot bypass governance or identity checks.
+- Constraint 3: Scheduler cannot directly mutate world state.
+
+Permitted G2 Alpha control flow:
+
+`Scheduler -> ExecutiveAgenda loop -> Intent -> Institution -> Proposal -> Governance gate -> World mutation`
+
+Mandatory halt conditions for bounded scheduling:
+
+- policy violation rate > 0.
+- budget breach.
+- stale intent threshold exceeded.
+
 ## A2A Placement
 
 Agent-to-Agent (A2A) collaboration is scheduled after G1 hardening and before broad distributed autonomy.
@@ -82,3 +100,4 @@ Not allowed without architecture RFC:
 - Bypass identity checks on decision or execution paths.
 - Bypass governance checks on decision or execution paths.
 - Mutate agenda or append decision/intent history from simulation surfaces.
+- Introduce scheduler pathways that bypass agenda, intent, proposal, or governance gates.

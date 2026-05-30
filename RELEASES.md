@@ -46,6 +46,20 @@ Treat this executive baseline as frozen for core architecture boundaries:
 
 G2 can now focus on governed loop orchestration frequency and safety envelopes, not missing executive concepts.
 
+### 🧭 G2 Entry Constraints (Frozen)
+
+G2 is intentionally constrained to a bounded scheduler as the first autonomy step.
+
+- Scheduler must invoke the existing executive agenda loop (no side-channel decision path).
+- Scheduler must not bypass identity and governance controls.
+- Scheduler must never mutate world state directly.
+
+Required halt conditions for scheduler operation:
+
+- Any policy violation rate above zero.
+- Any budget breach.
+- Stale intent threshold breach.
+
 ---
 
 ## 🧠 v0.3-runtime-hardening
