@@ -10,9 +10,11 @@ from .models import (
     Civilization,
     CycleAudit,
     DispatchEnvelope,
+    ExecutiveAgenda,
     ExecutiveConfig,
     Goal,
     Institution,
+    InstitutionProfile,
     InstitutionProposal,
     KnowledgeAsset,
     Mission,
@@ -36,6 +38,7 @@ class ExecutiveStore:
             'config': None,
             'civilizations': {},
             'institutions': {},
+            'institution_profiles': {},
             'resources': {},
             'knowledge_assets': {},
             'treaties': {},
@@ -74,6 +77,16 @@ class ExecutiveStore:
         raw = self._state.get('config')
         return ExecutiveConfig.from_dict(raw) if isinstance(raw, dict) else None
 
+    def set_executive_agenda(self, agenda: ExecutiveAgenda) -> ExecutiveAgenda:
+        with self._lock:
+            self._state['executive_agenda'] = agenda.to_dict()
+            self._save()
+            return agenda
+
+    def get_executive_agenda(self) -> Optional[ExecutiveAgenda]:
+        raw = self._state.get('executive_agenda')
+        return ExecutiveAgenda.from_dict(raw) if isinstance(raw, dict) else None
+
     def upsert_civilization(self, civilization: Civilization) -> Civilization:
         with self._lock:
             self._state['civilizations'][civilization.id] = civilization.to_dict()
@@ -98,6 +111,19 @@ class ExecutiveStore:
         if civilization_id is None:
             return institutions
         return [item for item in institutions if item.civilization_id == civilization_id]
+
+    def upsert_institution_profile(self, profile: InstitutionProfile) -> InstitutionProfile:
+        with self._lock:
+            self._state['institution_profiles'][profile.institution_id] = profile.to_dict()
+            self._save()
+            return profile
+
+    def get_institution_profile(self, institution_id: str) -> Optional[InstitutionProfile]:
+        raw = self._state['institution_profiles'].get(institution_id)
+        return InstitutionProfile.from_dict(raw) if isinstance(raw, dict) else None
+
+    def list_institution_profiles(self) -> List[InstitutionProfile]:
+        return [InstitutionProfile.from_dict(item) for item in self._state['institution_profiles'].values()]
 
     def upsert_resource(self, resource: Resource) -> Resource:
         with self._lock:

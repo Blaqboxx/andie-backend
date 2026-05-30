@@ -11,9 +11,11 @@ from .models import (
     AgentCallback,
     CycleAudit,
     DispatchEnvelope,
+    ExecutiveAgenda,
     ExecutiveConfig,
     Goal,
     GoalStatus,
+    InstitutionProfile,
     InstitutionProposal,
     Mission,
     MissionStatus,
@@ -73,6 +75,63 @@ class ExecutiveController:
         if self.store.get_config() is None:
             self.store.set_config(self.config)
         self.world.bootstrap_valhalla()
+        self._bootstrap_institution_profiles()
+
+    def _bootstrap_institution_profiles(self) -> None:
+        defaults = {
+            'workshop': InstitutionProfile(
+                institution_id='workshop',
+                authority_level=3,
+                proposal_types=['world_mutation'],
+                resource_limits={'max_quantity_delta': 500.0},
+                review_requirements=['mission_control_review'],
+                escalation_rules=['escalate_to_sentinel_on_violation'],
+            ),
+            'academy': InstitutionProfile(
+                institution_id='academy',
+                authority_level=2,
+                proposal_types=['research_note'],
+                resource_limits={'max_quantity_delta': 25.0},
+                review_requirements=['mission_control_review'],
+                escalation_rules=['escalate_to_mission_control'],
+            ),
+            'laboratory': InstitutionProfile(
+                institution_id='laboratory',
+                authority_level=2,
+                proposal_types=['world_mutation', 'experiment'],
+                resource_limits={'max_quantity_delta': 100.0},
+                review_requirements=['mission_control_review'],
+                escalation_rules=['escalate_to_sentinel_on_violation'],
+            ),
+            'mission_control': InstitutionProfile(
+                institution_id='mission_control',
+                authority_level=4,
+                proposal_types=['world_mutation', 'policy_update'],
+                resource_limits={'max_quantity_delta': 500.0},
+                review_requirements=['constitutional_check'],
+                escalation_rules=['escalate_to_sentinel_on_violation'],
+            ),
+            'memory_vault': InstitutionProfile(
+                institution_id='memory_vault',
+                authority_level=2,
+                proposal_types=['archive_update', 'knowledge_update'],
+                resource_limits={'max_quantity_delta': 50.0},
+                review_requirements=['mission_control_review'],
+                escalation_rules=['escalate_to_mission_control'],
+            ),
+            'sentinel': InstitutionProfile(
+                institution_id='sentinel',
+                authority_level=5,
+                proposal_types=['world_mutation', 'policy_update', 'safety_intervention'],
+                resource_limits={'max_quantity_delta': 1000.0},
+                review_requirements=['constitutional_check'],
+                escalation_rules=['final_authority'],
+                can_veto=True,
+            ),
+        }
+        for institution_id, profile in defaults.items():
+            if self.store.get_institution_profile(institution_id) is None:
+                self.store.upsert_institution_profile(profile)
 
     def identity_snapshot(self) -> Dict[str, Any]:
         return self.identity.snapshot()
@@ -81,6 +140,7 @@ class ExecutiveController:
         return {
             'civilizations': len(self.store.list_civilizations()),
             'institutions': len(self.store.list_institutions()),
+            'institution_profiles': len(self.store.list_institution_profiles()),
             'resources': len(self.store.list_resources()),
             'knowledge_assets': len(self.store.list_knowledge_assets()),
             'treaties': len(self.store.list_treaties()),
@@ -88,17 +148,63 @@ class ExecutiveController:
             'proposals': len(self.store.list_proposals()),
         }
 
+    def _get_institution_profile(self, institution_id: str) -> InstitutionProfile:
+        profile = self.store.get_institution_profile(institution_id)
+        if profile is None:
+            raise PermissionError(f'missing_institution_profile:{institution_id}')
+        return profile
+
+    def _validate_proposal_type(self, profile: InstitutionProfile, proposal_type: str) -> None:
+        allowed = set(profile.proposal_types)
+        if proposal_type not in allowed:
+            raise PermissionError(f'proposal_type_not_allowed:{profile.institution_id}:{proposal_type}')
+
+    def _enforce_resource_limits(self, profile: InstitutionProfile, proposal_type: str, payload: Dict[str, Any]) -> None:
+        if proposal_type != 'world_mutation':
+            return
+
+        mutation_type = str(payload.get('mutation_type', '')).strip()
+        target_entity = str(payload.get('target_entity', '')).strip()
+        mutation_payload = dict(payload.get('payload') or {})
+        if mutation_type != 'resource.update_quantity' or not target_entity:
+            return
+
+        resource = self.store.get_resource(target_entity)
+        if resource is None or 'quantity' not in mutation_payload:
+            return
+
+        requested_quantity = float(mutation_payload['quantity'])
+        current_quantity = float(resource.quantity)
+        delta = abs(requested_quantity - current_quantity)
+
+        max_delta = profile.resource_limits.get('max_quantity_delta')
+        if max_delta is not None and delta > float(max_delta):
+            raise PermissionError(
+                f'resource_limit_exceeded:{profile.institution_id}:max_quantity_delta:{float(max_delta)}'
+            )
+
     def submit_proposal(self, institution_id: str, proposal_type: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         institution = next((item for item in self.store.list_institutions() if item.id == institution_id), None)
         if institution is None:
             raise ValueError(f'unknown institution: {institution_id}')
+
+        profile = self._get_institution_profile(institution_id)
+        self._validate_proposal_type(profile, proposal_type)
+        self._enforce_resource_limits(profile, proposal_type, payload)
+
         proposal = InstitutionProposal(
             proposal_id=f'proposal_{uuid4().hex}',
             institution_id=institution_id,
             proposal_type=proposal_type,
             payload=dict(payload or {}),
+            outcome={
+                'profile_authority_level': profile.authority_level,
+                'review_requirements': list(profile.review_requirements),
+                'escalation_rules': list(profile.escalation_rules),
+            },
         )
         self.store.upsert_proposal(proposal)
+        self._refresh_executive_agenda()
         return proposal.to_dict()
 
     def review_proposal(self, proposal_id: str, approve: bool, rationale: str = '') -> Dict[str, Any]:
@@ -115,11 +221,44 @@ class ExecutiveController:
         if not allowed:
             raise PermissionError(reason)
 
+        profile = self._get_institution_profile(proposal.institution_id)
         proposal.status = ProposalStatus.APPROVED if approve else ProposalStatus.REJECTED
         proposal.rationale = rationale
         proposal.reviewed_at = utc_now()
-        proposal.outcome = {'identity_result': reason, 'approved': approve}
+        proposal.outcome = {
+            **proposal.outcome,
+            'identity_result': reason,
+            'approved': approve,
+            'review_requirements': list(profile.review_requirements),
+            'escalation_rules': list(profile.escalation_rules),
+        }
         self.store.upsert_proposal(proposal)
+        self._refresh_executive_agenda()
+        return proposal.to_dict()
+
+    def veto_proposal(self, proposal_id: str, rationale: str = '', veto_institution_id: str = 'sentinel') -> Dict[str, Any]:
+        proposal = self.store.get_proposal(proposal_id)
+        if proposal is None:
+            raise ValueError(f'unknown proposal: {proposal_id}')
+        if proposal.status not in {ProposalStatus.PENDING, ProposalStatus.APPROVED}:
+            raise ValueError('proposal_not_vetoable')
+
+        profile = self._get_institution_profile(veto_institution_id)
+        if not profile.can_veto:
+            raise PermissionError(f'veto_not_allowed:{veto_institution_id}')
+
+        proposal.status = ProposalStatus.REJECTED
+        proposal.rationale = rationale or f'vetoed_by_{veto_institution_id}'
+        proposal.reviewed_at = utc_now()
+        proposal.outcome = {
+            **proposal.outcome,
+            'vetoed': True,
+            'vetoed_by': veto_institution_id,
+            'veto_reason': proposal.rationale,
+            'escalation_rules': list(profile.escalation_rules),
+        }
+        self.store.upsert_proposal(proposal)
+        self._refresh_executive_agenda()
         return proposal.to_dict()
 
     def execute_proposal(self, proposal_id: str, actor: str = 'executive') -> Dict[str, Any]:
@@ -163,6 +302,7 @@ class ExecutiveController:
         proposal.executed_at = utc_now()
         proposal.outcome = {**proposal.outcome, 'mutation_id': mutation.mutation_id}
         self.store.upsert_proposal(proposal)
+        self._refresh_executive_agenda()
         return mutation.to_dict()
 
     def apply_world_mutation(
@@ -176,6 +316,63 @@ class ExecutiveController:
         payload: Dict[str, Any],
     ) -> Dict[str, Any]:
         raise PermissionError('direct_world_mutation_disabled_use_proposal_pipeline')
+
+
+    def _build_executive_agenda(self) -> ExecutiveAgenda:
+        goals = self.store.list_goals()
+        proposals = self.store.list_proposals()
+
+        active_goals = [
+            goal.goal_id
+            for goal in goals
+            if goal.status in {GoalStatus.DRAFT, GoalStatus.ACTIVE, GoalStatus.BLOCKED}
+        ]
+        pending_proposals = [
+            proposal.proposal_id
+            for proposal in proposals
+            if proposal.status == ProposalStatus.PENDING
+        ]
+        institution_requests = sorted(
+            {
+                proposal.institution_id
+                for proposal in proposals
+                if proposal.status == ProposalStatus.PENDING
+            }
+        )
+        strategic_priorities = [
+            goal.goal_id
+            for goal in sorted(
+                [item for item in goals if item.status in {GoalStatus.DRAFT, GoalStatus.ACTIVE}],
+                key=lambda item: (_priority_rank(item.priority), item.created_at),
+            )
+        ]
+
+        blocked_items = [
+            f'goal:{goal.goal_id}'
+            for goal in goals
+            if goal.status == GoalStatus.BLOCKED
+        ]
+        blocked_items.extend(
+            [
+                f'proposal:{proposal.proposal_id}'
+                for proposal in proposals
+                if proposal.status == ProposalStatus.REJECTED
+            ]
+        )
+
+        return ExecutiveAgenda(
+            active_goals=active_goals,
+            pending_proposals=pending_proposals,
+            institution_requests=institution_requests,
+            strategic_priorities=strategic_priorities,
+            blocked_items=blocked_items,
+            updated_at=utc_now(),
+        )
+
+    def _refresh_executive_agenda(self) -> ExecutiveAgenda:
+        agenda = self._build_executive_agenda()
+        self.store.set_executive_agenda(agenda)
+        return agenda
 
     def _sync_identity_dynamic(self) -> None:
         if not hasattr(self.identity, 'update_dynamic'):
@@ -357,6 +554,7 @@ class ExecutiveController:
     def run_cycle(self) -> Dict[str, Any]:
         started = time.monotonic()
         notes: List[str] = []
+        self._refresh_executive_agenda()
 
         goals = [goal for goal in self.store.list_goals() if goal.status in {GoalStatus.DRAFT, GoalStatus.ACTIVE}]
         observed = len(goals)
@@ -446,5 +644,6 @@ class ExecutiveController:
             )
         )
 
+        self._refresh_executive_agenda()
         self._sync_identity_dynamic()
         return outcome.to_dict()
