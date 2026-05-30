@@ -46,6 +46,15 @@ First G3 implementation remains local-only and governance-constrained:
 - Session and inbox query surfaces for audit and replay workflows.
 - No networking, clustering, or cross-node transport in this stage.
 
+### 🔁 G3.1 Coordinated Local Workflows (Initial)
+
+First collaboration workflow implemented on the local A2A protocol:
+
+- Academy sends a research request to Workshop.
+- Workshop returns a prototype result to Academy.
+- Both messages are session-linked, auditable, and governance-constrained.
+- Collaboration remains local-only with no remote transport.
+
 ## 🏛️ v0.6-g1-executive-framework
 
 **Release Date:** May 30, 2026  

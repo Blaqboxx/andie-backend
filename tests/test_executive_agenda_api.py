@@ -431,6 +431,35 @@ class ExecutiveAgendaApiTests(unittest.TestCase):
         )
         self.assertEqual(blocked.status_code, 403)
 
+    def test_a2a_research_prototype_workflow_supports_local_collaboration(self) -> None:
+        session_id = 'session_g31_workflow'
+        started = self.client.post(
+            '/a2a/workflows/research-prototype',
+            json={
+                'session_id': session_id,
+                'topic': 'battery optimization',
+            },
+        )
+        self.assertEqual(started.status_code, 200)
+        workflow_payload = started.json()['workflow']
+        self.assertTrue(workflow_payload['completed'])
+        self.assertEqual(workflow_payload['session_id'], session_id)
+        self.assertGreaterEqual(workflow_payload['message_count'], 2)
+
+        messages = self.client.get(f'/a2a/sessions/{session_id}/messages?limit=20')
+        self.assertEqual(messages.status_code, 200)
+        items = messages.json()['items']
+        self.assertGreaterEqual(len(items), 2)
+        self.assertEqual(items[0]['sender'], 'academy')
+        self.assertEqual(items[0]['receiver'], 'workshop')
+        self.assertEqual(items[1]['sender'], 'workshop')
+        self.assertEqual(items[1]['receiver'], 'academy')
+        for item in items[:2]:
+            self.assertEqual(item['session_id'], session_id)
+            self.assertIn('timestamp', item)
+            self.assertIn('request', item)
+            self.assertIn('response', item)
+
 
 if __name__ == '__main__':
     unittest.main()

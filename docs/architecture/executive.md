@@ -96,6 +96,14 @@ Implemented as a local process protocol with no networking layer.
 - Every send path enforces identity checks, governance restrictions, and audit write.
 - Mutation-oriented message types are blocked by governance policy in local protocol mode.
 
+## G3.1 Coordinated Local Workflows (Initial)
+
+Built on top of G3.0 protocol primitives to prove local collaboration before any networking.
+
+- Local workflow pattern now supports Academy -> Workshop research request and Workshop -> Academy prototype response.
+- Workflow execution remains session-linked and fully auditable through the A2A ledger.
+- Collaboration uses existing send/respond protocol paths and does not add direct world mutation authority.
+
 ## A2A Placement
 
 Agent-to-Agent (A2A) collaboration is scheduled after G1 hardening and before broad distributed autonomy.

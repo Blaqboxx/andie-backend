@@ -71,6 +71,25 @@ class LocalA2AProtocolTests(unittest.TestCase):
                 payload={'target': 'gpu_time'},
             )
 
+    def test_research_prototype_workflow_creates_coordinated_exchange(self) -> None:
+        session_id = 'session_workflow_local'
+        workflow = self.router.run_research_prototype_workflow(
+            session_id=session_id,
+            topic='routing strategy',
+        )
+        self.assertTrue(workflow['completed'])
+        self.assertEqual(workflow['session_id'], session_id)
+        self.assertGreaterEqual(workflow['message_count'], 2)
+
+        messages = self.router.list_session_messages(session_id, limit=20)
+        self.assertGreaterEqual(len(messages), 2)
+        self.assertEqual(messages[0]['sender'], 'academy')
+        self.assertEqual(messages[0]['receiver'], 'workshop')
+        self.assertEqual(messages[1]['sender'], 'workshop')
+        self.assertEqual(messages[1]['receiver'], 'academy')
+        self.assertEqual(messages[0]['status'], 'responded')
+        self.assertEqual(messages[1]['status'], 'responded')
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -3378,6 +3378,36 @@ async def a2a_inbox(receiver: str, request: Request, limit: int = 100, session_i
     }
 
 
+@router.post('/a2a/workflows/research-prototype')
+async def a2a_workflow_research_prototype(request: Request):
+    router_instance = _get_a2a_router(request)
+    payload = await request.json()
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail='payload must be an object')
+
+    session_id = payload.get('session_id')
+    topic = payload.get('topic')
+    if not isinstance(session_id, str) or not session_id.strip():
+        raise HTTPException(status_code=400, detail='session_id is required')
+    if not isinstance(topic, str) or not topic.strip():
+        raise HTTPException(status_code=400, detail='topic is required')
+
+    try:
+        workflow = router_instance.run_research_prototype_workflow(
+            session_id=session_id.strip(),
+            topic=topic.strip(),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+    return {
+        'status': 'ok',
+        'workflow': workflow,
+    }
+
+
 
 # ---- Legacy Compatibility Endpoints ----
 _AGENT_ALIASES = {"cryptonia_historical_agent": "coinmarketcap_agent"}

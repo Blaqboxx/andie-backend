@@ -97,3 +97,62 @@ class LocalA2ARouter:
             session_id=(str(session_id) if session_id is not None else None),
         )
         return [item.to_dict() for item in messages[-normalized_limit:]]
+
+    def run_research_prototype_workflow(self, *, session_id: str, topic: str) -> Dict[str, Any]:
+        normalized_session_id = str(session_id or '').strip()
+        normalized_topic = str(topic or '').strip()
+        if not normalized_session_id:
+            raise ValueError('session_id_required')
+        if not normalized_topic:
+            raise ValueError('topic_required')
+
+        # Step 1: Academy requests research/prototype support from Workshop.
+        request_message = self.send_message(
+            sender='academy',
+            receiver='workshop',
+            message_type='research_request',
+            payload={'topic': normalized_topic},
+            session_id=normalized_session_id,
+        )
+
+        request_response = self.respond_message(
+            request_message['message_id'],
+            {
+                'status': 'accepted',
+                'next_action': 'prototype_result',
+            },
+        )
+
+        # Step 2: Workshop sends a prototype result back to Academy.
+        result_message = self.send_message(
+            sender='workshop',
+            receiver='academy',
+            message_type='prototype_result',
+            payload={
+                'topic': normalized_topic,
+                'artifact': f'prototype_{normalized_topic.replace(" ", "_").lower()}',
+                'confidence': 'initial',
+            },
+            session_id=normalized_session_id,
+        )
+
+        result_response = self.respond_message(
+            result_message['message_id'],
+            {
+                'status': 'received',
+                'next_action': 'executive_review',
+            },
+        )
+
+        session_messages = self.list_session_messages(normalized_session_id, limit=100)
+        return {
+            'session_id': normalized_session_id,
+            'workflow_type': 'research_prototype',
+            'topic': normalized_topic,
+            'steps': [
+                {'message_id': request_message['message_id'], 'status': request_response['status']},
+                {'message_id': result_message['message_id'], 'status': result_response['status']},
+            ],
+            'message_count': len(session_messages),
+            'completed': True,
+        }
