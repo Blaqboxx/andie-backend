@@ -1,0 +1,111 @@
+verified_physical_topology:
+  hostname: Blaqtower2
+  os: Ubuntu 26.04 LTS
+  kernel: 7.0.0-15-generic
+  active_ssd: ~100GB
+  hdd_storage:
+    shared: 1.9TB
+    archive: 3.6TB
+
+operational_topology:
+  gpu_pc:
+    role: inference
+    responsibilities:
+      - llm_inference
+      - embeddings
+      - vision_models
+      - future_fine_tuning
+  nuc2:
+    role: valhalla_core
+    responsibilities:
+      - executive
+      - identity
+      - governance
+      - agenda
+      - scheduler
+      - mission_control
+      - a2a_router
+  nuc1:
+    role: institutions
+    responsibilities:
+      - sentinel
+      - workshop
+      - academy
+      - monitoring
+      - mcp_services
+  storage_layer:
+    role: persistence
+    responsibilities:
+      - runtime_state
+      - operational_data
+      - archives
+      - backups
+
+registry:
+  blaqtower2:
+    role: valhalla_core
+    confidence: medium
+    verification_status: needs_node_level_confirmation
+    services:
+      - executive_controller
+      - scheduler
+      - identity
+      - governance
+      - mission_control
+      - a2a_router
+  nuc1:
+    role: institutions
+    confidence: low
+    verification_status: needs_node_level_confirmation
+    services:
+      - sentinel
+      - academy
+      - workshop
+      - monitoring
+      - mcp_services
+  gpu_pc:
+    role: inference
+    confidence: low
+    verification_status: needs_node_level_confirmation
+    services:
+      - llm_server
+      - embedding_server
+      - vision_models
+  active_ssd:
+    role: runtime_state
+    confidence: high
+    verification_status: verified
+    services:
+      - executive
+      - identity
+      - agenda
+      - sessions
+      - a2a
+  shared_hdd:
+    role: operational_data
+    confidence: high
+    verification_status: verified
+    services:
+      - shared_data
+      - working_sets
+      - cross_service_artifacts
+  archive_hdd:
+    role: long_term_storage
+    confidence: high
+    verification_status: verified
+    services:
+      - archives
+      - backups
+      - history
+
+unknowns:
+  - qdrant_location
+  - redis_location
+  - mission_control_host
+  - sentinel_host
+  - llm_runtime_host
+
+verification_rules:
+  - do_not_promote_best_known_to_verified_without_node_confirmation
+  - treat_storage_as_persistence_not_compute
+  - treat_blaqtower2_as_authoritative_core_until_proven_otherwise

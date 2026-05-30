@@ -1,0 +1,60 @@
+# Valhalla Deployment Topology
+
+This document separates verified physical facts from the current operational model and the deployment inventory that still needs host-level confirmation.
+
+## Verified Physical Topology
+
+Confirmed from the current machine and local disk layout:
+
+- Hostname: `Blaqtower2`
+- OS: Ubuntu 26.04 LTS
+- Kernel: `7.0.0-15-generic`
+- Active SSD: approximately `100GB` class runtime drive
+- HDD storage: approximately `1.9TB` shared volume and `3.6TB` archive volume
+
+## Operational Topology
+
+This is the logical shape the software stack currently wants to follow:
+
+- GPU PC: inference and model-serving compute
+- NUC 2: Valhalla core runtime
+- NUC 1: support and institutional services
+- Storage layer: persistence, archives, and shared data
+
+## Deployment Registry
+
+The registry below records the current best-known placement model.
+
+| Node | Role | Services | Confidence | Verification Status |
+| --- | --- | --- | --- | --- |
+| `blaqtower2` | `valhalla_core` | `executive_controller`, `scheduler`, `identity`, `governance`, `mission_control`, `a2a_router` | Medium | Needs node-level confirmation |
+| `nuc1` | `institutions` | `sentinel`, `academy`, `workshop`, `monitoring`, `mcp_services` | Low | Needs node-level confirmation |
+| `gpu_pc` | `inference` | `llm_server`, `embedding_server`, `vision_models` | Low | Needs node-level confirmation |
+| `active_ssd` | `runtime_state` | `executive`, `identity`, `agenda`, `sessions`, `a2a` | High | Verified as local runtime storage class |
+| `shared_hdd` | `operational_data` | `shared data`, `working sets`, `cross-service artifacts` | High | Verified as mounted storage class |
+| `archive_hdd` | `long_term_storage` | `archives`, `backups`, `history` | High | Verified as mounted storage class |
+
+## Unknowns Requiring Node Verification
+
+These items should be confirmed from the nodes themselves before being treated as authoritative:
+
+- Whether Qdrant runs on `blaqtower2`, `nuc1`, or a separate node
+- Whether Redis runs locally on `blaqtower2` or on a support node
+- Whether Mission Control is an API surface inside `blaqtower2` or a separate service on `nuc1`
+- Whether Sentinel is deployed on `nuc1` or embedded in the core node
+- Which machine hosts the LLM runtime and any embedding/vision services
+
+## Ownership Model
+
+- `blaqtower2` should remain the authoritative Valhalla core unless deployment evidence says otherwise.
+- `nuc1` should remain the service and institution host.
+- `gpu_pc` should remain the inference host.
+- Storage should be treated as a persistence tier, not a compute tier.
+
+## Verification Rules
+
+A placement should not be promoted from "best-known" to "verified" unless it is confirmed from the node itself or from a deployment record on that node.
+
+## Next Step
+
+Create a node-level inventory for each host so the registry can be promoted from logical topology to verified deployment topology.
