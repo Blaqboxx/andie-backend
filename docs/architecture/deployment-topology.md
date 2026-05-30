@@ -25,13 +25,13 @@ This is the logical shape the software stack currently wants to follow:
 
 The registry below records the current best-known placement model.
 
-| Node | Role | Services | Confidence | Verification Status |
+| Node | Role | Service Ownership | Confidence | Verification Status |
 | --- | --- | --- | --- | --- |
 | `blaqtower2` | `valhalla_core` | `executive_controller`, `scheduler`, `identity`, `governance`, `mission_control`, `a2a_router` | Medium | Needs node-level confirmation |
-| `nuc1` | `institutions` | `sentinel`, `academy`, `workshop`, `monitoring`, `mcp_services` | Low | Needs node-level confirmation |
-| `gpu_pc` | `inference` | `llm_server`, `embedding_server`, `vision_models` | Low | Needs node-level confirmation |
+| `nuc1` / `Blaqtower1` | `institutions` | `sentinel`, `academy`, `workshop`, `monitoring`, `mcp_services` | Low | Needs node-level confirmation |
+| `gpu_pc` / `Blaqtower3` | `inference` | `llm_server`, `embedding_server`, `vision_models` | Low | Needs node-level confirmation |
 | `active_ssd` | `runtime_state` | `executive`, `identity`, `agenda`, `sessions`, `a2a` | High | Verified as local runtime storage class |
-| `shared_hdd` | `operational_data` | `shared data`, `working sets`, `cross-service artifacts` | High | Verified as mounted storage class |
+| `shared_hdd` | `operational_data` | `shared_data`, `working_sets`, `cross_service_artifacts` | High | Verified as mounted storage class |
 | `archive_hdd` | `long_term_storage` | `archives`, `backups`, `history` | High | Verified as mounted storage class |
 
 ## Unknowns Requiring Node Verification
@@ -49,6 +49,7 @@ These items should be confirmed from the nodes themselves before being treated a
 - `blaqtower2` should remain the authoritative Valhalla core unless deployment evidence says otherwise.
 - `nuc1` should remain the service and institution host.
 - `gpu_pc` should remain the inference host.
+- Service ownership should be listed explicitly so failure impact is visible without inferring it from role names.
 - Storage should be treated as a persistence tier, not a compute tier.
 
 ## Verification Rules

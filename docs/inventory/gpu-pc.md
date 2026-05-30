@@ -23,6 +23,12 @@ Unverified. This record captures the intended role and the fields that should be
 - Vision model host
 - Future fine-tuning host
 
+## Service Ownership
+
+- llm_server
+- embedding_server
+- vision_models
+
 ## Fields To Verify
 
 - Hostname

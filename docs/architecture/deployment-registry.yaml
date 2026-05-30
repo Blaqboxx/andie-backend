@@ -54,6 +54,13 @@ registry:
       verified_at: '2026-05-30'
       verified_by: operator
       confidence: verified
+    service_ownership:
+      - executive_controller
+      - scheduler
+      - identity
+      - governance
+      - mission_control
+      - a2a_router
     services:
       - executive_controller
       - scheduler
@@ -70,6 +77,12 @@ registry:
       verified_at: null
       verified_by: null
       confidence: assumed
+    service_ownership:
+      - sentinel
+      - academy
+      - workshop
+      - monitoring
+      - mcp_services
     services:
       - sentinel
       - academy
@@ -88,6 +101,10 @@ registry:
       verified_at: null
       verified_by: null
       confidence: assumed
+    service_ownership:
+      - llm_server
+      - embedding_server
+      - vision_models
     services:
       - llm_server
       - embedding_server
@@ -100,6 +117,12 @@ registry:
       verified_at: '2026-05-30'
       verified_by: operator
       confidence: verified
+    service_ownership:
+      - executive
+      - identity
+      - agenda
+      - sessions
+      - a2a
     services:
       - executive
       - identity
@@ -114,6 +137,10 @@ registry:
       verified_at: '2026-05-30'
       verified_by: operator
       confidence: verified
+    service_ownership:
+      - shared_data
+      - working_sets
+      - cross_service_artifacts
     services:
       - shared_data
       - working_sets
@@ -126,6 +153,10 @@ registry:
       verified_at: '2026-05-30'
       verified_by: operator
       confidence: verified
+    service_ownership:
+      - archives
+      - backups
+      - history
     services:
       - archives
       - backups

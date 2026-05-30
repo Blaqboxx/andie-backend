@@ -24,6 +24,14 @@ Unverified. This record captures the intended role and the fields that should be
 - Monitoring host
 - MCP services host
 
+## Service Ownership
+
+- sentinel
+- academy
+- workshop
+- monitoring
+- mcp_services
+
 ## Fields To Verify
 
 - Hostname

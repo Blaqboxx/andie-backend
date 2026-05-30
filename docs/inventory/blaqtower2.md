@@ -32,6 +32,15 @@ Verified from the local machine.
 - Mission Control API host
 - A2A router host
 
+## Service Ownership
+
+- executive_controller
+- scheduler
+- identity
+- governance
+- mission_control
+- a2a_router
+
 ## Verification Notes
 
 - Hardware and OS facts were confirmed locally.
