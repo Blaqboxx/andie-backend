@@ -3,8 +3,9 @@
 import httpx
 import json
 import base64
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Request, HTTPException
+from fastapi import FastAPI, APIRouter, WebSocket, WebSocketDisconnect, Request, HTTPException
 from andie_backend.interfaces.api.event_bus import subscribe, unsubscribe, recent_events
+from andie_backend.interfaces.api.workflow_engine import workflow_engine
 import asyncio
 import json as py_json
 import time
@@ -791,6 +792,26 @@ def _record_stream_metrics(*, first_token_ms: int | None, total_ms: int, stream_
     _STREAM_METRICS["token_seconds"] += max(stream_duration_ms, 0) / 1000.0
 
 
+@router.post("/workflow/run")
+async def workflow_run(request: Request):
+    data = await request.json()
+    task = data.get("task", data.get("message", ""))
+    if not task:
+        raise HTTPException(status_code=400, detail="task is required")
+
+    context = data.get("context", "")
+    steps = data.get("workflow")
+    allow_recovery = bool(data.get("allowRecovery", False))
+    memory = data.get("memory")
+
+    return workflow_engine.run_workflow(
+        task=str(task),
+        steps=steps if isinstance(steps, list) else None,
+        context_text=str(context or ""),
+        memory=memory if isinstance(memory, dict) else None,
+        allow_recovery=allow_recovery,
+    )
+
 @router.post("/orchestrator/run")
 async def orchestrator_run(request: Request):
     started = time.monotonic()
@@ -799,6 +820,28 @@ async def orchestrator_run(request: Request):
         data = await request.json()
         task = data.get("task", data.get("message", ""))
         context = data.get("context", "")
+
+        if "workflow" in str(task).lower():
+            workflow_id = f"wf-{int(time.time() * 1000)}"
+            asyncio.create_task(
+                workflow_engine.run_workflow_stream(
+                    task=str(task),
+                    workflow_id=workflow_id,
+                    context_text=str(context or ""),
+                )
+            )
+            return {
+                "type": "workflow",
+                "status": "started",
+                "task": task,
+                "route": "thinkpad",
+                "workflowId": workflow_id,
+                "result": {
+                    "streaming": True,
+                    "workflowId": workflow_id,
+                },
+            }
+
         current_facts = await _persist_identity_facts(request, task)
         known_user_facts = _build_known_user_facts(request, current_facts=current_facts)
         system_prompt = _build_orchestrator_prompt(context, known_user_facts=known_user_facts)
@@ -2417,3 +2460,8 @@ async def workspace_events_ws(websocket: WebSocket):
 @router.websocket("/api/workspace-events/ws")
 async def workspace_events_ws_api_alias(websocket: WebSocket):
     await websocket_endpoint(websocket)
+
+
+# Compatibility export for tests importing interfaces.api.main:app
+app = FastAPI()
+app.include_router(router)
