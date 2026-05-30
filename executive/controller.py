@@ -726,6 +726,22 @@ class ExecutiveController:
             },
         }
 
+    def budget_breach(self) -> bool:
+        audits = sorted(self.store.list_cycle_audits(), key=lambda item: item.timestamp)
+        if not audits:
+            return False
+        latest = audits[-1]
+        return bool(latest.rollback_triggered)
+
+    def stale_intent_threshold_exceeded(self) -> bool:
+        snapshot = self.get_operational_slo_snapshot()
+        stale = (
+            snapshot.get('metrics', {})
+            .get('intent', {})
+            .get('stale_intents', {})
+        )
+        return int(stale.get('count', 0)) > 0
+
     def _rank_signals(
         self,
         observed_signals: List[Dict[str, Any]],

@@ -1,4 +1,5 @@
 from .controller import ExecutiveController
+from .bounded_scheduler import BoundedScheduler, SchedulerState
 from .agenda_policy import DEFAULT_AGENDA_POLICY, load_agenda_policy, normalize_agenda_policy
 from .operational_slo import DEFAULT_OPERATIONAL_SLOS, load_operational_slos, normalize_operational_slos
 from .identity import (
@@ -58,6 +59,7 @@ __all__ = [
     'DynamicIdentity',
     'DEFAULT_AGENDA_POLICY',
     'DEFAULT_OPERATIONAL_SLOS',
+    'BoundedScheduler',
     'ExecutiveConfig',
     'ExecutiveController',
     'ExecutiveStore',
@@ -85,6 +87,7 @@ __all__ = [
     'Task',
     'TaskStatus',
     'Treaty',
+    'SchedulerState',
     'WorldModelEngine',
     'WorldMutation',
     'load_agenda_policy',
