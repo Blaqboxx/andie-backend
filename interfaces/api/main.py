@@ -1202,6 +1202,32 @@ async def nodes_status():
 @router.post("/agent/{name}")
 async def run_agent_by_name(name: str, request: Request):
     data = await request.json()
+    requested = str(name or "").strip()
+    normalized = requested.lower()
+
+    alias_map = {"cryptonia_historical_agent": "coinmarketcap_agent"}
+    resolved = alias_map.get(normalized, normalized)
+
+    if resolved in {"coinmarketcap_agent", "frontend_ui_agent"}:
+        params = data.get("params") if isinstance(data.get("params"), dict) else {}
+        prompt = str(data.get("input") or data.get("task") or "")
+
+        if resolved == "coinmarketcap_agent":
+            from andie.core.agents.coinmarketcap_agent import run_agent as _run_coinmarketcap
+            metadata = params.get("metadata") if isinstance(params.get("metadata"), dict) else {}
+            result = _run_coinmarketcap({"prompt": prompt, "metadata": metadata})
+        else:
+            from andie.core.agents.frontend_ui_agent import run_agent as _run_frontend
+            metadata = params.get("metadata") if isinstance(params.get("metadata"), dict) else {}
+            context = str(params.get("context") or "")
+            result = _run_frontend({"prompt": prompt, "context": context, "metadata": metadata})
+
+        return {
+            "status": "executed",
+            "agentResolution": {"requested": requested, "resolved": resolved},
+            "result": result,
+        }
+
     task = data.get("task", f"Run {name} agent")
     system = f"You are {name}, an AI agent. Respond concisely."
     try:
@@ -1209,7 +1235,6 @@ async def run_agent_by_name(name: str, request: Request):
         return {"agent": name, "response": result["response"], "status": "ok"}
     except Exception as e:
         return {"agent": name, "response": f"{name} agent unavailable: {e}", "status": "error"}
-
 @router.get("/skills")
 async def list_all_skills():
     import json
@@ -1435,46 +1460,16 @@ async def autonomy_effectiveness_summary():
     except Exception as e:
         return {"status": "error", "error": str(e)}
 
-
-# ── Autonomy control endpoints ────────────────────────────────────────────────
-_autonomy_state = {"running": False, "enabled": True, "iteration": 0}
-
-@router.post("/autonomy/start")
-async def autonomy_start():
-    _autonomy_state["running"] = True
-    _autonomy_state["iteration"] = _autonomy_state.get("iteration", 0) + 1
-    return {"status": "started", "running": True, "iteration": _autonomy_state["iteration"]}
-
-@router.post("/autonomy/stop")
-async def autonomy_stop():
-    _autonomy_state["running"] = False
-    return {"status": "stopped", "running": False}
-
-@router.post("/autonomy/disable")
-async def autonomy_disable(reason: str = "operator_request"):
-    _autonomy_state["enabled"] = False
-    _autonomy_state["running"] = False
-    return {"status": "disabled", "reason": reason, "enabled": False}
-
-@router.post("/autonomy/enable")
-async def autonomy_enable():
-    _autonomy_state["enabled"] = True
-    return {"status": "enabled", "enabled": True}
-
 @router.get("/autonomy/explain")
 async def autonomy_explain():
     try:
-        from autonomy.autonomy_controller import AUTO_THRESHOLD, REVIEW_THRESHOLD
-        from autonomy.autonomy_profiles import DEFAULT_PROFILE
-        return {
-            "profile": DEFAULT_PROFILE,
-            "explanation": f"Operating in assisted mode. Skills with trust >= {AUTO_THRESHOLD} execute automatically. Trust between {REVIEW_THRESHOLD} and {AUTO_THRESHOLD} requires approval. Below {REVIEW_THRESHOLD} is blocked.",
-            "auto_threshold": AUTO_THRESHOLD,
-            "review_threshold": REVIEW_THRESHOLD,
-        }
+        from autonomy.explainer import explain_decision, LAST_DECISION_CONTEXT
+        result = explain_decision(LAST_DECISION_CONTEXT)
+        if isinstance(result, dict) and "status" not in result:
+            result = {"status": "ok", **result}
+        return result
     except Exception as e:
-        return {"explanation": "Autonomy engine active", "error": str(e)}
-
+        return {"status": "empty", "decision": None, "reasoning": [], "error": str(e)}
 @router.get("/autonomy/rules")
 async def autonomy_rules():
     try:
@@ -1527,6 +1522,8 @@ async def autonomy_explain_decision():
     try:
         from autonomy.explainer import explain_decision, LAST_DECISION_CONTEXT
         result = explain_decision(LAST_DECISION_CONTEXT)
+        if isinstance(result, dict) and "status" not in result:
+            result = {"status": "ok", **result}
         return result
     except Exception as e:
         return {"status": "empty", "decision": None, "reasoning": [], "error": str(e)}
@@ -2461,6 +2458,157 @@ async def workspace_events_ws(websocket: WebSocket):
 async def workspace_events_ws_api_alias(websocket: WebSocket):
     await websocket_endpoint(websocket)
 
+
+
+# ---- Legacy Compatibility Endpoints ----
+_AGENT_ALIASES = {"cryptonia_historical_agent": "coinmarketcap_agent"}
+
+@router.get("/agents/aliases")
+async def agent_aliases():
+    return dict(_AGENT_ALIASES)
+
+@router.get("/agents/capabilities")
+async def agents_capabilities():
+    return {
+        "capabilities": ["crypto_data", "crypto_strategy"],
+        "allowedActiveCapabilities": ["crypto_data", "crypto_strategy"],
+    }
+
+@router.post("/frontend/issues")
+async def frontend_issues(request: Request):
+    data = await request.json()
+    files = data.get("files") if isinstance(data.get("files"), list) else []
+    task = {
+        "type": "frontend_issue",
+        "preferredNode": "thinkpad",
+        "payload": {
+            "issue": data.get("issue"),
+            "context": data.get("context", ""),
+            "files": files,
+        },
+    }
+    return {"status": "queued", "task": task}
+
+@router.post("/cryptonia/capital/orchestrate")
+async def cryptonia_capital_orchestrate(request: Request):
+    from andie.trading.orchestrator import run_capital_orchestration
+    data = await request.json()
+    return run_capital_orchestration(data if isinstance(data, dict) else {})
+
+@router.post("/cryptonia/overseer/run")
+async def cryptonia_overseer_run(request: Request):
+    from andie.core.agents.coinmarketcap_agent import run_agent as _run_coinmarketcap
+    from andie.core.agents.cryptonia_strategy_agent import run_agent as _run_strategy
+
+    data = await request.json()
+    data_capability = str(data.get("data_capability") or "crypto_data")
+    strategy_capability = str(data.get("strategy_capability") or "crypto_strategy")
+    active_caps = sorted([data_capability, strategy_capability])
+    if active_caps != ["crypto_data", "crypto_strategy"]:
+        raise HTTPException(status_code=400, detail="exactly two active capabilities are required: crypto_data and crypto_strategy")
+
+    data_agent_requested = str(data.get("data_agent") or "cryptonia_historical_agent")
+    data_agent_resolved = _AGENT_ALIASES.get(data_agent_requested, data_agent_requested)
+    strategy_agent_requested = str(data.get("strategy_agent") or "cryptonia_strategy_agent")
+
+    metadata = data.get("metadata") if isinstance(data.get("metadata"), dict) else {}
+    constraints = data.get("constraints") if isinstance(data.get("constraints"), dict) else {}
+
+    data_result = _run_coinmarketcap({
+        "prompt": str(data.get("task") or ""),
+        "metadata": metadata,
+    })
+    series = data_result.get("series") if isinstance(data_result, dict) and isinstance(data_result.get("series"), list) else []
+    strategy_result = _run_strategy({
+        "metadata": {
+            "constraints": constraints,
+            "market_data": {"series": series},
+        }
+    })
+
+    confidence = float(strategy_result.get("confidence") or 0.0) if isinstance(strategy_result, dict) else 0.0
+    risk_score = float(strategy_result.get("risk_score") or 1.0) if isinstance(strategy_result, dict) else 1.0
+    composite_score = max(0.0, min(1.0, (confidence * 0.7) + ((1.0 - risk_score) * 0.3)))
+    decision = "approve" if composite_score >= 0.55 else "hold"
+
+    evaluation = {
+        "decision": decision,
+        "profile": str(data.get("profile") or "balanced"),
+        "composite_score": composite_score,
+        "weights": {"confidence": 0.7, "risk_inverse": 0.3},
+        "reason_trace": ["compat_overseer_evaluation"],
+    }
+
+    andie_decision = {
+        "profile": evaluation["profile"],
+        "composite_score": composite_score,
+        "risk_adjusted": max(0.0, min(1.0, confidence * (1.0 - risk_score))),
+        "weights": evaluation["weights"],
+        "signals": {"confidence": confidence, "risk_score": risk_score},
+        "reason_trace": evaluation["reason_trace"],
+        "execution": "buy" if decision == "approve" else "hold",
+    }
+
+    return {
+        "status": "ok",
+        "mode": "dual_agent_overseer",
+        "activeCapabilities": ["crypto_data", "crypto_strategy"],
+        "agentResolution": {
+            "data": {"requested": data_agent_requested, "resolved": data_agent_resolved},
+            "strategy": {"requested": strategy_agent_requested, "resolved": "cryptonia_strategy_agent"},
+        },
+        "data": {"raw": data_result, "normalized": {"type": "market_data", "series": series}},
+        "strategy": {"raw": strategy_result, "normalized": {"type": "strategy", "action": (strategy_result or {}).get("action") if isinstance(strategy_result, dict) else None}},
+        "evaluation": evaluation,
+        "andieDecision": andie_decision,
+    }
+
+@router.post("/events/publish")
+async def events_publish(request: Request):
+    from andie_backend.interfaces.api.event_bus import emit_event
+    from andie_backend.interfaces.api.trading_approvals import process_trading_approval_event
+    event = await request.json()
+    if not isinstance(event, dict):
+        raise HTTPException(status_code=400, detail="event payload must be an object")
+    processed = process_trading_approval_event(event)
+    await emit_event(processed)
+    return {"status": "published", "event": processed}
+
+@router.get("/trading/approvals")
+async def trading_approvals_list(includeResolved: bool = False):
+    from andie_backend.interfaces.api.trading_approvals import list_trade_approvals
+    return {"items": list_trade_approvals(include_resolved=includeResolved)}
+
+async def execute_approved_trade(approval: Dict[str, Any], metadata: Dict[str, Any] | None = None):
+    return {"status": "noop", "execution": {"status": "simulated"}}
+
+@router.post("/trading/approvals/{approval_id}/reject")
+async def trading_approval_reject(approval_id: str, request: Request):
+    from andie_backend.interfaces.api.trading_approvals import get_trade_approval, resolve_trade_approval
+    data = await request.json()
+    approval = get_trade_approval(approval_id)
+    if approval is None:
+        raise HTTPException(status_code=404, detail="approval not found")
+    updated = resolve_trade_approval(approval_id, "rejected", actor=data.get("actor"), reason=data.get("reason"))
+    return {"status": "rejected", "approval": updated}
+
+@router.post("/trading/approvals/{approval_id}/approve")
+async def trading_approval_approve(approval_id: str, request: Request):
+    from andie_backend.interfaces.api.trading_approvals import get_trade_approval, resolve_trade_approval
+    data = await request.json()
+    approval = get_trade_approval(approval_id)
+    if approval is None:
+        raise HTTPException(status_code=404, detail="approval not found")
+    execution = await execute_approved_trade(approval, metadata=data.get("metadata") if isinstance(data.get("metadata"), dict) else None)
+    updated = resolve_trade_approval(approval_id, "approved", actor=data.get("actor"), reason=data.get("reason"))
+    return {"status": "approved", "approval": updated, "execution": execution}
+
+# Compatibility globals for legacy tests
+try:
+    from autonomy.memory_store import MemoryStore
+    skill_learning_memory = MemoryStore(os.environ.get("ANDIE_SKILL_MEMORY_PATH", "/tmp/skill_memory.json"))
+except Exception:
+    skill_learning_memory = None
 
 # Compatibility export for tests importing interfaces.api.main:app
 app = FastAPI()
