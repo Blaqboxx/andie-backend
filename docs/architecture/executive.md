@@ -24,6 +24,11 @@ Current executive maturity is tracked as:
 - G1.2 Simulation and Prediction: complete.
 - G1.3 Intent Lifecycle: complete.
 - G1.4 Operational Readiness: complete (initial SLO instrumentation).
+- G2 Alpha Bounded Scheduler: complete.
+- G2.1 Scheduler Observability: complete.
+- G2.2 Intent Outcome Feedback: complete.
+- G2.3 Controlled Multi-cycle Execution: complete.
+- G2.4 Autonomy Session Tracking and Replay: complete.
 
 ## G1.4 Operational Readiness
 
@@ -61,6 +66,25 @@ Mandatory halt conditions for bounded scheduling:
 - policy violation rate > 0.
 - budget breach.
 - stale intent threshold exceeded.
+
+## G3 Entry Contract (Pre-Implementation Freeze)
+
+Before any distributed A2A implementation begins, the following rules are frozen:
+
+- Rule 1: Institutions may communicate, but must not bypass executive governance.
+- Rule 2: Institutions may exchange requests, but must not directly mutate world state.
+- Rule 3: Every inter-institution exchange must be auditable.
+
+Mandatory audit fields for A2A exchanges:
+
+- sender
+- receiver
+- timestamp
+- request
+- response
+- session_id
+
+G3.0 scope is a local A2A protocol only (no multi-node networking).
 
 ## A2A Placement
 

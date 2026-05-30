@@ -1,5 +1,41 @@
 # ANDIE Release Milestones
 
+## 🧭 v0.7-g2-bounded-autonomy
+
+**Release Date:** May 30, 2026  
+**Status:** ✅ Feature-Complete (Bounded Autonomy Layer)  
+**Git Tag:** `valhalla-g2-bounded-autonomy`
+
+### 🎯 Strategic Significance
+
+This milestone closes G2 as a governed, bounded, observable, and auditable autonomy loop.
+
+The autonomy stack now supports:
+
+- Bounded scheduler with kill switches.
+- Scheduler status, history, and halt reason observability.
+- Controlled execution windows (`run-once`, `run-cycles`, `run-until-halt`).
+- Intent outcome feedback into agenda state.
+- Durable autonomy session tracking and replay as a single run record.
+
+### ✅ G2 Completion Matrix
+
+- G2 Alpha: bounded scheduler.
+- G2.1: scheduler observability.
+- G2.2: intent outcome feedback.
+- G2.3: controlled multi-cycle execution.
+- G2.4: autonomy session ledger and replay.
+
+### 🔒 G3 Entry Contract (Frozen)
+
+- Institutions may communicate but may not bypass executive governance.
+- Institutions may exchange requests but may not directly mutate world state.
+- Every inter-institution exchange must be auditable with sender, receiver, timestamp, request, response, and session_id.
+
+### 🚀 What This Unblocks
+
+G3 can now focus on local A2A protocol foundations with governance-preserving coordination.
+
 ## 🏛️ v0.6-g1-executive-framework
 
 **Release Date:** May 30, 2026  
