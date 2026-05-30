@@ -26,8 +26,9 @@ operational_topology:
       - mission_control
       - a2a_router
   nuc1:
-    hostname: Blaqtower1
+    hostname: Blaqtower
     aliases:
+      - Blaqtower1
       - NUC 1
     role: institutions
     responsibilities:
@@ -69,14 +70,18 @@ registry:
       - mission_control
       - a2a_router
   nuc1:
+    hostname: Blaqtower
+    aliases:
+      - Blaqtower1
+      - NUC 1
     role: institutions
-    confidence: low
-    verification_status: needs_node_level_confirmation
+    confidence: high
+    verification_status: verified
     inventory_file: ../inventory/nuc1.md
     verification:
-      verified_at: null
-      verified_by: null
-      confidence: assumed
+      verified_at: '2026-05-30'
+      verified_by: operator
+      confidence: verified
     service_ownership:
       - sentinel
       - academy
@@ -94,13 +99,13 @@ registry:
     aliases:
       - GPU PC
     role: inference
-    confidence: low
-    verification_status: needs_node_level_confirmation
+    confidence: high
+    verification_status: verified
     inventory_file: ../inventory/gpu-pc.md
     verification:
-      verified_at: null
-      verified_by: null
-      confidence: assumed
+      verified_at: '2026-05-30'
+      verified_by: operator
+      confidence: verified
     service_ownership:
       - llm_server
       - embedding_server
@@ -163,9 +168,6 @@ registry:
       - history
 
 unknowns:
-  - blaqtower1_resolvable_name_or_ip
-  - ssh_credentials_for_blaqtower1
-  - ssh_credentials_for_blaqtower3
   - qdrant_location
   - redis_location
   - mission_control_host

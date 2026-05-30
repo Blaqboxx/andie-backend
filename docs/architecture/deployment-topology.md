@@ -28,8 +28,8 @@ The registry below records the current best-known placement model.
 | Node | Role | Service Ownership | Confidence | Verification Status |
 | --- | --- | --- | --- | --- |
 | `blaqtower2` | `valhalla_core` | `executive_controller`, `scheduler`, `identity`, `governance`, `mission_control`, `a2a_router` | Medium | Needs node-level confirmation |
-| `nuc1` / `Blaqtower1` | `institutions` | `sentinel`, `academy`, `workshop`, `monitoring`, `mcp_services` | Low | Needs node-level confirmation |
-| `gpu_pc` / `Blaqtower3` | `inference` | `llm_server`, `embedding_server`, `vision_models` | Low | Needs node-level confirmation |
+| `nuc1` / `Blaqtower1` (`blaqtower`) | `institutions` | `sentinel`, `academy`, `workshop`, `monitoring`, `mcp_services` | High | Verified |
+| `gpu_pc` / `Blaqtower3` | `inference` | `llm_server`, `embedding_server`, `vision_models` | High | Verified |
 | `active_ssd` | `runtime_state` | `executive`, `identity`, `agenda`, `sessions`, `a2a` | High | Verified as local runtime storage class |
 | `shared_hdd` | `operational_data` | `shared_data`, `working_sets`, `cross_service_artifacts` | High | Verified as mounted storage class |
 | `archive_hdd` | `long_term_storage` | `archives`, `backups`, `history` | High | Verified as mounted storage class |
@@ -38,8 +38,6 @@ The registry below records the current best-known placement model.
 
 These items should be confirmed from the nodes themselves before being treated as authoritative:
 
-- Canonical resolvable endpoint for `Blaqtower1` (current direct lookup failed)
-- SSH credentials for `Blaqtower1` and `Blaqtower3` (host reachability exists for peers, but authentication fails)
 - Whether Qdrant runs on `blaqtower2`, `nuc1`, or a separate node
 - Whether Redis runs locally on `blaqtower2` or on a support node
 - Whether Mission Control is an API surface inside `blaqtower2` or a separate service on `nuc1`
@@ -48,10 +46,9 @@ These items should be confirmed from the nodes themselves before being treated a
 
 ## Verification Attempt Snapshot (2026-05-30)
 
-- `Blaqtower3` resolves on tailnet and is network-reachable.
-- `Blaqtower1` does not currently resolve by that hostname from `Blaqtower2`.
-- A likely peer `blaqtower` is reachable on tailnet, but its identity is unconfirmed.
-- SSH access is currently blocked by missing authorized credentials for the current operator account.
+- `Blaqtower3` was verified directly via `jamai-jamison@blaqtower3`.
+- The institutions node was verified via `jamai-jamison@blaqtower` and reports hostname `Blaqtower`.
+- Both nodes produced host, CPU, memory, storage, container, and running-service evidence.
 
 ## Ownership Model
 

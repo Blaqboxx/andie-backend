@@ -2,7 +2,7 @@
 
 ## Verification Status
 
-Unverified. This record captures the intended role and the fields that should be confirmed from the node itself.
+Verified from remote node inspection over SSH.
 
 ## Host Identity
 
@@ -11,9 +11,21 @@ Unverified. This record captures the intended role and the fields that should be
 
 ## Verification
 
-- verified_at: null
-- verified_by: null
-- confidence: assumed
+- verified_at: 2026-05-30
+- verified_by: operator
+- confidence: verified
+
+## Platform Facts
+
+- Kernel: 7.0.0-15-generic
+- Architecture: x86_64
+- CPU: AMD A8-3800 APU (4 cores)
+- RAM: 11Gi total
+
+## Storage
+
+- Root filesystem (`/dev/sda3`): 126G total, 28G used, 91G available
+- EFI partition (`/dev/sda2`): 1.1G total
 
 ## Intended Role
 
@@ -28,6 +40,11 @@ Unverified. This record captures the intended role and the fields that should be
 - llm_server
 - embedding_server
 - vision_models
+
+## Observed Runtime Evidence
+
+- Docker engine active; no running containers observed at verification time.
+- Running services observed include: `docker.service`, `containerd.service`, `ollama.service`, `tailscaled.service`
 
 ## Fields To Verify
 
@@ -46,11 +63,9 @@ Unverified. This record captures the intended role and the fields that should be
 
 ## Current Confidence
 
-- Low
+- High
 
 ## Notes
 
 - Treat all service placement here as best-known, not authoritative.
-- Do not promote this record to verified until the node itself is inspected.
-- 2026-05-30 verification attempt from `Blaqtower2`: `Blaqtower3` resolved and was reachable on tailnet, but SSH authentication failed for the current operator account.
-- Promotion to verified is blocked pending valid SSH credentials for node-level inspection.
+- Verified through `jamai-jamison@blaqtower3` over SSH from `Blaqtower2`.

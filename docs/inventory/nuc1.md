@@ -2,18 +2,30 @@
 
 ## Verification Status
 
-Unverified. This record captures the intended role and the fields that should be confirmed from the node itself.
+Verified from remote node inspection over SSH.
 
 ## Host Identity
 
-- Hostname: Blaqtower1
-- Alias: NUC 1
+- Hostname: Blaqtower
+- Aliases: Blaqtower1, NUC 1
 
 ## Verification
 
-- verified_at: null
-- verified_by: null
-- confidence: assumed
+- verified_at: 2026-05-30
+- verified_by: operator
+- confidence: verified
+
+## Platform Facts
+
+- Kernel: 6.17.0-29-generic
+- Architecture: x86_64
+- CPU: Intel Celeron 847 (2 cores)
+- RAM: 7.6Gi total
+
+## Storage
+
+- Root filesystem (`/dev/sda2`): 109G total, 89G used, 15G available
+- EFI partition (`/dev/sda1`): 1.1G total
 
 ## Intended Role
 
@@ -32,6 +44,11 @@ Unverified. This record captures the intended role and the fields that should be
 - monitoring
 - mcp_services
 
+## Observed Runtime Evidence
+
+- Containers observed: `cryptonia-sentinel`, `cryptonia-dashboard`, `cryptonia-event-bus`, `cryptonia-paper-broker`, `cryptonia-market-ingestion`, `cryptonia-momentum-agent`, `cryptonia-strategy-brain-1`
+- Running services observed include: `docker.service`, `redis-server.service`, `sentinel.service`, `netdata.service`, `ollama.service`, `tailscaled.service`
+
 ## Fields To Verify
 
 - Hostname
@@ -48,11 +65,9 @@ Unverified. This record captures the intended role and the fields that should be
 
 ## Current Confidence
 
-- Low
+- High
 
 ## Notes
 
 - Treat all service placement here as best-known, not authoritative.
-- Do not promote this record to verified until the node itself is inspected.
-- 2026-05-30 verification attempt from `Blaqtower2`: hostname `Blaqtower1` was not resolvable; likely peer `blaqtower` exists on tailnet but identity is not yet confirmed.
-- Promotion to verified is blocked pending a resolvable endpoint and valid SSH credentials.
+- Tailnet endpoint used for verification: `blaqtower`.
