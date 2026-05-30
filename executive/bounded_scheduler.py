@@ -28,6 +28,9 @@ class BoundedScheduler:
         self.controller = controller
         self.state = SchedulerState(interval_seconds=max(1, int(interval_seconds)))
         self._now = now_provider or (lambda: datetime.now(timezone.utc))
+        self._history_limit = 200
+        self._history: list[Dict[str, Any]] = []
+        self._halt_reasons: Dict[str, int] = {}
 
     def start(self) -> SchedulerState:
         self.state.enabled = True
@@ -39,6 +42,7 @@ class BoundedScheduler:
         self.state.enabled = False
         self.state.halt_reason = str(reason)
         self.state.halted_at = self._now()
+        self._halt_reasons[self.state.halt_reason] = int(self._halt_reasons.get(self.state.halt_reason, 0)) + 1
         return self.state
 
     def can_run(self) -> bool:
@@ -68,27 +72,59 @@ class BoundedScheduler:
 
     def run_once(self) -> Dict[str, Any]:
         if not self.state.enabled:
-            return {
+            result = {
                 'status': 'skipped',
                 'reason': 'scheduler_disabled',
                 'state': self._state_dict(),
             }
+            self._append_history(result)
+            return result
 
         if not self.can_run():
-            return {
+            result = {
                 'status': 'halted',
                 'reason': self.state.halt_reason,
                 'state': self._state_dict(),
             }
+            self._append_history(result)
+            return result
 
         outcome = self.controller.run_cycle()
         self.state.cycles_completed = int(self.state.cycles_completed) + 1
         self.state.last_run_at = self._now()
-        return {
+        result = {
             'status': 'ran',
             'outcome': outcome,
             'state': self._state_dict(),
         }
+        self._append_history(result)
+        return result
+
+    def status(self) -> Dict[str, Any]:
+        return self._state_dict()
+
+    def history(self, limit: int = 50) -> list[Dict[str, Any]]:
+        normalized_limit = max(1, min(int(limit), self._history_limit))
+        return list(self._history[-normalized_limit:])
+
+    def halt_reasons(self) -> Dict[str, Any]:
+        return {
+            'total_halts': int(sum(self._halt_reasons.values())),
+            'counts': dict(self._halt_reasons),
+            'last_halt_reason': self.state.halt_reason,
+            'last_halted_at': self.state.halted_at.isoformat() if self.state.halted_at else None,
+        }
+
+    def _append_history(self, result: Dict[str, Any]) -> None:
+        entry = {
+            'timestamp': self._now().isoformat(),
+            'status': str(result.get('status', 'unknown')),
+            'reason': result.get('reason'),
+            'state': dict(result.get('state') or {}),
+        }
+        self._history.append(entry)
+        if len(self._history) > self._history_limit:
+            self._history = self._history[-self._history_limit:]
 
     def _state_dict(self) -> Dict[str, Any]:
         return {

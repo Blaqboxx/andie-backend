@@ -2929,6 +2929,23 @@ def _get_executive_controller(request: Request):
     return controller
 
 
+def _get_bounded_scheduler(request: Request):
+    scheduler = getattr(request.app.state, 'bounded_scheduler', None)
+    if scheduler is not None:
+        return scheduler
+
+    controller = _get_executive_controller(request)
+    try:
+        from andie_backend.executive.bounded_scheduler import BoundedScheduler
+    except ModuleNotFoundError:
+        from executive.bounded_scheduler import BoundedScheduler
+
+    interval_seconds = int(os.environ.get('ANDIE_SCHEDULER_INTERVAL_SECONDS', '60'))
+    scheduler = BoundedScheduler(controller, interval_seconds=max(1, interval_seconds))
+    request.app.state.bounded_scheduler = scheduler
+    return scheduler
+
+
 @router.get("/executive/agenda")
 async def executive_agenda(request: Request):
     controller = _get_executive_controller(request)
@@ -3111,6 +3128,36 @@ async def executive_intent_status_update(intent_id: str, request: Request):
 async def executive_operational_slo(request: Request):
     controller = _get_executive_controller(request)
     return controller.get_operational_slo_snapshot()
+
+
+@router.get('/scheduler/status')
+async def scheduler_status(request: Request):
+    scheduler = _get_bounded_scheduler(request)
+    return {
+        'status': 'ok',
+        'scheduler': scheduler.status(),
+    }
+
+
+@router.get('/scheduler/history')
+async def scheduler_history(request: Request, limit: int = 50):
+    scheduler = _get_bounded_scheduler(request)
+    normalized_limit = max(1, min(int(limit), 500))
+    items = scheduler.history(limit=normalized_limit)
+    return {
+        'status': 'ok',
+        'count': len(items),
+        'items': items,
+    }
+
+
+@router.get('/scheduler/halt-reasons')
+async def scheduler_halt_reasons(request: Request):
+    scheduler = _get_bounded_scheduler(request)
+    return {
+        'status': 'ok',
+        'halt_reasons': scheduler.halt_reasons(),
+    }
 
 
 

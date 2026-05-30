@@ -6,6 +6,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
+from executive.bounded_scheduler import BoundedScheduler
 from executive.controller import ExecutiveController
 from executive.models import ExecutiveConfig
 from interfaces.api.main import app
@@ -28,6 +29,8 @@ class ExecutiveAgendaApiTests(unittest.TestCase):
     def _cleanup_app_state(self) -> None:
         if hasattr(app.state, 'executive_controller'):
             delattr(app.state, 'executive_controller')
+        if hasattr(app.state, 'bounded_scheduler'):
+            delattr(app.state, 'bounded_scheduler')
 
     def test_get_agenda_returns_current_snapshot(self) -> None:
         self.controller.run_agenda_loop(
@@ -228,6 +231,44 @@ class ExecutiveAgendaApiTests(unittest.TestCase):
         self.assertIn('governance', payload['metrics'])
         self.assertGreaterEqual(payload['metrics']['executive']['decision_latency']['p95_ms'], 0)
         self.assertEqual(payload['metrics']['governance']['simulation_state_mutations']['value'], 0)
+
+    def test_scheduler_status_history_and_halt_reasons_endpoints(self) -> None:
+        scheduler = BoundedScheduler(self.controller, interval_seconds=7)
+        app.state.bounded_scheduler = scheduler
+
+        status_before = self.client.get('/scheduler/status')
+        self.assertEqual(status_before.status_code, 200)
+        self.assertEqual(status_before.json()['scheduler']['enabled'], False)
+        self.assertEqual(status_before.json()['scheduler']['cycles_completed'], 0)
+
+        scheduler.start()
+        first_run = scheduler.run_once()
+        self.assertEqual(first_run['status'], 'ran')
+
+        history = self.client.get('/scheduler/history?limit=10')
+        self.assertEqual(history.status_code, 200)
+        history_payload = history.json()
+        self.assertEqual(history_payload['status'], 'ok')
+        self.assertGreaterEqual(history_payload['count'], 1)
+        self.assertEqual(history_payload['items'][-1]['status'], 'ran')
+
+        # Force a policy violation so next cycle halts.
+        with self.assertRaises(PermissionError):
+            self.controller.submit_proposal(
+                institution_id='workshop',
+                proposal_type='policy_update',
+                payload={},
+            )
+        halted = scheduler.run_once()
+        self.assertEqual(halted['status'], 'halted')
+        self.assertEqual(halted['reason'], 'policy_violation_rate')
+
+        reasons = self.client.get('/scheduler/halt-reasons')
+        self.assertEqual(reasons.status_code, 200)
+        reasons_payload = reasons.json()
+        self.assertEqual(reasons_payload['status'], 'ok')
+        self.assertEqual(reasons_payload['halt_reasons']['counts']['policy_violation_rate'], 1)
+        self.assertEqual(reasons_payload['halt_reasons']['last_halt_reason'], 'policy_violation_rate')
 
 
 if __name__ == '__main__':
