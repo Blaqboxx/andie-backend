@@ -1,5 +1,52 @@
 # ANDIE Release Milestones
 
+## 🏛️ v0.6-g1-executive-framework
+
+**Release Date:** May 30, 2026  
+**Status:** ✅ Feature-Complete (Executive Layer)  
+**Git Tag:** `valhalla-g1-executive-framework` (recommended milestone tag)
+
+### 🎯 Strategic Significance
+
+This milestone closes the Executive Layer feature set required before governed continuous autonomy.
+
+**Transition:**
+```
+Goal->Plan execution runtime -> Governed executive operating framework
+```
+
+The executive stack now supports:
+
+- Agenda stewardship with persistent state.
+- Policy-driven escalation and bounded budget posture.
+- Decision audit trail with explain and replay surfaces.
+- Non-mutating simulation for policy testing.
+- Durable intent lifecycle bridging priorities to institutions.
+
+### ✅ G1 Completion Matrix
+
+- G1 Alpha: Agenda stewardship (persistent state, ranking, deferral).
+- G1 Beta: Agenda observability (agenda + decision query surfaces).
+- G1 Release: Multi-cycle management (aging/escalation over time).
+- G1.1: Policy governance + explainability.
+- G1.2: Simulation and prediction (read-only, no state mutation).
+- G1.3: Intent lifecycle (create, assign, track, complete).
+
+### 🔒 Freeze and Protection Guidance
+
+Treat this executive baseline as frozen for core architecture boundaries:
+
+- No bypass of identity or governance checks.
+- No direct institution execution without intent lifecycle linkage.
+- No mutation side effects from simulation paths.
+- Any changes to ranking/escalation semantics must be policy-driven and replay-auditable.
+
+### 🚀 What This Unblocks
+
+G2 can now focus on governed loop orchestration frequency and safety envelopes, not missing executive concepts.
+
+---
+
 ## 🧠 v0.3-runtime-hardening
 
 **Release Date:** May 11, 2026  

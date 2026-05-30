@@ -43,6 +43,23 @@ class ProposalStatus(str, Enum):
     EXECUTED = 'executed'
 
 
+class AgendaStatus(str, Enum):
+    ACTIVE = 'active'
+    DEFERRED = 'deferred'
+    BLOCKED = 'blocked'
+    READY = 'ready'
+    COMPLETED = 'completed'
+
+
+class IntentStatus(str, Enum):
+    CREATED = 'created'
+    ASSIGNED = 'assigned'
+    IN_PROGRESS = 'in_progress'
+    COMPLETED = 'completed'
+    FAILED = 'failed'
+    CANCELLED = 'cancelled'
+
+
 @dataclass
 class WorldMutation:
     mutation_id: str
@@ -115,11 +132,26 @@ class InstitutionProfile:
 
 @dataclass
 class ExecutiveAgenda:
+    schema_version: str = 'g1-alpha/v1'
+
+    # Backward-compatible fields used by existing tests and API surfaces.
     active_goals: List[str] = field(default_factory=list)
     pending_proposals: List[str] = field(default_factory=list)
     institution_requests: List[str] = field(default_factory=list)
     strategic_priorities: List[str] = field(default_factory=list)
     blocked_items: List[str] = field(default_factory=list)
+
+    # G1 alpha canonical agenda references.
+    missions: List[Dict[str, Any]] = field(default_factory=list)
+    goals: List[Dict[str, Any]] = field(default_factory=list)
+    priorities: List[Dict[str, Any]] = field(default_factory=list)
+    blockers: List[Dict[str, Any]] = field(default_factory=list)
+    pending_proposal_refs: List[Dict[str, Any]] = field(default_factory=list)
+    institution_request_refs: List[Dict[str, Any]] = field(default_factory=list)
+    agenda_item_state: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+    attention_budget: Dict[str, float] = field(default_factory=dict)
+    resource_budget: Dict[str, float] = field(default_factory=dict)
+    budget_status: Dict[str, Any] = field(default_factory=dict)
     updated_at: str = field(default_factory=utc_now)
 
     def to_dict(self) -> Dict[str, Any]:
@@ -128,6 +160,51 @@ class ExecutiveAgenda:
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> ExecutiveAgenda:
         return cls(**dict(data))
+
+
+@dataclass
+class AgendaDecision:
+    decision_id: str
+    timestamp: str = field(default_factory=utc_now)
+    considered_inputs: List[str] = field(default_factory=list)
+    selected_priority: str = ''
+    rejected_priorities: List[str] = field(default_factory=list)
+    rationale: str = ''
+    identity_checks: List[str] = field(default_factory=list)
+    governance_checks: List[str] = field(default_factory=list)
+    budget_impact: float = 0.0
+    emitted_intents: List[str] = field(default_factory=list)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'AgendaDecision':
+        return cls(**dict(data))
+
+
+@dataclass
+class Intent:
+    intent_id: str
+    source_priority: str
+    intent_type: str
+    assigned_institution: str
+    status: IntentStatus = IntentStatus.CREATED
+    completion_state: str = 'pending'
+    created_at: str = field(default_factory=utc_now)
+    updated_at: str = field(default_factory=utc_now)
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> Dict[str, Any]:
+        data = asdict(self)
+        data['status'] = self.status.value
+        return data
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'Intent':
+        payload = dict(data)
+        payload['status'] = IntentStatus(payload.get('status', IntentStatus.CREATED.value))
+        return cls(**payload)
 
 
 @dataclass

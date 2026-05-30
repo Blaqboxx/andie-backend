@@ -11,6 +11,7 @@ import json as py_json
 import time
 import logging
 import re
+from autonomy.control_plane_metrics import control_plane_metrics
 
 from andie_backend.inference.router import (
     chat as _ollama_chat,
@@ -1237,18 +1238,25 @@ async def run_agent_by_name(name: str, request: Request):
         return {"agent": name, "response": f"{name} agent unavailable: {e}", "status": "error"}
 @router.get("/skills")
 async def list_all_skills():
-    import json
-    from pathlib import Path
-    skills_dir = Path("/media/jamai-jamison/78eb7352-2efe-465a-a250-c5df9c24726d/valhalla/skills")
-    skills = []
-    if skills_dir.exists():
-        for d in skills_dir.iterdir():
-            mp = d / "manifest.json"
-            if mp.exists():
-                try: skills.append(json.loads(mp.read_text()))
-                except: pass
-    return {"skills": skills, "count": len(skills)}
+    try:
+        from skills import register_builtin_skills
+        from skills.registry import registry
 
+        register_builtin_skills()
+        skills = [
+            {
+                "name": skill.name,
+                "description": skill.description,
+                "risk": skill.risk_level,
+                "requires_approval": skill.requires_approval,
+                "depends_on": list(skill.depends_on or []),
+                "keywords": list(skill.keywords or []),
+            }
+            for skill in registry.list()
+        ]
+        return {"skills": skills, "count": len(skills)}
+    except Exception as e:
+        return {"skills": [], "count": 0, "error": str(e)}
 @router.get("/timeline")
 async def timeline():
     return {"events": [], "message": "Timeline coming in Phase 2"}
@@ -1264,6 +1272,9 @@ async def memory_snapshot(limit: int = 8):
 @router.post("/memory/save-session")
 async def save_session():
     return {"status": "ok", "message": "session saved"}
+
+# Compatibility runtime state for autonomy control endpoints.
+_autonomy_state = {"running": False, "enabled": True, "iteration": 0}
 
 
 # ── Real Autonomy Engine endpoints ───────────────────────────────────────────
@@ -1349,7 +1360,7 @@ async def autonomy_outcome(request: Request):
     try:
         try:
             from andie_backend.interfaces.api.event_bus import emit_event
-            from andie_backend.interfaces.api.outcome_tracking import record_skill_outcome_internal
+            from interfaces.api.outcome_tracking import record_skill_outcome_internal
         except ModuleNotFoundError:
             from interfaces.api.event_bus import emit_event
             from interfaces.api.outcome_tracking import record_skill_outcome_internal
@@ -1508,13 +1519,52 @@ async def autonomy_rules_simulate(request: Request):
 
 @router.get("/autonomy/config")
 async def autonomy_config():
-    try:
-        from autonomy.autonomy_profiles import PROFILES, DEFAULT_PROFILE
-        return {"profile": DEFAULT_PROFILE, "profiles": list(PROFILES.keys()), "state": _autonomy_state}
-    except Exception as e:
-        return {"profile": "balanced", "state": _autonomy_state, "error": str(e)}
+    from autonomy.runtime_config import get_runtime_config
+    return {"config": get_runtime_config()}
 
+@router.post("/autonomy/config")
+async def autonomy_config_update(request: Request):
+    from autonomy.runtime_config import update_runtime_config
+    data = await request.json()
+    config = update_runtime_config(data if isinstance(data, dict) else {})
+    return {"status": "updated", "config": config}
 
+@router.post("/autonomy/profile")
+async def autonomy_profile_update(profile: str):
+    from autonomy.autonomy_profiles import PROFILES
+    from autonomy.runtime_config import update_runtime_config
+    normalized = str(profile or "").strip().lower()
+    if normalized not in PROFILES:
+        raise HTTPException(status_code=400, detail="unknown profile")
+    config = update_runtime_config({"profile": normalized})
+    return {"status": "updated", "profile": config.get("profile")}
+
+@router.get("/autonomy/drift")
+async def autonomy_drift():
+    from autonomy.runtime_config import get_runtime_config
+    config = get_runtime_config()
+    return {
+        "drift_detected": bool(config.get("drift_detected", False)),
+        "forced_mode": config.get("forced_mode"),
+        "drift_reason": config.get("drift_reason"),
+        "drift_intensity": float(config.get("drift_intensity", 0.0) or 0.0),
+        "drift_severity": config.get("drift_severity") or "stable",
+        "metrics": control_plane_metrics.snapshot(),
+    }
+
+@router.post("/autonomy/safe-mode/reset")
+async def autonomy_safe_mode_reset():
+    from autonomy.runtime_config import update_runtime_config, get_runtime_config
+    update_runtime_config({"forced_mode": None, "drift_detected": False, "drift_reason": None, "drift_intensity": 0.0, "drift_severity": "stable"})
+    config = get_runtime_config()
+    return {
+        "status": "updated",
+        "drift_detected": bool(config.get("drift_detected", False)),
+        "forced_mode": config.get("forced_mode"),
+        "drift_reason": config.get("drift_reason"),
+        "drift_intensity": float(config.get("drift_intensity", 0.0) or 0.0),
+        "drift_severity": config.get("drift_severity") or "stable",
+    }
 # ── Advanced Autonomy endpoints ───────────────────────────────────────────────
 
 @router.get("/autonomy/explain")
@@ -1749,85 +1799,481 @@ async def skills_trust():
 @router.post("/skills/plan")
 async def skills_plan(request: Request):
     try:
-        from autonomy.plan_optimizer import suggest_alternatives, resolve_min_trust_threshold
-        from autonomy.trust_engine import compute_trust
-        data = await request.json()
-        task = data.get("task", "")
-        words = task.lower().split()
-        plan = []
-        for i, word in enumerate(words[:5]):
-            if len(word) > 3:
-                trust = compute_trust(word)
-                plan.append({
-                    "step": word,
-                    "trust": trust,
-                    "mode": "auto" if trust >= 0.75 else "approval" if trust >= 0.5 else "block",
-                    "why": f"Required for: {task}",
-                    "order": i + 1,
-                })
-        return {"plan": plan, "task": task, "steps": len(plan)}
-    except Exception as e:
-        return {"plan": [], "task": "", "error": str(e)}
+        from skills import register_builtin_skills
+        from skills.registry import registry
+        from skills.router import build_execution_plan
+        from andie_backend.autonomy.trust_engine import compute_trust
+        from andie_backend.autonomy.learning_engine import skill_memory_snapshot
+        from interfaces.api.skill_control import list_routable_skills, describe_suppressed_skills, blocked_primary_skill
+        from andie_backend.autonomy.autonomy_profiles import DEFAULT_PROFILE
 
+        data = await request.json()
+        task = str(data.get("task") or "")
+
+        register_builtin_skills()
+        all_skills = registry.list()
+        blocked = blocked_primary_skill(task, all_skills)
+        routable_skills, _suppressed = list_routable_skills(all_skills)
+        proposal = {"selectedSkill": None, "confidence": 0.0, "requiresApproval": False, "risk": None, "plan": []} if blocked else build_execution_plan(task, routable_skills)
+
+        plan_steps = list(proposal.get("plan") or [])
+        trust_values = [compute_trust(step_name) for step_name in plan_steps]
+        trust_sum = sum(trust_values) or 1.0
+        scored_plan = []
+        for idx, step_name in enumerate(plan_steps):
+            skill = registry.get(step_name)
+            trust = trust_values[idx]
+            snapshot = skill_memory_snapshot(step_name)
+            scored_plan.append({
+                "step": step_name,
+                "normalized": round(trust / trust_sum, 6),
+                "trust": trust,
+                "risk": skill.risk_level if skill else "unknown",
+                "requires_approval": bool(skill.requires_approval) if skill else False,
+                "instability": bool(snapshot.get("unstable", False)),
+                "failure_signatures": snapshot.get("failure_signatures") or {},
+            })
+
+        return {
+            "plan": proposal,
+            "scoredPlan": scored_plan,
+            "profile": str(data.get("profile") or DEFAULT_PROFILE),
+            "pruned": [],
+            "planStability": round(sum(trust_values) / len(trust_values), 4) if trust_values else 0.0,
+            "drift": {"detected": False, "intensity": 0.0, "severity": "stable"},
+            "suppressedSkills": describe_suppressed_skills(all_skills),
+        }
+    except Exception as e:
+        return {"plan": {"selectedSkill": None, "plan": []}, "scoredPlan": [], "error": str(e)}
 @router.get("/skills/plan/snapshots")
 async def skills_plan_snapshots():
     try:
-        from pathlib import Path
-        snap_dir = Path("/media/jamai-jamison/78eb7352-2efe-465a-a250-c5df9c24726d/valhalla/andie_backend/storage/plans")
-        snap_dir.mkdir(parents=True, exist_ok=True)
-        snapshots = [f.name for f in snap_dir.glob("*.json")]
+        from interfaces.api.plan_store import list_plan_snapshots
+        snapshots = list_plan_snapshots()
         return {"snapshots": snapshots, "count": len(snapshots)}
     except Exception as e:
         return {"snapshots": [], "count": 0, "error": str(e)}
 
+@router.get("/skills/plan/snapshots/{filename}")
+async def skills_plan_snapshot_by_name(filename: str):
+    from interfaces.api.plan_store import load_plan_snapshot, load_latest_plan_snapshot
+    if filename == "latest":
+        latest = load_latest_plan_snapshot()
+        if latest is None:
+            raise HTTPException(status_code=404, detail="no snapshots")
+        return {"snapshot": latest}
+    data = load_plan_snapshot(filename)
+    if data is None:
+        raise HTTPException(status_code=404, detail="snapshot not found")
+    return {"snapshot": {"filename": filename, **data}}
+@router.get("/skills/plan/snapshots/latest")
+async def skills_plan_snapshot_latest():
+    from interfaces.api.plan_store import load_latest_plan_snapshot
+    latest = load_latest_plan_snapshot()
+    if latest is None:
+        raise HTTPException(status_code=404, detail="no snapshots")
+    return {"snapshot": latest}
+@router.post("/skills/plan/save")
+async def skills_plan_save(request: Request):
+    from interfaces.api.plan_store import save_plan_snapshot
+    from autonomy.learning_engine import memory
+    payload = await request.json()
+    snapshot = save_plan_snapshot(
+        name=str(payload.get("name") or "snapshot"),
+        task=str(payload.get("task") or ""),
+        editable_plan=payload.get("edited_plan") if isinstance(payload.get("edited_plan"), list) else [],
+        edit_trail=payload.get("edit_trail") if isinstance(payload.get("edit_trail"), list) else [],
+        actor=str(payload.get("actor") or "operator"),
+        request_id=str(payload.get("request_id") or "") or None,
+    )
+    feedback_recorded = 0
+    for event in snapshot.get("editTrail") or []:
+        if not isinstance(event, dict):
+            continue
+        action = str(event.get("action") or "").strip().lower()
+        metadata = event.get("metadata") if isinstance(event.get("metadata"), dict) else {}
+        context_key = metadata.get("context_key")
+        if action == "swap":
+            from_skill = metadata.get("from")
+            to_skill = metadata.get("to")
+            if from_skill and to_skill:
+                memory.log_operator_feedback("swap", from_skill=from_skill, to_skill=to_skill, context_key=context_key)
+                feedback_recorded += 1
+        elif action == "skip":
+            skill_name = metadata.get("skill")
+            if skill_name:
+                memory.log_operator_feedback("skip", skill_name=skill_name, context_key=context_key)
+                feedback_recorded += 1
+    control_plane_metrics.increment("plan_snapshots_saved")
+    return {"status": "saved", "snapshot": snapshot, "feedbackRecorded": feedback_recorded}
 @router.post("/skills/plan/execute-edited")
 async def skills_execute_plan(request: Request):
     try:
-        from autonomy.simulation_engine import simulate_failure_scenario
-        from autonomy.autonomy_controller import decide_execution_mode
-        data = await request.json()
-        plan = data.get("plan", [])
-        results = []
-        for step in plan:
-            decision = decide_execution_mode(step)
-            sim = simulate_failure_scenario([step], failure_rate=0.1)
-            results.append({
-                "step": step.get("step", step) if isinstance(step, dict) else step,
-                "decision": decision,
-                "simulated": sim[0] if sim else {},
-            })
-        return {"result": results, "status": "simulated", "steps": len(results)}
-    except Exception as e:
-        return {"result": [], "status": "error", "error": str(e)}
+        from skills import register_builtin_skills
+        from skills.executor import execute_skill
+        from interfaces.api.outcome_tracking import record_skill_outcome_internal
 
+        data = await request.json()
+        edited_plan = data.get("edited_plan") if isinstance(data.get("edited_plan"), list) else []
+        params = data.get("params") if isinstance(data.get("params"), dict) else {}
+
+        register_builtin_skills()
+        completed = []
+        skipped = []
+
+        for item in edited_plan:
+            if not isinstance(item, dict):
+                continue
+            step_name = str(item.get("step") or "").strip()
+            if not step_name:
+                continue
+            if bool(item.get("skipped")):
+                skipped.append(step_name)
+                continue
+
+            execution = execute_skill(step_name, params)
+            entry = {"step": step_name, "execution": execution}
+            replaced_from = str(item.get("replacement_for") or "").strip() or None
+            if replaced_from:
+                entry["outcome"] = record_skill_outcome_internal(
+                    skill_name=step_name,
+                    result="success",
+                    context_key=params.get("context_key"),
+                    replaced_from=replaced_from,
+                    latency=execution.get("latency"),
+                    record_execution=False,
+                )
+            completed.append(entry)
+
+        control_plane_metrics.increment("edited_plan_executions")
+        control_plane_metrics.increment("plan_execute_total")
+        return {"status": "done", "completed": completed, "skipped": skipped}
+    except Exception as e:
+        return {"completed": [], "skipped": [], "status": "error", "error": str(e)}
 @router.post("/operator/override")
 async def operator_override(request: Request):
     try:
-        from autonomy.learning_engine import record_operator_feedback
+        from autonomy.learning_engine import memory, score_skill
         data = await request.json()
         override_type = data.get("type", "override")
-        skill_name = data.get("skill_name", "")
+        from_skill = data.get("from_skill") or data.get("skill_name") or ""
         to_skill = data.get("to_skill", "")
-        if skill_name:
-            record_operator_feedback(skill_name, feedback_type=override_type, replaced_by=to_skill)
-        return {"status": "ok", "type": override_type, "skill": skill_name}
+        context_key = data.get("context_key")
+        if override_type == "swap" and from_skill and to_skill:
+            from_before = score_skill(from_skill, context_key=context_key)
+            to_before = score_skill(to_skill, context_key=context_key)
+            memory.log_operator_feedback("swap", from_skill=from_skill, to_skill=to_skill, context_key=context_key)
+            from_after = score_skill(from_skill, context_key=context_key)
+            to_after = score_skill(to_skill, context_key=context_key)
+            return {"recorded": True, "type": "swap", "from": {"skill": from_skill, "previous_score": from_before, "updated_score": from_after}, "to": {"skill": to_skill, "previous_score": to_before, "updated_score": to_after}}
+        if override_type == "skip" and from_skill:
+            before = score_skill(from_skill, context_key=context_key)
+            memory.log_operator_feedback("skip", skill_name=from_skill, context_key=context_key)
+            after = score_skill(from_skill, context_key=context_key)
+            return {"recorded": True, "type": "skip", "from": {"skill": from_skill, "previous_score": before, "updated_score": after}}
+        return {"recorded": False, "type": override_type}
     except Exception as e:
         return {"status": "error", "error": str(e)}
-
+@router.post("/skills/override")
+async def skills_override(request: Request):
+    return await operator_override(request)
 @router.get("/skills/feedback")
 async def skills_feedback():
     try:
         from autonomy.learning_engine import memory
-        feedback = []
-        for key, data in (memory.data if hasattr(memory, 'data') else {}).items():
-            fb = data.get("operator_feedback", {})
-            if any(fb.values()):
-                feedback.append({"skill": key, "feedback": fb})
-        return {"feedback": feedback, "count": len(feedback)}
+        feedback = memory.get_feedback_summary() if hasattr(memory, "get_feedback_summary") else {}
+        return {"feedback": feedback, "count": len(feedback), "total_skills": len(feedback)}
     except Exception as e:
-        return {"feedback": [], "count": 0, "error": str(e)}
+        return {"feedback": {}, "count": 0, "total_skills": 0, "error": str(e)}
 
+@router.post("/skills/propose")
+async def skills_propose(request: Request):
+    from skills import register_builtin_skills
+    from skills.registry import registry
+    from skills.router import build_execution_plan
+    from interfaces.api.skill_control import list_routable_skills, describe_suppressed_skills
+    data = await request.json()
+    task = str(data.get("task") or "")
+    register_builtin_skills()
+    all_skills = registry.list()
+    routable_skills, _ = list_routable_skills(all_skills)
+    proposal = build_execution_plan(task, routable_skills)
+    return {"proposal": proposal, "suppressedSkills": describe_suppressed_skills(all_skills)}
 
+@router.get("/skills/tools")
+async def skills_tools():
+    from skills import register_builtin_skills
+    from skills.registry import registry
+    register_builtin_skills()
+    tools = []
+    for skill in registry.list():
+        tools.append({
+            "type": "function",
+            "function": {
+                "name": skill.name,
+                "description": skill.description,
+                "parameters": {
+                    "type": "object",
+                    "properties": {},
+                    "additionalProperties": True,
+                },
+            },
+        })
+    return {"tools": tools}
+
+@router.post("/skills/execute")
+async def skills_execute(request: Request):
+    from skills import register_builtin_skills
+    from skills.registry import registry
+    from skills.executor import execute_skill
+    from interfaces.api.skill_control import skill_suppression_reason
+    from interfaces.api.outcome_tracking import record_skill_outcome_internal
+    payload = await request.json()
+    name = str(payload.get("skill") or payload.get("name") or "").strip()
+    params = payload.get("params") if isinstance(payload.get("params"), dict) else {}
+    if not name:
+        raise HTTPException(status_code=400, detail="missing skill")
+    register_builtin_skills()
+    reason = skill_suppression_reason(name)
+    if reason:
+        return {"status": "blocked", "reason": reason}
+    skill = registry.get(name)
+    if skill is None:
+        raise HTTPException(status_code=404, detail="skill not found")
+    if skill.requires_approval:
+        return {"status": "pending_approval", "requiresApproval": True, "stepMeta": {"requires_approval": True, "risk": skill.risk_level}}
+    execution = execute_skill(name, params)
+    response = {"status": "ok", "execution": execution}
+    replaced_from = str(params.get("replaced_from") or "").strip() or None
+    if replaced_from:
+        response["outcome"] = record_skill_outcome_internal(
+            skill_name=name,
+            result="success",
+            context_key=params.get("context_key"),
+            replaced_from=replaced_from,
+            latency=execution.get("latency"),
+            record_execution=False,
+        )
+    return response
+
+@router.post("/skills/execute-step")
+async def skills_execute_step(request: Request):
+    from skills import register_builtin_skills
+    from skills.registry import registry
+    from skills.executor import execute_skill
+    from interfaces.api.skill_control import skill_suppression_reason
+    from interfaces.api.outcome_tracking import record_skill_outcome_internal
+    payload = await request.json()
+    step = str(payload.get("step") or payload.get("skill") or "").strip()
+    params = payload.get("params") if isinstance(payload.get("params"), dict) else {}
+    if not step:
+        raise HTTPException(status_code=400, detail="missing step")
+    reason = str(payload.get("reason") or "").strip()
+    if reason:
+        control_plane_metrics.increment("plan_execute_rejected")
+        return {"status": "rejected", "reason": reason}
+    register_builtin_skills()
+    blocked = skill_suppression_reason(step)
+    if blocked:
+        control_plane_metrics.increment("plan_execute_blocked")
+        return {"status": "blocked", "reason": blocked}
+    skill = registry.get(step)
+    if skill is None:
+        raise HTTPException(status_code=404, detail="step not found")
+    approved = bool(payload.get("approved"))
+    if skill.requires_approval and not approved:
+        return {"status": "pending_approval", "stepMeta": {"requires_approval": True, "risk": skill.risk_level}}
+    execution = execute_skill(step, params)
+    response = {"status": "ok", "execution": execution}
+    metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
+    replaced_from = str(metadata.get("replaced_from") or params.get("replaced_from") or "").strip() or None
+    if replaced_from:
+        response["outcome"] = record_skill_outcome_internal(
+            skill_name=step,
+            result="success",
+            context_key=params.get("context_key"),
+            replaced_from=replaced_from,
+            latency=execution.get("latency"),
+            record_execution=False,
+        )
+    return response
+
+@router.post("/skills/plan/execute")
+async def skills_plan_execute(request: Request):
+    from skills import register_builtin_skills
+    from skills.registry import registry
+    from skills.router import build_execution_plan
+    from skills.executor import execute_skill_plan
+    from andie_backend.autonomy.trust_engine import compute_trust
+    from andie_backend.autonomy.learning_engine import skill_memory_snapshot
+    from interfaces.api.skill_control import list_routable_skills
+    from andie_backend.autonomy.runtime_config import get_runtime_config
+    from interfaces.api.outcome_tracking import record_skill_outcome_internal
+    payload = await request.json()
+    task = str(payload.get("task") or "")
+    params = payload.get("params") if isinstance(payload.get("params"), dict) else {}
+    register_builtin_skills()
+    all_skills = registry.list()
+    routable_skills, _ = list_routable_skills(all_skills)
+    proposal = build_execution_plan(task, routable_skills)
+    steps = list(proposal.get("plan") or [])
+    if not steps:
+        return {"status": "blocked", "execution": {"completed": [], "blockedOn": None, "remaining": []}, "scoredPlan": []}
+    scored = []
+    trusts = [compute_trust(name) for name in steps]
+    denom = sum(trusts) or 1.0
+    for i, name in enumerate(steps):
+        skill = registry.get(name)
+        snap = skill_memory_snapshot(name)
+        scored.append({"step": name, "normalized": round(trusts[i] / denom, 6), "trust": trusts[i], "risk": skill.risk_level if skill else "unknown", "requires_approval": bool(skill.requires_approval) if skill else False, "instability": bool(snap.get("unstable", False)), "failure_signatures": snap.get("failure_signatures") or {}})
+    execution = execute_skill_plan(steps, params)
+    control_plane_metrics.increment("plan_execute_total")
+    if execution.get("status") == "pending_approval":
+        control_plane_metrics.increment("plan_execute_blocked")
+        return {"status": "pending_approval", "execution": execution, "scoredPlan": scored, "drift": {"detected": False, "intensity": 0.0, "severity": "stable"}, "replacementOutcomes": {"success": 0, "failure": 0, "total": 0}}
+    runtime = get_runtime_config()
+    outcomes_enabled = bool(runtime.get("runtime_outcome_emission_enabled", True))
+    replacement_map = params.get("replacement_map") if isinstance(params.get("replacement_map"), dict) else {}
+    replacement = {"success": 0, "failure": 0, "total": 0}
+    if not outcomes_enabled:
+        replacement["disabled"] = True
+    completed = []
+    for entry in execution.get("completed") or []:
+        item = dict(entry) if isinstance(entry, dict) else {"skill": str(entry)}
+        skill_name = str(item.get("skill") or "").strip()
+        replaced_from = str(replacement_map.get(skill_name) or "").strip() or None
+        if outcomes_enabled and replaced_from and skill_name:
+            outcome = record_skill_outcome_internal(skill_name=skill_name, result="success", context_key=params.get("context_key"), replaced_from=replaced_from, latency=item.get("latency"), record_execution=False)
+            item["outcome"] = outcome
+            replacement["success"] += 1
+            replacement["total"] += 1
+        completed.append(item)
+    execution["completed"] = completed
+    control_plane_metrics.increment("plan_execute_auto")
+    return {"status": "ok", "execution": execution, "scoredPlan": scored, "drift": {"detected": False, "intensity": 0.0, "severity": "stable"}, "replacementOutcomes": replacement}
+
+@router.get("/skills/learning")
+async def skills_learning():
+    from autonomy.learning_engine import memory
+    entries = []
+    names = set()
+    for key, value in (memory.data or {}).items():
+        if str(key).startswith("__") or not isinstance(value, dict):
+            continue
+        skill_name = value.get("skill") or str(key).split("::")[0]
+        names.add(skill_name)
+        entries.append({"key": key, "skill": skill_name, "context_key": value.get("context_key"), "executions": int(value.get("executions", 0) or 0), "successes": int(value.get("successes", 0) or 0), "failures": int(value.get("failures", 0) or 0)})
+    return {"skills": sorted(names), "entries": entries, "memoryPath": str(memory.path)}
+
+@router.post("/skills/outcome")
+async def skills_outcome_ingest(request: Request):
+    from interfaces.api.outcome_tracking import record_skill_outcome_internal
+    payload = await request.json()
+    return record_skill_outcome_internal(
+        skill_name=str(payload.get("skill") or ""),
+        result=str(payload.get("result") or "success"),
+        context_key=payload.get("context_key"),
+        replaced_from=payload.get("replaced_from"),
+        latency=payload.get("latency"),
+        error=payload.get("error"),
+        source=str(payload.get("source") or "live"),
+    )
+
+@router.get("/skills/control")
+async def skills_control_get():
+    from interfaces.api.skill_control import get_skill_control_state
+    return {"controlState": get_skill_control_state()}
+
+@router.put("/skills/control")
+async def skills_control_put(request: Request):
+    from interfaces.api.skill_control import update_skill_control_state
+    payload = await request.json()
+    try:
+        state = update_skill_control_state(
+            incident_mode=payload.get("incident_mode"),
+            blacklisted_skills=payload.get("blacklisted_skills"),
+            updated_by=str(payload.get("actor") or "operator-ui"),
+            reason=payload.get("reason"),
+            request_id=payload.get("request_id"),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"status": "saved", "controlState": state}
+
+@router.post("/skills/plan/optimize")
+async def skills_plan_optimize(request: Request):
+    from skills import register_builtin_skills
+    from skills.registry import registry
+    from autonomy.plan_optimizer import prune_plan_with_reasons, apply_replacements, resolve_min_trust_threshold
+    from autonomy.runtime_config import get_runtime_config, update_runtime_config
+    payload = await request.json()
+    plan = payload.get("plan") if isinstance(payload.get("plan"), list) else []
+    profile = str(payload.get("profile") or "balanced")
+    threshold = payload.get("min_trust_threshold")
+    resolved_threshold = resolve_min_trust_threshold(profile=profile, override=threshold)
+    pruned = prune_plan_with_reasons(plan, context_key=payload.get("context_key"), min_trust_threshold=resolved_threshold, profile=profile, global_mode=str(payload.get("global_mode") or "assisted"))
+    register_builtin_skills()
+    candidates = [{"name": s.name, "risk": s.risk_level, "requires_approval": s.requires_approval, "depends_on": list(s.depends_on or []), "keywords": list(s.keywords or []), "context_tags": []} for s in registry.list()]
+    replaced = apply_replacements(pruned.get("kept") or [], pruned.get("pruned") or [], candidates, context_key=payload.get("context_key"), profile=profile, global_mode=str(payload.get("global_mode") or "assisted"))
+    metrics = control_plane_metrics.snapshot()
+    total = float(metrics.get("plan_execute_total", 0) or 0)
+    failed = float(metrics.get("plan_execute_failed", 0) or 0)
+    drift_ratio = (failed / total) if total > 0 else 0.0
+    drift_intensity = max(0.0, min(drift_ratio * 2.0, 1.0))
+    drift_detected = drift_intensity >= 0.5
+    severity = "severe" if drift_intensity >= 0.75 else "moderate" if drift_detected else "stable"
+    reason = "failure_rate_spike" if drift_detected else None
+    config_before = get_runtime_config()
+    recovered = bool(config_before.get("drift_detected", False)) and not drift_detected
+    update_runtime_config({"drift_detected": drift_detected, "drift_intensity": drift_intensity, "drift_severity": severity, "drift_reason": reason, "forced_mode": "manual" if drift_detected else None})
+    pruned_steps = replaced.get("pruned") or []
+    control_plane_metrics.increment("pruned_step_count", len(pruned_steps))
+    control_plane_metrics.increment("pruned_predicted_failures", sum(float(item.get("failure_probability", 0.0) or 0.0) for item in pruned_steps))
+    return {
+        "plan": replaced.get("kept") or [],
+        "kept": replaced.get("kept") or [],
+        "avoided": replaced.get("avoided") or [],
+        "replaced": replaced.get("replaced") or [],
+        "pruned": pruned_steps,
+        "inputSteps": len(plan),
+        "outputSteps": len(replaced.get("kept") or []),
+        "minTrustThreshold": resolved_threshold,
+        "drift": {"detected": drift_detected, "intensity": drift_intensity, "severity": severity, "forcedMode": "manual" if drift_detected else None, "reason": reason, "recovered": recovered},
+    }
+
+@router.post("/skills/simulate")
+async def skills_simulate(request: Request):
+    import tempfile
+    from autonomy.simulation_engine import simulate_with_feedback
+    from autonomy.memory_store import MemoryStore
+    payload = await request.json()
+    plan = payload.get("plan") if isinstance(payload.get("plan"), list) else []
+    temp_memory = MemoryStore(path=tempfile.NamedTemporaryFile(prefix="andie-sim-", suffix=".json", delete=False).name)
+    simulation = simulate_with_feedback(
+        plan,
+        failure_rate=float(payload.get("failure_rate", 0.2) or 0.2),
+        seed=payload.get("seed"),
+        apply_feedback=bool(payload.get("apply_feedback", False)),
+        context_key=payload.get("context_key"),
+        memory_store=temp_memory,
+        predictive=bool(payload.get("predictive", True)),
+    )
+    control_plane_metrics.increment("simulation_runs")
+    return {"status": "ok", "isolated": True, "simulation": simulation}
+
+@router.get("/metrics/control-plane")
+async def metrics_control_plane():
+    return control_plane_metrics.to_dict()
+
+@router.get("/trust/dashboard")
+async def trust_dashboard():
+    counters = control_plane_metrics.snapshot()
+    total = int(counters.get("outcome_events_total", 0) or 0)
+    real = int(counters.get("real_outcome_events_total", 0) or 0)
+    synthetic = max(0, total - real)
+    real_ratio = (real / total) if total else 0.0
+    tier = "high" if real_ratio >= 0.75 else "medium" if real_ratio >= 0.4 else "low"
+    return {"confidence_tier": tier, "real_vs_synthetic": {"total": total, "real": real, "synthetic": synthetic}}
 # ── Artifact browser endpoints ────────────────────────────────────────────────
 from pathlib import Path as _APath
 import mimetypes as _mimetypes
@@ -2457,6 +2903,208 @@ async def workspace_events_ws(websocket: WebSocket):
 @router.websocket("/api/workspace-events/ws")
 async def workspace_events_ws_api_alias(websocket: WebSocket):
     await websocket_endpoint(websocket)
+
+
+def _get_executive_controller(request: Request):
+    controller = getattr(request.app.state, "executive_controller", None)
+    if controller is not None:
+        return controller
+
+    try:
+        from andie_backend.executive.controller import ExecutiveController
+        from andie_backend.executive.models import ExecutiveConfig
+    except ModuleNotFoundError:
+        from executive.controller import ExecutiveController
+        from executive.models import ExecutiveConfig
+
+    store_path = os.environ.get("ANDIE_EXECUTIVE_STATE_PATH", "storage/executive/executive_state.json")
+    simulate = os.environ.get("ANDIE_EXECUTIVE_SIMULATE", "1").strip().lower() not in {"0", "false", "no"}
+    controller = ExecutiveController(
+        config=ExecutiveConfig(
+            store_path=store_path,
+            simulate_execution=simulate,
+        )
+    )
+    request.app.state.executive_controller = controller
+    return controller
+
+
+@router.get("/executive/agenda")
+async def executive_agenda(request: Request):
+    controller = _get_executive_controller(request)
+    agenda = controller.store.get_executive_agenda()
+    if agenda is None:
+        agenda = controller._refresh_executive_agenda()
+    agenda_dict = agenda.to_dict()
+    priorities = list(agenda_dict.get('priorities') or [])
+    active_priority = priorities[0]['priority_id'] if priorities else None
+    budget_status = dict(agenda_dict.get('budget_status') or {})
+    summary = {
+        'active_priority': active_priority,
+        'blocked_count': int(budget_status.get('blocked_count', len(agenda_dict.get('blockers') or []))),
+        'deferred_count': int(budget_status.get('deferred_count', 0)),
+        'active_count': int(budget_status.get('active_count', 0)),
+        'budget_status': str(budget_status.get('health', 'unknown')),
+    }
+    return {"status": "ok", "agenda": agenda_dict, "summary": summary}
+
+
+@router.get("/executive/agenda/decisions")
+async def executive_agenda_decisions(request: Request, limit: int = 50):
+    controller = _get_executive_controller(request)
+    normalized_limit = max(1, min(int(limit), 500))
+    decisions = controller.store.list_agenda_decisions()
+    selected = decisions[-normalized_limit:]
+    return {
+        "status": "ok",
+        "count": len(selected),
+        "items": [item.to_dict() for item in reversed(selected)],
+    }
+
+
+@router.get("/executive/agenda/decisions/{decision_id}")
+async def executive_agenda_decision_by_id(decision_id: str, request: Request):
+    controller = _get_executive_controller(request)
+    for item in reversed(controller.store.list_agenda_decisions()):
+        if item.decision_id == decision_id:
+            return {"status": "ok", "decision": item.to_dict()}
+    raise HTTPException(status_code=404, detail="agenda decision not found")
+
+
+@router.get("/executive/agenda/explain")
+async def executive_agenda_explain(request: Request):
+    controller = _get_executive_controller(request)
+    agenda = controller.store.get_executive_agenda()
+    if agenda is None:
+        agenda = controller._refresh_executive_agenda()
+
+    agenda_dict = agenda.to_dict()
+    priorities = list(agenda_dict.get('priorities') or [])
+    active_priority = priorities[0] if priorities else None
+
+    decision = None
+    for item in reversed(controller.store.list_agenda_decisions()):
+        if active_priority is None or item.selected_priority == active_priority.get('priority_id'):
+            decision = item
+            break
+
+    return {
+        'status': 'ok',
+        'active_priority': active_priority,
+        'rationale': (decision.rationale if decision else 'no_decision_recorded'),
+        'identity_checks': (decision.identity_checks if decision else []),
+        'governance_checks': (decision.governance_checks if decision else []),
+        'policy': controller.get_agenda_policy(),
+    }
+
+
+@router.get("/executive/agenda/replay")
+async def executive_agenda_replay(request: Request, cycle: int | None = None):
+    controller = _get_executive_controller(request)
+    decisions = controller.store.list_agenda_decisions()
+
+    if cycle is None:
+        cutoff = len(decisions)
+    else:
+        if cycle < 1 or cycle > len(decisions):
+            raise HTTPException(status_code=404, detail='cycle out of range')
+        cutoff = int(cycle)
+
+    selected_counts: Dict[str, int] = {}
+    sequence: List[str] = []
+    for decision in decisions[:cutoff]:
+        selected = str(decision.selected_priority or '')
+        if not selected:
+            continue
+        sequence.append(selected)
+        selected_counts[selected] = selected_counts.get(selected, 0) + 1
+
+    return {
+        'status': 'ok',
+        'cycle': cutoff,
+        'total_cycles': len(decisions),
+        'latest_selected_priority': sequence[-1] if sequence else None,
+        'selected_counts': selected_counts,
+        'recent_sequence': sequence[-10:],
+    }
+
+
+@router.post("/executive/agenda/simulate")
+async def executive_agenda_simulate(request: Request):
+    controller = _get_executive_controller(request)
+    payload = await request.json()
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail='payload must be an object')
+
+    signals = payload.get('signals')
+    if signals is None:
+        signals = []
+    if not isinstance(signals, list):
+        raise HTTPException(status_code=400, detail='signals must be an array')
+
+    policy = payload.get('policy')
+    if policy is not None and not isinstance(policy, dict):
+        raise HTTPException(status_code=400, detail='policy must be an object when provided')
+
+    defer_threshold = payload.get('defer_threshold', 45)
+    try:
+        normalized_threshold = int(defer_threshold)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail='defer_threshold must be an integer') from exc
+
+    simulation = controller.simulate_agenda_loop(
+        signals=[dict(item) for item in signals if isinstance(item, dict)],
+        defer_threshold=normalized_threshold,
+        policy_override=policy,
+    )
+    return {'status': 'ok', 'simulation': simulation}
+
+
+@router.get("/executive/intents")
+async def executive_intents(request: Request, status: str | None = None, limit: int = 100):
+    controller = _get_executive_controller(request)
+    normalized_limit = max(1, min(int(limit), 500))
+    intents = controller.store.list_intents(status=status)
+    intents_sorted = sorted(intents, key=lambda item: item.created_at, reverse=True)
+    selected = intents_sorted[:normalized_limit]
+    return {
+        'status': 'ok',
+        'count': len(selected),
+        'items': [item.to_dict() for item in selected],
+    }
+
+
+@router.get("/executive/intents/{intent_id}")
+async def executive_intent_by_id(intent_id: str, request: Request):
+    controller = _get_executive_controller(request)
+    intent = controller.store.get_intent(intent_id)
+    if intent is None:
+        raise HTTPException(status_code=404, detail='intent not found')
+    return {'status': 'ok', 'intent': intent.to_dict()}
+
+
+@router.post("/executive/intents/{intent_id}/status")
+async def executive_intent_status_update(intent_id: str, request: Request):
+    controller = _get_executive_controller(request)
+    payload = await request.json()
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail='payload must be an object')
+    next_status = payload.get('status')
+    if not isinstance(next_status, str) or not next_status.strip():
+        raise HTTPException(status_code=400, detail='status is required')
+    completion_state = payload.get('completion_state')
+    try:
+        updated = controller.update_intent_status(
+            intent_id,
+            status=next_status.strip().lower(),
+            completion_state=(str(completion_state) if completion_state is not None else None),
+        )
+    except ValueError as exc:
+        message = str(exc)
+        if message.startswith('unknown intent:'):
+            raise HTTPException(status_code=404, detail='intent not found') from exc
+        raise HTTPException(status_code=400, detail=message) from exc
+    return {'status': 'ok', 'intent': updated.to_dict()}
 
 
 

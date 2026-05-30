@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from .models import (
+    AgendaDecision,
     AgentCallback,
     Civilization,
     CycleAudit,
@@ -16,6 +17,7 @@ from .models import (
     Institution,
     InstitutionProfile,
     InstitutionProposal,
+    Intent,
     KnowledgeAsset,
     Mission,
     ReflectionRecord,
@@ -30,6 +32,8 @@ class ExecutiveStore:
     def __init__(self, path: str | Path):
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        self._agenda_path = self.path.parent / 'agenda.json'
+        self._agenda_decisions_path = self.path.parent / 'agenda_decisions.jsonl'
         self._lock = threading.RLock()
         self._state = self._load()
 
@@ -47,6 +51,7 @@ class ExecutiveStore:
             'missions': {},
             'goals': {},
             'tasks': {},
+            'intents': {},
             'reflections': {},
             'dispatches': {},
             'callbacks': {},
@@ -80,12 +85,38 @@ class ExecutiveStore:
     def set_executive_agenda(self, agenda: ExecutiveAgenda) -> ExecutiveAgenda:
         with self._lock:
             self._state['executive_agenda'] = agenda.to_dict()
+            self._agenda_path.write_text(json.dumps(agenda.to_dict(), indent=2, sort_keys=True), encoding='utf-8')
             self._save()
             return agenda
 
     def get_executive_agenda(self) -> Optional[ExecutiveAgenda]:
         raw = self._state.get('executive_agenda')
+        if not isinstance(raw, dict) and self._agenda_path.exists():
+            try:
+                raw = json.loads(self._agenda_path.read_text(encoding='utf-8'))
+            except Exception:
+                raw = None
         return ExecutiveAgenda.from_dict(raw) if isinstance(raw, dict) else None
+
+    def append_agenda_decision(self, decision: AgendaDecision) -> AgendaDecision:
+        with self._lock:
+            with self._agenda_decisions_path.open('a', encoding='utf-8') as handle:
+                handle.write(json.dumps(decision.to_dict(), sort_keys=True) + '\n')
+            return decision
+
+    def list_agenda_decisions(self) -> List[AgendaDecision]:
+        if not self._agenda_decisions_path.exists():
+            return []
+        decisions: List[AgendaDecision] = []
+        for line in self._agenda_decisions_path.read_text(encoding='utf-8').splitlines():
+            payload = line.strip()
+            if not payload:
+                continue
+            try:
+                decisions.append(AgendaDecision.from_dict(json.loads(payload)))
+            except Exception:
+                continue
+        return decisions
 
     def upsert_civilization(self, civilization: Civilization) -> Civilization:
         with self._lock:
@@ -212,6 +243,22 @@ class ExecutiveStore:
             self._state['tasks'][task.task_id] = task.to_dict()
             self._save()
             return task
+
+    def upsert_intent(self, intent: Intent) -> Intent:
+        with self._lock:
+            self._state['intents'][intent.intent_id] = intent.to_dict()
+            self._save()
+            return intent
+
+    def get_intent(self, intent_id: str) -> Optional[Intent]:
+        raw = self._state['intents'].get(intent_id)
+        return Intent.from_dict(raw) if isinstance(raw, dict) else None
+
+    def list_intents(self, status: str | None = None) -> List[Intent]:
+        intents = [Intent.from_dict(item) for item in self._state['intents'].values()]
+        if status is None:
+            return intents
+        return [intent for intent in intents if intent.status.value == status]
 
     def get_task(self, task_id: str) -> Optional[Task]:
         raw = self._state['tasks'].get(task_id)

@@ -4,10 +4,13 @@ import time
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
+import os
 
+from .agenda_policy import load_agenda_policy, normalize_agenda_policy
 from .dispatcher import DispatchEngine
 from .identity import FileBackedIdentityProvider, IdentityProvider
 from .models import (
+    AgendaDecision,
     AgentCallback,
     CycleAudit,
     DispatchEnvelope,
@@ -17,6 +20,8 @@ from .models import (
     GoalStatus,
     InstitutionProfile,
     InstitutionProposal,
+    Intent,
+    IntentStatus,
     Mission,
     MissionStatus,
     ProposalStatus,
@@ -72,6 +77,8 @@ class ExecutiveController:
         self.monitor = MonitoringEngine()
         self.reflector = ReflectionEngine()
         self.world = WorldModelEngine(self.store)
+        self._agenda_policy_path = os.environ.get('ANDIE_AGENDA_POLICY_PATH', 'storage/executive/agenda_policy.json')
+        self._agenda_policy = load_agenda_policy(self._agenda_policy_path)
         if self.store.get_config() is None:
             self.store.set_config(self.config)
         self.world.bootstrap_valhalla()
@@ -360,12 +367,72 @@ class ExecutiveController:
             ]
         )
 
+        mission_refs = [
+            {
+                'mission_id': str(item.get('mission_id', mission_id)),
+                'title': str(item.get('title', '')),
+                'status': str(item.get('status', 'active')).lower(),
+            }
+            for mission_id, item in self.store._state.get('missions', {}).items()
+            if str(item.get('status', 'active')).lower() in {'draft', 'active', 'paused'}
+        ]
+
+        goal_refs = [
+            {
+                'goal_id': goal.goal_id,
+                'mission_id': goal.mission_id,
+                'title': goal.title,
+                'status': goal.status.value,
+                'priority': goal.priority,
+            }
+            for goal in goals
+            if goal.status in {GoalStatus.DRAFT, GoalStatus.ACTIVE, GoalStatus.BLOCKED}
+        ]
+
+        blocker_refs = [
+            {'id': item, 'status': 'blocked'}
+            for item in blocked_items
+        ]
+
+        proposal_refs = [
+            {
+                'proposal_id': proposal.proposal_id,
+                'institution_id': proposal.institution_id,
+                'proposal_type': proposal.proposal_type,
+                'status': proposal.status.value,
+            }
+            for proposal in proposals
+            if proposal.status == ProposalStatus.PENDING
+        ]
+
+        institution_request_refs = [
+            {'institution_id': inst, 'request_type': 'pending_proposal'}
+            for inst in institution_requests
+        ]
+
+        priority_refs = [
+            {'priority_id': goal_id, 'source': 'goal', 'score': 0, 'status': 'ready'}
+            for goal_id in strategic_priorities
+        ]
+
         return ExecutiveAgenda(
             active_goals=active_goals,
             pending_proposals=pending_proposals,
             institution_requests=institution_requests,
             strategic_priorities=strategic_priorities,
             blocked_items=blocked_items,
+            missions=mission_refs,
+            goals=goal_refs,
+            priorities=priority_refs,
+            blockers=blocker_refs,
+            pending_proposal_refs=proposal_refs,
+            institution_request_refs=institution_request_refs,
+            budget_status={
+                'max_active_goals': self.config.max_active_goals,
+                'max_dispatches': self.config.max_dispatches,
+                'max_resource_cost': self.config.max_resource_cost,
+                'max_runtime_minutes': self.config.max_runtime_minutes,
+            },
             updated_at=utc_now(),
         )
 
@@ -373,6 +440,368 @@ class ExecutiveController:
         agenda = self._build_executive_agenda()
         self.store.set_executive_agenda(agenda)
         return agenda
+
+    def _score_agenda_signal(self, signal: Dict[str, Any]) -> int:
+        institution_id = str(signal.get('institution_id', '')).strip().lower()
+        signal_type = str(signal.get('type', '')).strip().lower()
+
+        if institution_id == 'sentinel' and signal_type in {'alert', 'security_alert'}:
+            return 100
+        if signal_type == 'mission_blocker' or bool(signal.get('is_blocker')):
+            return 80
+        if institution_id == 'workshop' and signal_type in {'proposal', 'tool_proposal'}:
+            return 50
+        if institution_id == 'academy' and signal_type in {'research', 'research_result'}:
+            return 40
+        return 10
+
+    def _escalation_adjustment(
+        self,
+        signal: Dict[str, Any],
+        *,
+        policy: Dict[str, Any],
+        base_score: int,
+        deferred_count: int,
+        repeat_count: int,
+    ) -> int:
+        institution_id = str(signal.get('institution_id', '')).strip().lower()
+        signal_type = str(signal.get('type', '')).strip().lower()
+        max_deferred_cycles = int(policy.get('max_deferred_cycles', 3))
+        sentinel_escalation_rate = float(policy.get('sentinel_escalation_rate', 1.0))
+        academy_decay_rate = float(policy.get('academy_decay_rate', 1.0))
+        blocker_escalation_threshold = int(policy.get('blocker_escalation_threshold', 3))
+
+        adjustment = 0
+
+        # Deferred work eventually becomes urgent to prevent starvation.
+        if deferred_count >= max_deferred_cycles:
+            adjustment += 15
+
+        # Repeated high-risk sentinel alerts must climb in urgency.
+        if institution_id == 'sentinel' and signal_type in {'alert', 'security_alert'}:
+            sentinel_bonus = max(0.0, float(repeat_count - 1) * 5.0 * sentinel_escalation_rate)
+            adjustment += int(round(min(sentinel_bonus, 40.0)))
+
+        # Repeated mission blockers should escalate quickly.
+        if signal_type == 'mission_blocker' or bool(signal.get('is_blocker')):
+            blocker_steps = max(0, repeat_count - blocker_escalation_threshold + 1)
+            adjustment += int(round(min(float(blocker_steps) * 4.0, 16.0)))
+
+        # Academy priority behavior is policy-defined (growth or decay).
+        if institution_id == 'academy' and signal_type in {'research', 'research_result'}:
+            multiplier = academy_decay_rate ** max(0, repeat_count - 1)
+            adjusted_score = int(round(float(base_score) * float(multiplier)))
+            adjustment += adjusted_score - int(base_score)
+
+        return adjustment
+
+    def get_agenda_policy(self) -> Dict[str, Any]:
+        return dict(self._agenda_policy)
+
+    def _resolve_agenda_policy(self, override: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        merged = dict(self._agenda_policy)
+        if isinstance(override, dict):
+            merged.update(override)
+        return normalize_agenda_policy(merged)
+
+    def _rank_signals(
+        self,
+        observed_signals: List[Dict[str, Any]],
+        previous_state: Dict[str, Dict[str, Any]],
+        *,
+        defer_threshold: int,
+        policy: Dict[str, Any],
+    ) -> List[Dict[str, Any]]:
+        ranked: List[Dict[str, Any]] = []
+
+        for item in observed_signals:
+            signal_id = str(item.get('signal_id') or f"{item.get('institution_id', 'unknown')}:{item.get('type', 'signal')}")
+            prior = dict(previous_state.get(signal_id) or {})
+            repeat_count = int(prior.get('repeat_count', 0)) + 1
+            prior_deferred = int(prior.get('deferred_count', 0))
+
+            base_score = self._score_agenda_signal(item)
+            escalation_boost = self._escalation_adjustment(
+                item,
+                policy=policy,
+                base_score=base_score,
+                deferred_count=prior_deferred,
+                repeat_count=repeat_count,
+            )
+            effective_score = int(base_score + escalation_boost)
+            status = 'ready' if effective_score >= defer_threshold else 'deferred'
+            deferred_count = prior_deferred + 1 if status == 'deferred' else 0
+
+            ranked.append(
+                {
+                    'signal_id': signal_id,
+                    'institution_id': str(item.get('institution_id', '')),
+                    'type': str(item.get('type', '')),
+                    'base_score': int(base_score),
+                    'escalation_boost': int(escalation_boost),
+                    'score': int(effective_score),
+                    'status': status,
+                    'age_cycles': int(prior.get('age_cycles', 0)) + 1,
+                    'deferred_count': deferred_count,
+                    'repeat_count': repeat_count,
+                }
+            )
+
+        ranked.sort(key=lambda entry: (-int(entry.get('score', 0)), str(entry.get('signal_id', ''))))
+        return ranked
+
+    def simulate_agenda_loop(
+        self,
+        signals: Optional[List[Dict[str, Any]]] = None,
+        *,
+        defer_threshold: int = 45,
+        policy_override: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        observed_signals = [dict(item) for item in (signals or [])]
+        previous_agenda = self.store.get_executive_agenda()
+        previous_state = dict((previous_agenda.agenda_item_state if previous_agenda else {}) or {})
+        policy = self._resolve_agenda_policy(policy_override)
+
+        ranked = self._rank_signals(
+            observed_signals,
+            previous_state,
+            defer_threshold=defer_threshold,
+            policy=policy,
+        )
+
+        intents = [
+            {
+                'intent_type': self._intent_for_signal(item),
+                'priority': int(item['score']),
+                'signal_id': item['signal_id'],
+            }
+            for item in ranked
+            if int(item.get('score', 0)) >= defer_threshold
+        ]
+
+        total_ready_score = sum(int(item['score']) for item in ranked if item['status'] == 'ready')
+        budget_effects: List[Dict[str, Any]] = []
+        for item in ranked:
+            if item['status'] != 'ready' or total_ready_score <= 0:
+                attention = 0.0
+            else:
+                attention = float(item['score']) / float(total_ready_score)
+            budget_effects.append(
+                {
+                    'signal_id': item['signal_id'],
+                    'attention_budget': round(attention, 4),
+                    'resource_budget': round(attention * float(self.config.max_resource_cost), 3),
+                }
+            )
+
+        expected_escalations = [
+            {
+                'signal_id': item['signal_id'],
+                'escalation_boost': int(item['escalation_boost']),
+                'deferred_count': int(item['deferred_count']),
+                'age_cycles': int(item['age_cycles']),
+            }
+            for item in ranked
+            if int(item.get('escalation_boost', 0)) > 0
+        ]
+
+        return {
+            'predicted_priority_order': [item['signal_id'] for item in ranked],
+            'expected_escalations': expected_escalations,
+            'budget_effects': budget_effects,
+            'ranked_priorities': ranked,
+            'intents': intents,
+            'policy': policy,
+            'state_mutated': False,
+        }
+
+    def _intent_for_signal(self, signal: Dict[str, Any]) -> str:
+        institution_id = str(signal.get('institution_id', '')).strip().lower()
+        signal_type = str(signal.get('type', '')).strip().lower()
+
+        if institution_id == 'sentinel' and signal_type in {'alert', 'security_alert'}:
+            return 'review_sentinel_alert'
+        if institution_id == 'workshop' and signal_type in {'proposal', 'tool_proposal'}:
+            return 'evaluate_workshop_proposal'
+        if institution_id == 'academy' and signal_type in {'research', 'research_result'}:
+            return 'review_academy_research'
+        return 'investigate_signal'
+
+    def _assigned_institution_for_intent(self, signal: Dict[str, Any]) -> str:
+        institution_id = str(signal.get('institution_id', '')).strip().lower()
+        if institution_id:
+            return institution_id
+        return 'mission_control'
+
+    def _create_intent_record(self, signal: Dict[str, Any], intent_type: str, priority_score: int) -> Intent:
+        intent = Intent(
+            intent_id=f'intent_{uuid4().hex}',
+            source_priority=str(signal.get('signal_id') or ''),
+            intent_type=intent_type,
+            assigned_institution=self._assigned_institution_for_intent(signal),
+            status=IntentStatus.CREATED,
+            completion_state='pending',
+            metadata={
+                'priority': int(priority_score),
+                'signal_type': str(signal.get('type') or ''),
+            },
+        )
+        return self.store.upsert_intent(intent)
+
+    def update_intent_status(self, intent_id: str, status: str, completion_state: Optional[str] = None) -> Intent:
+        intent = self.store.get_intent(intent_id)
+        if intent is None:
+            raise ValueError(f'unknown intent: {intent_id}')
+        intent.status = IntentStatus(str(status))
+        if completion_state is not None:
+            intent.completion_state = str(completion_state)
+        intent.updated_at = utc_now()
+        return self.store.upsert_intent(intent)
+
+    def run_agenda_loop(self, signals: Optional[List[Dict[str, Any]]] = None, *, defer_threshold: int = 45) -> Dict[str, Any]:
+        observed_signals = [dict(item) for item in (signals or [])]
+        previous_agenda = self.store.get_executive_agenda()
+        previous_state = dict((previous_agenda.agenda_item_state if previous_agenda else {}) or {})
+        policy = self._resolve_agenda_policy()
+        ranked = self._rank_signals(
+            observed_signals,
+            previous_state,
+            defer_threshold=defer_threshold,
+            policy=policy,
+        )
+
+        intents: List[Dict[str, Any]] = []
+        for item in ranked:
+            if int(item.get('score', 0)) < defer_threshold:
+                continue
+            intent_type = self._intent_for_signal(item)
+            intent = self._create_intent_record(item, intent_type, int(item['score']))
+            intents.append(
+                {
+                    'intent_id': intent.intent_id,
+                    'intent_type': intent.intent_type,
+                    'priority': int(item['score']),
+                    'signal_id': item['signal_id'],
+                    'assigned_institution': intent.assigned_institution,
+                    'status': intent.status.value,
+                }
+            )
+
+        selected = ranked[0]['signal_id'] if ranked else ''
+        rejected = [item['signal_id'] for item in ranked[1:]]
+
+        identity_allowed, identity_result = self.identity.check_action(
+            action='agenda:prioritize',
+            context={'signals': [item.get('signal_id', '') for item in ranked]},
+        )
+        governance_checks = ['within_budget']
+        if len(intents) > int(self.config.max_dispatches):
+            governance_checks.append('budget_dispatch_exceeded')
+            intents = intents[: int(self.config.max_dispatches)]
+
+        rationale = (
+            f"selected {selected or 'none'} based on deterministic priority scoring "
+            f"(sentinel=100, mission_blocker=80, workshop=50, academy=40)"
+        )
+        if not identity_allowed:
+            rationale = f'{rationale}; identity caution: {identity_result}'
+
+        agenda = self._refresh_executive_agenda()
+
+        total_ready_score = sum(int(item['score']) for item in ranked if item['status'] == 'ready')
+        attention_budget: Dict[str, float] = {}
+        resource_budget: Dict[str, float] = {}
+        for item in ranked:
+            signal_id = str(item['signal_id'])
+            if item['status'] != 'ready':
+                attention_budget[signal_id] = 0.0
+                resource_budget[signal_id] = 0.0
+                continue
+            if total_ready_score <= 0:
+                weight = 0.0
+            else:
+                weight = float(item['score']) / float(total_ready_score)
+            attention_budget[signal_id] = round(weight, 4)
+            resource_budget[signal_id] = round(weight * float(self.config.max_resource_cost), 3)
+
+        agenda_item_state = {
+            item['signal_id']: {
+                'age_cycles': int(item['age_cycles']),
+                'deferred_count': int(item['deferred_count']),
+                'repeat_count': int(item['repeat_count']),
+                'last_base_score': int(item['base_score']),
+                'last_escalation_boost': int(item['escalation_boost']),
+                'last_effective_score': int(item['score']),
+                'last_status': str(item['status']),
+            }
+            for item in ranked
+        }
+
+        deferred_count_total = sum(1 for item in ranked if item['status'] == 'deferred')
+        active_count_total = sum(1 for item in ranked if item['status'] == 'ready')
+        blocked_count_total = sum(
+            1 for item in ranked if item.get('type') == 'mission_blocker' or int(item.get('score', 0)) >= 80
+        )
+        if blocked_count_total > 0:
+            budget_health = 'elevated'
+        elif active_count_total > int(self.config.max_dispatches):
+            budget_health = 'constrained'
+        else:
+            budget_health = 'healthy'
+
+        agenda.priorities = [
+            {
+                'priority_id': item['signal_id'],
+                'source': item['institution_id'] or 'signal',
+                'score': int(item['score']),
+                'status': item['status'],
+                'base_score': int(item['base_score']),
+                'escalation_boost': int(item['escalation_boost']),
+                'age_cycles': int(item['age_cycles']),
+                'deferred_count': int(item['deferred_count']),
+            }
+            for item in ranked
+        ]
+        agenda.strategic_priorities = [item['signal_id'] for item in ranked]
+        agenda.blockers = [
+            {'id': item['signal_id'], 'status': 'blocked'}
+            for item in ranked
+            if item.get('type') == 'mission_blocker' or int(item.get('score', 0)) >= 80
+        ]
+        agenda.blocked_items = [str(item['id']) for item in agenda.blockers]
+        agenda.agenda_item_state = agenda_item_state
+        agenda.attention_budget = attention_budget
+        agenda.resource_budget = resource_budget
+        agenda.budget_status = {
+            **dict(agenda.budget_status or {}),
+            'health': budget_health,
+            'active_count': active_count_total,
+            'deferred_count': deferred_count_total,
+            'blocked_count': blocked_count_total,
+            'policy': policy,
+        }
+        agenda.updated_at = utc_now()
+        self.store.set_executive_agenda(agenda)
+
+        decision = AgendaDecision(
+            decision_id=f'decision_{uuid4().hex}',
+            considered_inputs=[item['signal_id'] for item in ranked],
+            selected_priority=selected,
+            rejected_priorities=rejected,
+            rationale=rationale,
+            identity_checks=[identity_result],
+            governance_checks=governance_checks,
+            budget_impact=float(len(intents)),
+            emitted_intents=[item['intent_type'] for item in intents],
+        )
+        self.store.append_agenda_decision(decision)
+
+        return {
+            'agenda': agenda.to_dict(),
+            'ranked_priorities': ranked,
+            'intents': intents,
+            'decision': decision.to_dict(),
+        }
 
     def _sync_identity_dynamic(self) -> None:
         if not hasattr(self.identity, 'update_dynamic'):
