@@ -36,6 +36,16 @@ The autonomy stack now supports:
 
 G3 can now focus on local A2A protocol foundations with governance-preserving coordination.
 
+### 🧪 G3.0 Local A2A Protocol (Initial)
+
+First G3 implementation remains local-only and governance-constrained:
+
+- Local A2A message model and ledger.
+- Session-linked message exchange (`sender`, `receiver`, `timestamp`, `request`, `response`, `session_id`).
+- Identity and governance checks on send path.
+- Session and inbox query surfaces for audit and replay workflows.
+- No networking, clustering, or cross-node transport in this stage.
+
 ## 🏛️ v0.6-g1-executive-framework
 
 **Release Date:** May 30, 2026  

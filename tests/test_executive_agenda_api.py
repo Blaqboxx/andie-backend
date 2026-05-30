@@ -31,6 +31,8 @@ class ExecutiveAgendaApiTests(unittest.TestCase):
             delattr(app.state, 'executive_controller')
         if hasattr(app.state, 'bounded_scheduler'):
             delattr(app.state, 'bounded_scheduler')
+        if hasattr(app.state, 'a2a_router'):
+            delattr(app.state, 'a2a_router')
 
     def test_get_agenda_returns_current_snapshot(self) -> None:
         self.controller.run_agenda_loop(
@@ -372,6 +374,62 @@ class ExecutiveAgendaApiTests(unittest.TestCase):
 
         missing = self.client.get('/scheduler/sessions/session_missing/replay')
         self.assertEqual(missing.status_code, 404)
+
+    def test_a2a_local_protocol_endpoints_are_auditable_and_session_scoped(self) -> None:
+        session_id = 'session_local_a2a_demo'
+        sent = self.client.post(
+            '/a2a/messages',
+            json={
+                'sender': 'academy',
+                'receiver': 'workshop',
+                'message_type': 'research_request',
+                'session_id': session_id,
+                'payload': {'topic': 'energy_modeling'},
+            },
+        )
+        self.assertEqual(sent.status_code, 200)
+        sent_payload = sent.json()['message']
+        message_id = sent_payload['message_id']
+
+        self.assertEqual(sent_payload['sender'], 'academy')
+        self.assertEqual(sent_payload['receiver'], 'workshop')
+        self.assertEqual(sent_payload['session_id'], session_id)
+        self.assertEqual(sent_payload['message_type'], 'research_request')
+        self.assertIn('timestamp', sent_payload)
+        self.assertEqual(sent_payload['request']['topic'], 'energy_modeling')
+
+        fetched = self.client.get(f'/a2a/messages/{message_id}')
+        self.assertEqual(fetched.status_code, 200)
+        self.assertEqual(fetched.json()['message']['message_id'], message_id)
+
+        inbox = self.client.get('/a2a/inbox/workshop?limit=10')
+        self.assertEqual(inbox.status_code, 200)
+        self.assertGreaterEqual(inbox.json()['count'], 1)
+
+        session_msgs = self.client.get(f'/a2a/sessions/{session_id}/messages?limit=10')
+        self.assertEqual(session_msgs.status_code, 200)
+        self.assertEqual(session_msgs.json()['items'][0]['session_id'], session_id)
+
+        responded = self.client.post(
+            f'/a2a/messages/{message_id}/response',
+            json={'response': {'status': 'accepted', 'eta_hours': 4}},
+        )
+        self.assertEqual(responded.status_code, 200)
+        self.assertEqual(responded.json()['message']['status'], 'responded')
+        self.assertEqual(responded.json()['message']['response']['status'], 'accepted')
+
+    def test_a2a_local_protocol_blocks_mutation_message_types(self) -> None:
+        blocked = self.client.post(
+            '/a2a/messages',
+            json={
+                'sender': 'academy',
+                'receiver': 'workshop',
+                'message_type': 'world_mutation',
+                'session_id': 'session_local_a2a_blocked',
+                'payload': {'target': 'gpu_time'},
+            },
+        )
+        self.assertEqual(blocked.status_code, 403)
 
 
 if __name__ == '__main__':

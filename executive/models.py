@@ -60,6 +60,11 @@ class IntentStatus(str, Enum):
     CANCELLED = 'cancelled'
 
 
+class A2AMessageStatus(str, Enum):
+    DELIVERED = 'delivered'
+    RESPONDED = 'responded'
+
+
 @dataclass
 class WorldMutation:
     mutation_id: str
@@ -204,6 +209,30 @@ class Intent:
     def from_dict(cls, data: Dict[str, Any]) -> 'Intent':
         payload = dict(data)
         payload['status'] = IntentStatus(payload.get('status', IntentStatus.CREATED.value))
+        return cls(**payload)
+
+
+@dataclass
+class A2AMessage:
+    message_id: str
+    session_id: str
+    sender: str
+    receiver: str
+    timestamp: str
+    message_type: str
+    request: Dict[str, Any] = field(default_factory=dict)
+    response: Dict[str, Any] = field(default_factory=dict)
+    status: A2AMessageStatus = A2AMessageStatus.DELIVERED
+
+    def to_dict(self) -> Dict[str, Any]:
+        data = asdict(self)
+        data['status'] = self.status.value
+        return data
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'A2AMessage':
+        payload = dict(data)
+        payload['status'] = A2AMessageStatus(payload.get('status', A2AMessageStatus.DELIVERED.value))
         return cls(**payload)
 
 

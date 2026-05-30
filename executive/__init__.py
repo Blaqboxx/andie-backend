@@ -1,5 +1,6 @@
 from .controller import ExecutiveController
 from .bounded_scheduler import BoundedScheduler, SchedulerState
+from .a2a import LocalA2ARouter
 from .agenda_policy import DEFAULT_AGENDA_POLICY, load_agenda_policy, normalize_agenda_policy
 from .operational_slo import DEFAULT_OPERATIONAL_SLOS, load_operational_slos, normalize_operational_slos
 from .identity import (
@@ -14,6 +15,8 @@ from .identity import (
 from .models import (
     AgendaDecision,
     AgendaStatus,
+    A2AMessage,
+    A2AMessageStatus,
     AgentCallback,
     Civilization,
     CycleAudit,
@@ -50,6 +53,8 @@ __all__ = [
     'AgentCallback',
     'AgendaDecision',
     'AgendaStatus',
+    'A2AMessage',
+    'A2AMessageStatus',
     'Civilization',
     'ConstitutionCore',
     'CycleAudit',
@@ -83,6 +88,7 @@ __all__ = [
     'ReflectionEngine',
     'ReflectionRecord',
     'Resource',
+    'LocalA2ARouter',
     'StaticIdentityProvider',
     'Task',
     'TaskStatus',

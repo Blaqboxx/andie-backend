@@ -2946,6 +2946,22 @@ def _get_bounded_scheduler(request: Request):
     return scheduler
 
 
+def _get_a2a_router(request: Request):
+    router_instance = getattr(request.app.state, 'a2a_router', None)
+    if router_instance is not None:
+        return router_instance
+
+    controller = _get_executive_controller(request)
+    try:
+        from andie_backend.executive.a2a import LocalA2ARouter
+    except ModuleNotFoundError:
+        from executive.a2a import LocalA2ARouter
+
+    router_instance = LocalA2ARouter(controller)
+    request.app.state.a2a_router = router_instance
+    return router_instance
+
+
 @router.get("/executive/agenda")
 async def executive_agenda(request: Request):
     controller = _get_executive_controller(request)
@@ -3259,6 +3275,106 @@ async def scheduler_session_replay(session_id: str, request: Request):
     return {
         'status': 'ok',
         'replay': replay,
+    }
+
+
+@router.post('/a2a/messages')
+async def a2a_send_message(request: Request):
+    router_instance = _get_a2a_router(request)
+    payload = await request.json()
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail='payload must be an object')
+
+    required_fields = ['sender', 'receiver', 'message_type', 'session_id']
+    for field_name in required_fields:
+        value = payload.get(field_name)
+        if not isinstance(value, str) or not value.strip():
+            raise HTTPException(status_code=400, detail=f'{field_name} is required')
+
+    request_payload = payload.get('payload')
+    if request_payload is None:
+        request_payload = {}
+    if not isinstance(request_payload, dict):
+        raise HTTPException(status_code=400, detail='payload field must be an object')
+
+    try:
+        message = router_instance.send_message(
+            sender=str(payload['sender']).strip().lower(),
+            receiver=str(payload['receiver']).strip().lower(),
+            message_type=str(payload['message_type']).strip(),
+            payload=dict(request_payload),
+            session_id=str(payload['session_id']).strip(),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+    return {
+        'status': 'ok',
+        'message': message,
+    }
+
+
+@router.post('/a2a/messages/{message_id}/response')
+async def a2a_respond_message(message_id: str, request: Request):
+    router_instance = _get_a2a_router(request)
+    payload = await request.json()
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail='payload must be an object')
+
+    response_payload = payload.get('response')
+    if response_payload is None:
+        response_payload = {}
+    if not isinstance(response_payload, dict):
+        raise HTTPException(status_code=400, detail='response must be an object')
+
+    try:
+        message = router_instance.respond_message(message_id, response_payload)
+    except ValueError as exc:
+        if str(exc) == 'a2a_message_not_found':
+            raise HTTPException(status_code=404, detail='a2a message not found') from exc
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return {
+        'status': 'ok',
+        'message': message,
+    }
+
+
+@router.get('/a2a/messages/{message_id}')
+async def a2a_get_message(message_id: str, request: Request):
+    router_instance = _get_a2a_router(request)
+    message = router_instance.get_message(message_id)
+    if message is None:
+        raise HTTPException(status_code=404, detail='a2a message not found')
+    return {
+        'status': 'ok',
+        'message': message,
+    }
+
+
+@router.get('/a2a/sessions/{session_id}/messages')
+async def a2a_session_messages(session_id: str, request: Request, limit: int = 100):
+    router_instance = _get_a2a_router(request)
+    normalized_limit = max(1, min(int(limit), 500))
+    items = router_instance.list_session_messages(session_id=session_id, limit=normalized_limit)
+    return {
+        'status': 'ok',
+        'count': len(items),
+        'items': items,
+    }
+
+
+@router.get('/a2a/inbox/{receiver}')
+async def a2a_inbox(receiver: str, request: Request, limit: int = 100, session_id: str | None = None):
+    router_instance = _get_a2a_router(request)
+    normalized_limit = max(1, min(int(limit), 500))
+    items = router_instance.inbox(receiver=receiver, session_id=session_id, limit=normalized_limit)
+    return {
+        'status': 'ok',
+        'count': len(items),
+        'items': items,
     }
 
 

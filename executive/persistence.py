@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional
 
 from .models import (
     AgendaDecision,
+    A2AMessage,
     AgentCallback,
     Civilization,
     CycleAudit,
@@ -60,6 +61,7 @@ class ExecutiveStore:
             'operational_metrics': {},
             'intent_outcomes': [],
             'autonomy_sessions': {},
+            'a2a_messages': {},
         }
 
     def _load(self) -> Dict[str, Any]:
@@ -363,3 +365,40 @@ class ExecutiveStore:
             self._state['operational_metrics'] = dict(metrics or {})
             self._save()
             return dict(self._state['operational_metrics'])
+
+    def append_a2a_message(self, message: A2AMessage) -> A2AMessage:
+        with self._lock:
+            messages = dict(self._state.get('a2a_messages') or {})
+            messages[message.message_id] = message.to_dict()
+            self._state['a2a_messages'] = messages
+            self._save()
+            return message
+
+    def get_a2a_message(self, message_id: str) -> Optional[A2AMessage]:
+        messages = self._state.get('a2a_messages')
+        if not isinstance(messages, dict):
+            return None
+        raw = messages.get(message_id)
+        return A2AMessage.from_dict(raw) if isinstance(raw, dict) else None
+
+    def list_a2a_messages(
+        self,
+        *,
+        session_id: str | None = None,
+        sender: str | None = None,
+        receiver: str | None = None,
+    ) -> List[A2AMessage]:
+        messages = self._state.get('a2a_messages')
+        if not isinstance(messages, dict):
+            return []
+
+        items = [A2AMessage.from_dict(item) for item in messages.values() if isinstance(item, dict)]
+        if session_id is not None:
+            items = [item for item in items if item.session_id == session_id]
+        if sender is not None:
+            items = [item for item in items if item.sender == sender]
+        if receiver is not None:
+            items = [item for item in items if item.receiver == receiver]
+
+        items.sort(key=lambda item: item.timestamp)
+        return items

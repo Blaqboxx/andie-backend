@@ -86,6 +86,16 @@ Mandatory audit fields for A2A exchanges:
 
 G3.0 scope is a local A2A protocol only (no multi-node networking).
 
+## G3.0 Local A2A Protocol (Initial)
+
+Implemented as a local process protocol with no networking layer.
+
+- Message model includes `message_id`, `session_id`, `sender`, `receiver`, `timestamp`, `message_type`, `request`, `response`, and `status`.
+- Message ledger supports append, get-by-id, and session-scoped listing.
+- Router supports send, respond, inbox, and session replay-style retrieval.
+- Every send path enforces identity checks, governance restrictions, and audit write.
+- Mutation-oriented message types are blocked by governance policy in local protocol mode.
+
 ## A2A Placement
 
 Agent-to-Agent (A2A) collaboration is scheduled after G1 hardening and before broad distributed autonomy.
