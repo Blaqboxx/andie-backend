@@ -881,6 +881,60 @@ class ExecutiveController:
             return institution_id
         return 'mission_control'
 
+    def list_intent_outcomes(self, limit: int = 100) -> List[Dict[str, Any]]:
+        normalized_limit = max(1, min(int(limit), 500))
+        outcomes = self.store.list_intent_outcomes()
+        return list(reversed(outcomes[-normalized_limit:]))
+
+    def _apply_intent_outcome_feedback(self, intent: Intent) -> None:
+        status = intent.status.value
+        completion_state = str(intent.completion_state or '')
+        source_priority = str(intent.source_priority or '').strip()
+
+        outcome_event = {
+            'intent_id': intent.intent_id,
+            'source_priority': source_priority,
+            'status': status,
+            'completion_state': completion_state,
+            'assigned_institution': intent.assigned_institution,
+            'timestamp': utc_now(),
+        }
+        self.store.append_intent_outcome(outcome_event)
+
+        agenda = self.store.get_executive_agenda()
+        if agenda is None or not source_priority:
+            return
+
+        state = dict(agenda.agenda_item_state.get(source_priority) or {})
+        state['outcome_events'] = int(state.get('outcome_events', 0)) + 1
+        state['last_intent_status'] = status
+        state['last_completion_state'] = completion_state
+        state['last_outcome_at'] = outcome_event['timestamp']
+
+        if status == IntentStatus.COMPLETED.value:
+            state['completed_events'] = int(state.get('completed_events', 0)) + 1
+        elif status in {IntentStatus.FAILED.value, IntentStatus.CANCELLED.value} or completion_state in {
+            'stalled',
+            'blocked',
+        }:
+            state['failed_events'] = int(state.get('failed_events', 0)) + 1
+            state['needs_replan'] = True
+
+        agenda.agenda_item_state[source_priority] = state
+        for priority in agenda.priorities:
+            if str(priority.get('priority_id', '')) != source_priority:
+                continue
+            priority['last_intent_status'] = status
+            priority['last_completion_state'] = completion_state
+            if state.get('needs_replan'):
+                priority['feedback'] = 'needs_replan'
+            elif status == IntentStatus.COMPLETED.value:
+                priority['feedback'] = 'completed'
+            break
+
+        agenda.updated_at = utc_now()
+        self.store.set_executive_agenda(agenda)
+
     def _create_intent_record(
         self,
         signal: Dict[str, Any],
@@ -914,6 +968,8 @@ class ExecutiveController:
             intent.completion_state = str(completion_state)
         intent.updated_at = utc_now()
         updated = self.store.upsert_intent(intent)
+
+        self._apply_intent_outcome_feedback(updated)
 
         if prior_status != IntentStatus.COMPLETED and updated.status == IntentStatus.COMPLETED:
             metrics = self._load_operational_metrics()

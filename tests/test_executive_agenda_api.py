@@ -270,6 +270,40 @@ class ExecutiveAgendaApiTests(unittest.TestCase):
         self.assertEqual(reasons_payload['halt_reasons']['counts']['policy_violation_rate'], 1)
         self.assertEqual(reasons_payload['halt_reasons']['last_halt_reason'], 'policy_violation_rate')
 
+    def test_intent_outcome_feedback_updates_agenda_and_history(self) -> None:
+        run = self.controller.run_agenda_loop(
+            [
+                {'signal_id': 'workshop:proposal:feedback', 'institution_id': 'workshop', 'type': 'tool_proposal'},
+                {'signal_id': 'sentinel:alert:feedback', 'institution_id': 'sentinel', 'type': 'security_alert'},
+            ],
+            defer_threshold=45,
+        )
+        self.assertGreaterEqual(len(run['intents']), 1)
+        intent_id = run['intents'][0]['intent_id']
+        source_priority = run['intents'][0]['signal_id']
+
+        updated = self.client.post(
+            f'/executive/intents/{intent_id}/status',
+            json={'status': 'failed', 'completion_state': 'stalled'},
+        )
+        self.assertEqual(updated.status_code, 200)
+
+        agenda = self.client.get('/executive/agenda')
+        self.assertEqual(agenda.status_code, 200)
+        agenda_state = agenda.json()['agenda']['agenda_item_state']
+        self.assertIn(source_priority, agenda_state)
+        self.assertEqual(agenda_state[source_priority]['last_intent_status'], 'failed')
+        self.assertEqual(agenda_state[source_priority]['last_completion_state'], 'stalled')
+        self.assertTrue(agenda_state[source_priority]['needs_replan'])
+
+        outcomes = self.client.get('/executive/intent-outcomes?limit=10')
+        self.assertEqual(outcomes.status_code, 200)
+        payload = outcomes.json()
+        self.assertEqual(payload['status'], 'ok')
+        self.assertGreaterEqual(payload['count'], 1)
+        self.assertEqual(payload['items'][0]['intent_id'], intent_id)
+        self.assertEqual(payload['items'][0]['status'], 'failed')
+
 
 if __name__ == '__main__':
     unittest.main()

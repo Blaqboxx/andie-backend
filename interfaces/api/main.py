@@ -3130,6 +3130,18 @@ async def executive_operational_slo(request: Request):
     return controller.get_operational_slo_snapshot()
 
 
+@router.get('/executive/intent-outcomes')
+async def executive_intent_outcomes(request: Request, limit: int = 100):
+    controller = _get_executive_controller(request)
+    normalized_limit = max(1, min(int(limit), 500))
+    items = controller.list_intent_outcomes(limit=normalized_limit)
+    return {
+        'status': 'ok',
+        'count': len(items),
+        'items': items,
+    }
+
+
 @router.get('/scheduler/status')
 async def scheduler_status(request: Request):
     scheduler = _get_bounded_scheduler(request)

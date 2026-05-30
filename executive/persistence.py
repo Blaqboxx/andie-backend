@@ -58,6 +58,7 @@ class ExecutiveStore:
             'cycle_log': [],
             'cycle_audits': {},
             'operational_metrics': {},
+            'intent_outcomes': [],
         }
 
     def _load(self) -> Dict[str, Any]:
@@ -309,6 +310,20 @@ class ExecutiveStore:
 
     def list_cycle_audits(self) -> List[CycleAudit]:
         return [CycleAudit.from_dict(item) for item in self._state['cycle_audits'].values()]
+
+    def append_intent_outcome(self, event: Dict[str, Any]) -> Dict[str, Any]:
+        with self._lock:
+            current = list(self._state.get('intent_outcomes') or [])
+            current.append(dict(event or {}))
+            self._state['intent_outcomes'] = current[-500:]
+            self._save()
+            return dict(event or {})
+
+    def list_intent_outcomes(self) -> List[Dict[str, Any]]:
+        raw = self._state.get('intent_outcomes')
+        if not isinstance(raw, list):
+            return []
+        return [dict(item) for item in raw if isinstance(item, dict)]
 
     def get_operational_metrics(self) -> Dict[str, Any]:
         raw = self._state.get('operational_metrics')
