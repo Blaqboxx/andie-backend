@@ -1,4 +1,5 @@
 import json
+import sys
 import tempfile
 import time
 import unittest
@@ -6,6 +7,10 @@ from pathlib import Path
 from urllib import request
 
 import psutil
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 try:
     from andie_backend.autonomy.memory_store import MemoryStore

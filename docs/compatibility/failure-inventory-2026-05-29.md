@@ -68,3 +68,44 @@ Updated prioritization:
 3. Normalize autonomy control state defaults (`_autonomy_state`) to avoid NameError paths.
 4. Re-run `tests.test_skills_api` in isolation until green.
 5. Re-run full discovery and refresh this inventory.
+
+## Update 2026-05-30 (skills control-plane pass)
+- Implemented consolidated skills/control-plane compatibility contracts in interfaces/api/main.py.
+- Restored shared module alignment for outcome/control metrics and policy audit logging.
+- Unified skills registry wiring to avoid split namespace registration issues.
+- Validation: PYTHONDONTWRITEBYTECODE=1 python3 -m unittest -v tests.test_skills_api -> 47/47 passing.
+
+## Update 2026-05-29 (full discovery refresh post skills/control-plane)
+- Run: PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests
+- Result: 233 run, 1 error, 1 skipped
+- Status: major reduction from prior 10 failures + 3 errors baseline.
+
+Remaining failing cluster:
+1. tests/test_capital_orchestration.py
+- Symptom: ModuleNotFoundError: No module named andie_backend.trading
+- Classification: namespace compatibility shim/import-path gap (legacy package export)
+
+Interpretation:
+- Skills/control-plane hotspot is now fully green in suite-level validation.
+- Remaining debt appears concentrated in legacy namespace/export compatibility, not governance or executive logic.
+
+## Final Baseline 2026-05-29 (discovery modes aligned)
+- Runs:
+  - PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests
+  - PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -t .
+- Result (both): 234 discovered, 233 passed, 1 skipped, 0 failures, 0 errors.
+
+Final blocker root cause:
+- Discovery import order occasionally preloaded a non-repo andie_backend package instance.
+- That polluted sys.modules and removed andie_backend.trading from namespace resolution.
+
+Stabilization fix summary:
+1. tests/test_effectiveness_load_phase5j.py
+- Insert REPO_ROOT into sys.path before any andie_backend import path is attempted.
+
+2. tests/test_capital_orchestration.py
+- If preloaded andie_backend is not repo-backed, evict andie_backend* entries from sys.modules.
+- Invalidate importlib caches and rebind package __path__ to repository-backed namespace candidates.
+
+Outcome:
+- Namespace resolution is now deterministic under both unittest discovery modes.
