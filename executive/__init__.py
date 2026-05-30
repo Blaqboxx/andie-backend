@@ -14,8 +14,6 @@ from .models import (
     CycleAudit,
     CycleBudget,
     DispatchEnvelope,
-    ExecutiveAgenda,
-    ExecutiveAgenda,
     ExecutiveConfig,
     Goal,
     GoalStatus,

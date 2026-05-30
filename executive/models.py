@@ -113,21 +113,6 @@ class InstitutionProfile:
         return cls(**dict(data))
 
 
-@dataclass
-class ExecutiveAgenda:
-    active_goals: List[str] = field(default_factory=list)
-    pending_proposals: List[str] = field(default_factory=list)
-    institution_requests: List[str] = field(default_factory=list)
-    strategic_priorities: List[str] = field(default_factory=list)
-    blocked_items: List[str] = field(default_factory=list)
-    updated_at: str = field(default_factory=utc_now)
-
-    def to_dict(self) -> Dict[str, Any]:
-        return asdict(self)
-
-    @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> ExecutiveAgenda:
-        return cls(**dict(data))
 
 
 @dataclass
