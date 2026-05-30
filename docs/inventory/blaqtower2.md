@@ -4,6 +4,12 @@
 
 Verified from the local machine.
 
+## Verification
+
+- verified_at: 2026-05-30
+- verified_by: operator
+- confidence: verified
+
 ## Host Identity
 
 - Hostname: Blaqtower2

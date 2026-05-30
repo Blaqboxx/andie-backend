@@ -4,6 +4,12 @@
 
 Unverified. This record captures the intended role and the fields that should be confirmed from the node itself.
 
+## Verification
+
+- verified_at: null
+- verified_by: null
+- confidence: assumed
+
 ## Intended Role
 
 - Inference and model-serving host

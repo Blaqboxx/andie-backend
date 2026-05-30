@@ -47,6 +47,10 @@ registry:
     confidence: medium
     verification_status: needs_node_level_confirmation
     inventory_file: ../inventory/blaqtower2.md
+    verification:
+      verified_at: '2026-05-30'
+      verified_by: operator
+      confidence: verified
     services:
       - executive_controller
       - scheduler
@@ -59,6 +63,10 @@ registry:
     confidence: low
     verification_status: needs_node_level_confirmation
     inventory_file: ../inventory/nuc1.md
+    verification:
+      verified_at: null
+      verified_by: null
+      confidence: assumed
     services:
       - sentinel
       - academy
@@ -70,6 +78,10 @@ registry:
     confidence: low
     verification_status: needs_node_level_confirmation
     inventory_file: ../inventory/gpu-pc.md
+    verification:
+      verified_at: null
+      verified_by: null
+      confidence: assumed
     services:
       - llm_server
       - embedding_server
@@ -78,6 +90,10 @@ registry:
     role: runtime_state
     confidence: high
     verification_status: verified
+    verification:
+      verified_at: '2026-05-30'
+      verified_by: operator
+      confidence: verified
     services:
       - executive
       - identity
@@ -88,6 +104,10 @@ registry:
     role: operational_data
     confidence: high
     verification_status: verified
+    verification:
+      verified_at: '2026-05-30'
+      verified_by: operator
+      confidence: verified
     services:
       - shared_data
       - working_sets
@@ -96,6 +116,10 @@ registry:
     role: long_term_storage
     confidence: high
     verification_status: verified
+    verification:
+      verified_at: '2026-05-30'
+      verified_by: operator
+      confidence: verified
     services:
       - archives
       - backups
