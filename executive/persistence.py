@@ -10,6 +10,7 @@ from .models import (
     Civilization,
     CycleAudit,
     DispatchEnvelope,
+    ExecutiveAgenda,
     ExecutiveConfig,
     Goal,
     Institution,

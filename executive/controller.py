@@ -11,6 +11,7 @@ from .models import (
     AgentCallback,
     CycleAudit,
     DispatchEnvelope,
+    ExecutiveAgenda,
     ExecutiveConfig,
     Goal,
     GoalStatus,
@@ -203,6 +204,7 @@ class ExecutiveController:
             },
         )
         self.store.upsert_proposal(proposal)
+        self._refresh_executive_agenda()
         return proposal.to_dict()
 
     def review_proposal(self, proposal_id: str, approve: bool, rationale: str = '') -> Dict[str, Any]:
@@ -231,6 +233,7 @@ class ExecutiveController:
             'escalation_rules': list(profile.escalation_rules),
         }
         self.store.upsert_proposal(proposal)
+        self._refresh_executive_agenda()
         return proposal.to_dict()
 
     def veto_proposal(self, proposal_id: str, rationale: str = '', veto_institution_id: str = 'sentinel') -> Dict[str, Any]:
@@ -255,6 +258,7 @@ class ExecutiveController:
             'escalation_rules': list(profile.escalation_rules),
         }
         self.store.upsert_proposal(proposal)
+        self._refresh_executive_agenda()
         return proposal.to_dict()
 
     def execute_proposal(self, proposal_id: str, actor: str = 'executive') -> Dict[str, Any]:
@@ -298,6 +302,7 @@ class ExecutiveController:
         proposal.executed_at = utc_now()
         proposal.outcome = {**proposal.outcome, 'mutation_id': mutation.mutation_id}
         self.store.upsert_proposal(proposal)
+        self._refresh_executive_agenda()
         return mutation.to_dict()
 
     def apply_world_mutation(
@@ -312,6 +317,62 @@ class ExecutiveController:
     ) -> Dict[str, Any]:
         raise PermissionError('direct_world_mutation_disabled_use_proposal_pipeline')
 
+
+    def _build_executive_agenda(self) -> ExecutiveAgenda:
+        goals = self.store.list_goals()
+        proposals = self.store.list_proposals()
+
+        active_goals = [
+            goal.goal_id
+            for goal in goals
+            if goal.status in {GoalStatus.DRAFT, GoalStatus.ACTIVE, GoalStatus.BLOCKED}
+        ]
+        pending_proposals = [
+            proposal.proposal_id
+            for proposal in proposals
+            if proposal.status == ProposalStatus.PENDING
+        ]
+        institution_requests = sorted(
+            {
+                proposal.institution_id
+                for proposal in proposals
+                if proposal.status == ProposalStatus.PENDING
+            }
+        )
+        strategic_priorities = [
+            goal.goal_id
+            for goal in sorted(
+                [item for item in goals if item.status in {GoalStatus.DRAFT, GoalStatus.ACTIVE}],
+                key=lambda item: (_priority_rank(item.priority), item.created_at),
+            )
+        ]
+
+        blocked_items = [
+            f'goal:{goal.goal_id}'
+            for goal in goals
+            if goal.status == GoalStatus.BLOCKED
+        ]
+        blocked_items.extend(
+            [
+                f'proposal:{proposal.proposal_id}'
+                for proposal in proposals
+                if proposal.status == ProposalStatus.REJECTED
+            ]
+        )
+
+        return ExecutiveAgenda(
+            active_goals=active_goals,
+            pending_proposals=pending_proposals,
+            institution_requests=institution_requests,
+            strategic_priorities=strategic_priorities,
+            blocked_items=blocked_items,
+            updated_at=utc_now(),
+        )
+
+    def _refresh_executive_agenda(self) -> ExecutiveAgenda:
+        agenda = self._build_executive_agenda()
+        self.store.set_executive_agenda(agenda)
+        return agenda
 
     def _sync_identity_dynamic(self) -> None:
         if not hasattr(self.identity, 'update_dynamic'):
@@ -493,6 +554,7 @@ class ExecutiveController:
     def run_cycle(self) -> Dict[str, Any]:
         started = time.monotonic()
         notes: List[str] = []
+        self._refresh_executive_agenda()
 
         goals = [goal for goal in self.store.list_goals() if goal.status in {GoalStatus.DRAFT, GoalStatus.ACTIVE}]
         observed = len(goals)
@@ -582,5 +644,6 @@ class ExecutiveController:
             )
         )
 
+        self._refresh_executive_agenda()
         self._sync_identity_dynamic()
         return outcome.to_dict()
