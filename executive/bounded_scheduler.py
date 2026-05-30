@@ -100,6 +100,67 @@ class BoundedScheduler:
         self._append_history(result)
         return result
 
+    def run_cycles(self, cycles: int) -> Dict[str, Any]:
+        requested_cycles = max(1, int(cycles))
+        executed_cycles = 0
+        last_result: Dict[str, Any] | None = None
+
+        for _ in range(requested_cycles):
+            last_result = self.run_once()
+            if str(last_result.get('status')) != 'ran':
+                break
+            executed_cycles += 1
+
+        if last_result is None:
+            last_result = {
+                'status': 'skipped',
+                'reason': 'scheduler_disabled',
+                'state': self._state_dict(),
+            }
+
+        return {
+            'status': str(last_result.get('status', 'unknown')),
+            'reason': last_result.get('reason'),
+            'requested_cycles': requested_cycles,
+            'executed_cycles': executed_cycles,
+            'state': self._state_dict(),
+        }
+
+    def run_until_halt(self, max_cycles: int = 100) -> Dict[str, Any]:
+        cycle_limit = max(1, int(max_cycles))
+        executed_cycles = 0
+        last_result: Dict[str, Any] | None = None
+
+        while executed_cycles < cycle_limit:
+            last_result = self.run_once()
+            if str(last_result.get('status')) != 'ran':
+                break
+            executed_cycles += 1
+
+        if last_result is None:
+            last_result = {
+                'status': 'skipped',
+                'reason': 'scheduler_disabled',
+                'state': self._state_dict(),
+            }
+
+        if str(last_result.get('status')) == 'ran' and executed_cycles >= cycle_limit:
+            return {
+                'status': 'max_cycles_reached',
+                'reason': None,
+                'max_cycles': cycle_limit,
+                'executed_cycles': executed_cycles,
+                'state': self._state_dict(),
+            }
+
+        return {
+            'status': str(last_result.get('status', 'unknown')),
+            'reason': last_result.get('reason'),
+            'max_cycles': cycle_limit,
+            'executed_cycles': executed_cycles,
+            'state': self._state_dict(),
+        }
+
     def status(self) -> Dict[str, Any]:
         return self._state_dict()
 

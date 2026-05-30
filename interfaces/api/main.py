@@ -3172,6 +3172,60 @@ async def scheduler_halt_reasons(request: Request):
     }
 
 
+@router.post('/scheduler/run-once')
+async def scheduler_run_once(request: Request):
+    scheduler = _get_bounded_scheduler(request)
+    if not scheduler.state.enabled:
+        scheduler.start()
+    result = scheduler.run_once()
+    return {
+        'status': 'ok',
+        'result': result,
+    }
+
+
+@router.post('/scheduler/run-cycles')
+async def scheduler_run_cycles(request: Request):
+    scheduler = _get_bounded_scheduler(request)
+    payload = await request.json()
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail='payload must be an object')
+    cycles = payload.get('cycles', 1)
+    try:
+        normalized_cycles = max(1, min(int(cycles), 500))
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail='cycles must be an integer') from exc
+    if not scheduler.state.enabled:
+        scheduler.start()
+    result = scheduler.run_cycles(normalized_cycles)
+    return {
+        'status': 'ok',
+        'result': result,
+    }
+
+
+@router.post('/scheduler/run-until-halt')
+async def scheduler_run_until_halt(request: Request):
+    scheduler = _get_bounded_scheduler(request)
+    payload = await request.json()
+    if payload is None:
+        payload = {}
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail='payload must be an object')
+    max_cycles = payload.get('max_cycles', 100)
+    try:
+        normalized_max_cycles = max(1, min(int(max_cycles), 1000))
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail='max_cycles must be an integer') from exc
+    if not scheduler.state.enabled:
+        scheduler.start()
+    result = scheduler.run_until_halt(normalized_max_cycles)
+    return {
+        'status': 'ok',
+        'result': result,
+    }
+
+
 
 # ---- Legacy Compatibility Endpoints ----
 _AGENT_ALIASES = {"cryptonia_historical_agent": "coinmarketcap_agent"}

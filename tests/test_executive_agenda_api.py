@@ -304,6 +304,38 @@ class ExecutiveAgendaApiTests(unittest.TestCase):
         self.assertEqual(payload['items'][0]['intent_id'], intent_id)
         self.assertEqual(payload['items'][0]['status'], 'failed')
 
+    def test_scheduler_control_endpoints_run_once_run_cycles_and_until_halt(self) -> None:
+        scheduler = BoundedScheduler(self.controller, interval_seconds=3)
+        app.state.bounded_scheduler = scheduler
+
+        run_once = self.client.post('/scheduler/run-once', json={})
+        self.assertEqual(run_once.status_code, 200)
+        run_once_payload = run_once.json()
+        self.assertEqual(run_once_payload['status'], 'ok')
+        self.assertEqual(run_once_payload['result']['status'], 'ran')
+
+        run_cycles = self.client.post('/scheduler/run-cycles', json={'cycles': 2})
+        self.assertEqual(run_cycles.status_code, 200)
+        run_cycles_payload = run_cycles.json()
+        self.assertEqual(run_cycles_payload['status'], 'ok')
+        self.assertEqual(run_cycles_payload['result']['requested_cycles'], 2)
+        self.assertEqual(run_cycles_payload['result']['executed_cycles'], 2)
+
+        with self.assertRaises(PermissionError):
+            self.controller.submit_proposal(
+                institution_id='workshop',
+                proposal_type='policy_update',
+                payload={},
+            )
+
+        until_halt = self.client.post('/scheduler/run-until-halt', json={'max_cycles': 5})
+        self.assertEqual(until_halt.status_code, 200)
+        until_halt_payload = until_halt.json()
+        self.assertEqual(until_halt_payload['status'], 'ok')
+        self.assertEqual(until_halt_payload['result']['status'], 'halted')
+        self.assertEqual(until_halt_payload['result']['reason'], 'policy_violation_rate')
+        self.assertEqual(until_halt_payload['result']['executed_cycles'], 0)
+
 
 if __name__ == '__main__':
     unittest.main()
