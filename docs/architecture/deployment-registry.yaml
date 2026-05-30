@@ -163,6 +163,9 @@ registry:
       - history
 
 unknowns:
+  - blaqtower1_resolvable_name_or_ip
+  - ssh_credentials_for_blaqtower1
+  - ssh_credentials_for_blaqtower3
   - qdrant_location
   - redis_location
   - mission_control_host

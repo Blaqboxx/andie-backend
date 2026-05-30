@@ -54,3 +54,5 @@ Unverified. This record captures the intended role and the fields that should be
 
 - Treat all service placement here as best-known, not authoritative.
 - Do not promote this record to verified until the node itself is inspected.
+- 2026-05-30 verification attempt from `Blaqtower2`: hostname `Blaqtower1` was not resolvable; likely peer `blaqtower` exists on tailnet but identity is not yet confirmed.
+- Promotion to verified is blocked pending a resolvable endpoint and valid SSH credentials.

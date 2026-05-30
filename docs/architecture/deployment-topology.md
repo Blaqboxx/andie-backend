@@ -38,11 +38,20 @@ The registry below records the current best-known placement model.
 
 These items should be confirmed from the nodes themselves before being treated as authoritative:
 
+- Canonical resolvable endpoint for `Blaqtower1` (current direct lookup failed)
+- SSH credentials for `Blaqtower1` and `Blaqtower3` (host reachability exists for peers, but authentication fails)
 - Whether Qdrant runs on `blaqtower2`, `nuc1`, or a separate node
 - Whether Redis runs locally on `blaqtower2` or on a support node
 - Whether Mission Control is an API surface inside `blaqtower2` or a separate service on `nuc1`
 - Whether Sentinel is deployed on `nuc1` or embedded in the core node
 - Which machine hosts the LLM runtime and any embedding/vision services
+
+## Verification Attempt Snapshot (2026-05-30)
+
+- `Blaqtower3` resolves on tailnet and is network-reachable.
+- `Blaqtower1` does not currently resolve by that hostname from `Blaqtower2`.
+- A likely peer `blaqtower` is reachable on tailnet, but its identity is unconfirmed.
+- SSH access is currently blocked by missing authorized credentials for the current operator account.
 
 ## Ownership Model
 

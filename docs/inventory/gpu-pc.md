@@ -52,3 +52,5 @@ Unverified. This record captures the intended role and the fields that should be
 
 - Treat all service placement here as best-known, not authoritative.
 - Do not promote this record to verified until the node itself is inspected.
+- 2026-05-30 verification attempt from `Blaqtower2`: `Blaqtower3` resolved and was reachable on tailnet, but SSH authentication failed for the current operator account.
+- Promotion to verified is blocked pending valid SSH credentials for node-level inspection.
