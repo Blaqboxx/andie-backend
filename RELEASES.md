@@ -1,5 +1,42 @@
 # ANDIE Release Milestones
 
+## 🛰️ v0.8-infrastructure-verified
+
+**Release Date:** May 30, 2026
+**Status:** ✅ Feature-Complete (Topology and Node Verification)
+**Git Tag:** `valhalla-infrastructure-verified`
+**Milestone Commit:** `ff8cfaf`
+
+### 🎯 Strategic Significance
+
+This milestone marks the transition from planned infrastructure to verified infrastructure.
+
+Infrastructure confidence moved from:
+
+- 1 of 3 nodes verified (~33%)
+
+to:
+
+- 3 of 3 nodes verified (100%)
+
+### ✅ Verified Topology State
+
+- `blaqtower2`: Valhalla core host (executive, governance, identity, scheduler, mission control).
+- `nuc1` / `Blaqtower1` (verified endpoint observed as `blaqtower`): institution and support services host.
+- `gpu_pc` / `Blaqtower3`: inference and model runtime host.
+- Storage tiers remain verified as runtime-state and archival persistence layers.
+
+### ✅ Verification Evidence Captured
+
+- Node-level SSH inspection completed for `blaqtower` and `blaqtower3`.
+- Host identity, kernel, CPU, memory, storage, running containers, and running services were captured.
+- `docs/inventory/nuc1.md` and `docs/inventory/gpu-pc.md` promoted from `assumed` to `verified`.
+- `docs/architecture/deployment-registry.yaml` confidence and verification status promoted to `high`/`verified` for both nodes.
+
+### 🚀 What This Unblocks
+
+G3 can transition from documentation-first topology planning to deployment-anchored distributed coordination work across verified nodes.
+
 ## 🧭 v0.7-g2-bounded-autonomy
 
 **Release Date:** May 30, 2026  
