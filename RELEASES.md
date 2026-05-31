@@ -25,6 +25,14 @@ This milestone starts live operational verification to prove that real multi-nod
 - Audit completeness.
 - Governance-preserving execution under failure.
 
+### ⛔ Active Blockers
+
+- Coordinator A2A API endpoint not currently reachable at hardening run target.
+- Academy/Inference node API endpoints not currently reachable from coordinator.
+- Non-interactive SSH access to `blaqtower` and `blaqtower3` not available for operator checks.
+
+Hardening remains in-progress until these operational prerequisites are restored.
+
 ### 🚀 Exit Condition
 
 Promote to final G3.5 release tag only after live evidence artifacts pass hardening gates.

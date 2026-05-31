@@ -30,6 +30,8 @@ This stage does not introduce new workflow, transport, governance, or identity f
 
 Use scripts/g35_release_hardening.py to produce a machine-readable hardening report.
 
+Use scripts/g35_release_hardening_preflight.sh before any hardening run to verify environment readiness.
+
 ### Preconditions
 
 1. API reachable on the selected base URL.
@@ -47,6 +49,12 @@ python3 scripts/g35_release_hardening.py \
   --require-inter-node-mode \
   --outage-mode none \
   --output artifacts/g35/release_hardening_standard.json
+
+### Preflight Gate
+
+Run this first on the coordinator host:
+
+./scripts/g35_release_hardening_preflight.sh
 
 ### Simulated Outage Gate
 
@@ -93,6 +101,18 @@ The report must confirm:
 2. An outage-mode hardening report passes with deterministic timed_out outcomes.
 3. Evidence artifacts are archived with operator, timestamp, and environment context.
 4. No contract changes are introduced during hardening.
+
+## Blocker Handling
+
+If hardening cannot execute live, record blockers explicitly and do not advance to final release tag.
+
+Typical blockers:
+- coordinator API not reachable.
+- academy/inference node APIs not reachable.
+- missing inter-node environment variables.
+- missing non-interactive SSH access to Blaqtower1/Blaqtower3.
+
+Until these blockers are cleared, only preflight and dry-run evidence should be collected.
 
 ## Next Step
 
