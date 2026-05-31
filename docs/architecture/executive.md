@@ -29,6 +29,9 @@ Current executive maturity is tracked as:
 - G2.2 Intent Outcome Feedback: complete.
 - G2.3 Controlled Multi-cycle Execution: complete.
 - G2.4 Autonomy Session Tracking and Replay: complete.
+- G3.0 Local A2A Protocol: complete.
+- G3.1 Local A2A Router Conformance: complete.
+- G3.2 Institution Workflow Exchange: complete.
 
 ## G1.4 Operational Readiness
 
@@ -115,6 +118,16 @@ The local router now enforces conformance against the frozen G3.0 contract.
 - Governance and identity failures are persisted as auditable rejected messages.
 - Timeout transitions are deterministic and persisted with machine-readable error codes.
 - Replay and query surfaces preserve correlation chains and status transitions.
+
+## G3.2 Institution Workflow Exchange
+
+The local router now proves governed institution collaboration, not just message delivery.
+
+- Workshop can delegate research work to Academy and receive a governed result back.
+- Workflow exchange preserves `session_id` and `correlation_id` across the full request/response chain.
+- Timeout workflows remain deterministic and replayable.
+- Governance-denied workflow attempts are written to the audit ledger.
+- Replay surfaces can return the complete workflow exchange for a session and correlation chain.
 
 ## A2A Placement
 

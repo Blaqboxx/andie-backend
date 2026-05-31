@@ -1,5 +1,32 @@
 # ANDIE Release Milestones
 
+## 🎯 v1.1-g3-institution-workflow-exchange
+
+**Release Date:** May 30, 2026
+**Status:** ✅ Feature-Complete (G3.2 Institution Workflow Exchange)
+**Git Tag:** `valhalla-g3-institution-workflow-exchange`
+
+### 🎯 Strategic Significance
+
+This milestone proves that governed institutions can collaborate through the local A2A layer while preserving audit, identity, timeout, and governance guarantees.
+
+### ✅ Completion Gate
+
+- Successful Workshop -> Academy -> Workshop exchange with full audit chain.
+- Deterministic timeout workflow with replayable timeout state.
+- Governance denial for prohibited workflow requests with audit evidence.
+- Correlation integrity across all request/response events.
+- Replay query for the complete workflow sequence.
+
+### 🧪 Validation
+
+- `tests.test_a2a_local_router_conformance`: passing.
+- `tests.test_executive_agenda_api`: passing.
+
+### 🚀 What This Unblocks
+
+The local A2A layer is now ready for inter-node transport design without changing workflow semantics.
+
 ## 🔧 v1.0-g3-local-a2a-router-conformance
 
 **Release Date:** May 30, 2026
