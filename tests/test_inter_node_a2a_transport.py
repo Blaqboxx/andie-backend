@@ -50,6 +50,11 @@ class _FakeTransportClient:
         return router.list_session_messages(session_id=session_id, limit=limit)
 
 
+class _ExceptionTransportClient(_FakeTransportClient):
+    def send_message(self, *, node_id, payload):
+        raise RuntimeError(f'connect_error:{node_id}')
+
+
 class InterNodeTransportTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tmpdir = tempfile.TemporaryDirectory()
@@ -253,6 +258,31 @@ class InterNodeTransportTests(unittest.TestCase):
         self.assertEqual(replay['count'], 1)
         self.assertEqual(replay['items'][0]['status'], 'timed_out')
         self.assertEqual(replay['items'][0]['error_code'], 'retry_exhausted')
+
+    def test_transport_exception_is_normalized_to_timed_out_workflow(self) -> None:
+        exception_transport = _ExceptionTransportClient(
+            {
+                'blaqtower1': self.node1_local_router,
+                'blaqtower2': self.node2_local_router,
+                'blaqtower3': self.node3_local_router,
+            }
+        )
+        router = InterNodeA2ARouter(
+            local_router=self.node2_local_router,
+            local_node_id='blaqtower2',
+            institution_nodes={'workshop': 'blaqtower2', 'academy': 'blaqtower1', 'inference': 'blaqtower3'},
+            transport_client=exception_transport,
+            transport_retry_limit=1,
+        )
+
+        workflow = router.run_workshop_academy_workflow(
+            session_id='session_transport_exception',
+            topic='exception normalization',
+        )
+        self.assertFalse(workflow['completed'])
+        self.assertEqual(workflow['status'], 'timed_out')
+        self.assertEqual(workflow['failure_stage'], 'request')
+        self.assertIn('transport_retry_exhausted', str(workflow.get('error') or ''))
 
 
 if __name__ == '__main__':

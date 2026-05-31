@@ -27,9 +27,14 @@ This milestone starts live operational verification to prove that real multi-nod
 
 ### ⛔ Active Blockers
 
-- Coordinator A2A API endpoint not currently reachable at hardening run target.
 - Academy/Inference node API endpoints not currently reachable from coordinator.
 - Non-interactive SSH access to `blaqtower` and `blaqtower3` not available for operator checks.
+
+### 📌 Current Hardening Evidence Delta
+
+- Coordinator is now reachable at `http://127.0.0.1:8000` with inter-node topology and route lookup checks passing.
+- Workflow endpoints now return deterministic `timed_out` behavior when remote nodes are unavailable (no 500 contract-breaks).
+- Outage simulation gate passes with audited and replayable timeout evidence.
 
 Hardening remains in-progress until these operational prerequisites are restored.
 

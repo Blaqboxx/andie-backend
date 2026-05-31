@@ -217,7 +217,7 @@ class InterNodeA2ARouter:
                 try:
                     message = self.transport_client.send_message(node_id=target_node, payload=outbound)
                     break
-                except ValueError as exc:
+                except Exception as exc:
                     last_error = exc
                     continue
 
@@ -284,7 +284,7 @@ class InterNodeA2ARouter:
         for node_id in remote_nodes:
             try:
                 remote_items = self.transport_client.list_session_messages(node_id=node_id, session_id=session_id, limit=limit)
-            except ValueError:
+            except Exception:
                 continue
             for item in remote_items:
                 enriched = self._with_transport_metadata(item, source_node=self.local_node_id, target_node=node_id)
@@ -457,35 +457,72 @@ class InterNodeA2ARouter:
         if not normalized_topic:
             raise ValueError('topic_required')
 
-        request_message = self.send_message(
-            sender='workshop',
-            receiver='academy',
-            message_type='research_request',
-            payload={
-                'topic': normalized_topic,
-                'workflow': 'workshop_academy_inference_exchange',
-                'request_type': 'research_request',
-            },
-            session_id=normalized_session_id,
-            correlation_id=correlation_id,
-            timeout_seconds=timeout_seconds,
-            intent_id='workflow:institution_exchange',
-        )
+        try:
+            request_message = self.send_message(
+                sender='workshop',
+                receiver='academy',
+                message_type='research_request',
+                payload={
+                    'topic': normalized_topic,
+                    'workflow': 'workshop_academy_inference_exchange',
+                    'request_type': 'research_request',
+                },
+                session_id=normalized_session_id,
+                correlation_id=correlation_id,
+                timeout_seconds=timeout_seconds,
+                intent_id='workflow:institution_exchange',
+            )
+        except ValueError as exc:
+            replay = self.replay_workflow_exchange(session_id=normalized_session_id, correlation_id=correlation_id)
+            return {
+                'session_id': normalized_session_id,
+                'correlation_id': correlation_id,
+                'workflow_type': 'workshop_academy_inference_exchange',
+                'status': 'timed_out',
+                'failure_stage': 'request',
+                'completed': False,
+                'steps': [],
+                'message_count': replay['count'],
+                'replay': replay,
+                'error': str(exc),
+            }
 
-        inference_message = self.send_message(
-            sender='academy',
-            receiver='inference',
-            message_type='inference_request',
-            payload={
-                'topic': normalized_topic,
-                'workflow': 'workshop_academy_inference_exchange',
-                'request_type': 'inference_request',
-            },
-            session_id=normalized_session_id,
-            correlation_id=correlation_id,
-            timeout_seconds=timeout_seconds,
-            intent_id='workflow:institution_exchange',
-        )
+        try:
+            inference_message = self.send_message(
+                sender='academy',
+                receiver='inference',
+                message_type='inference_request',
+                payload={
+                    'topic': normalized_topic,
+                    'workflow': 'workshop_academy_inference_exchange',
+                    'request_type': 'inference_request',
+                },
+                session_id=normalized_session_id,
+                correlation_id=correlation_id,
+                timeout_seconds=timeout_seconds,
+                intent_id='workflow:institution_exchange',
+            )
+        except ValueError as exc:
+            replay = self.replay_workflow_exchange(session_id=normalized_session_id, correlation_id=correlation_id)
+            return {
+                'session_id': normalized_session_id,
+                'correlation_id': correlation_id,
+                'workflow_type': 'workshop_academy_inference_exchange',
+                'status': 'timed_out',
+                'failure_stage': 'inference_request',
+                'completed': False,
+                'steps': [
+                    {
+                        'stage': 'workshop_to_academy',
+                        'message_id': request_message['message_id'],
+                        'message_type': request_message['message_type'],
+                        'status': request_message['status'],
+                    },
+                ],
+                'message_count': replay['count'],
+                'replay': replay,
+                'error': str(exc),
+            }
 
         request_ack = self.respond_message(
             request_message['message_id'],

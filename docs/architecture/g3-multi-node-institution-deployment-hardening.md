@@ -108,11 +108,19 @@ If hardening cannot execute live, record blockers explicitly and do not advance 
 
 Typical blockers:
 - coordinator API not reachable.
+- coordinator healthz endpoint unavailable.
 - academy/inference node APIs not reachable.
 - missing inter-node environment variables.
 - missing non-interactive SSH access to Blaqtower1/Blaqtower3.
 
 Until these blockers are cleared, only preflight and dry-run evidence should be collected.
+
+## Current State Snapshot (2026-05-30)
+
+- Coordinator hardening endpoint is reachable and configured in inter-node mode.
+- Topology and route lookup checks pass for workshop, academy, and inference placement.
+- When academy/inference node APIs are unavailable, workflow probes return deterministic `timed_out` outcomes with replay evidence instead of transport exception 500s.
+- Final hardening pass is still blocked on live Blaqtower1/Blaqtower3 API and SSH availability.
 
 ## Next Step
 
