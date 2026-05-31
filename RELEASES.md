@@ -1,5 +1,32 @@
 # ANDIE Release Milestones
 
+## 🏢 v1.10-enterprise-business-operations-institution-draft
+
+**Release Date:** May 30, 2026
+**Status:** ✅ Architecture Draft (F3 Extension)
+**Git Tag:** pending
+
+### 🎯 Strategic Significance
+
+This milestone defines a dedicated Enterprise institution for business operations and revenue generation, preventing Cryptonia from becoming a catch-all for non-financial execution.
+
+### ✅ Draft Outcomes
+
+- Added Enterprise institution draft for business creation, operations, and revenue lifecycle planning.
+- Clarified separation of responsibility:
+    - Enterprise = business operations and revenue execution.
+    - Cryptonia = financial operations and capital allocation analysis.
+- Added explicit Executive-governed handoff model between Enterprise outcomes and Cryptonia recommendations.
+
+### 📄 Specifications
+
+- docs/architecture/enterprise-business-operations-institution.md
+- docs/architecture/cryptonia-financial-operations-institution.md
+
+### 🚀 What This Unblocks
+
+Narrow contract freeze for Enterprise opportunity/operating-plan schema before runtime implementation.
+
 ## 🧱 v1.9-g3-multi-node-institution-deployment-release-hardening
 
 **Release Date:** May 30, 2026

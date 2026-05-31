@@ -224,6 +224,14 @@ Architecture draft is defined in docs/architecture/cryptonia-financial-operation
 - Institution scope expands to multi-asset opportunity evaluation under existing governance and identity constraints.
 - This draft introduces no runtime authority changes and no bypass of Executive decision gates.
 
+## F3 Extension: Enterprise Business Operations Institution (Draft)
+
+Architecture draft is defined in docs/architecture/enterprise-business-operations-institution.md.
+
+- Enterprise is defined as the institution for business creation, operation, and revenue execution.
+- Enterprise is intentionally separated from Cryptonia financial allocation scope.
+- Executive remains the authority coordinating Enterprise revenue outcomes and Cryptonia capital recommendations.
+
 ## A2A Placement
 
 Agent-to-Agent (A2A) collaboration is scheduled after G1 hardening and before broad distributed autonomy.

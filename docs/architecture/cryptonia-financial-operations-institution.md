@@ -9,6 +9,25 @@ Reframe Cryptonia from a crypto-only component into a Financial Operations Insti
 
 This draft introduces no runtime behavior changes.
 
+## Boundary
+
+Cryptonia is a financial institution, not a business operations institution.
+
+Cryptonia owns:
+- capital growth and preservation analysis,
+- portfolio risk and allocation recommendations,
+- cross-asset investment opportunity ranking.
+
+Cryptonia does not own:
+- product launches,
+- e-commerce operations,
+- customer support workflows,
+- vendor operations,
+- hiring operations,
+- revenue operations execution.
+
+Those responsibilities belong to the Enterprise institution draft.
+
 ## Strategic Reframe
 
 Old framing:
@@ -88,9 +107,18 @@ Cryptonia responds with ranked opportunities using a governed schema:
 Expected institution flow:
 - Academy: market and structural research inputs.
 - Cryptonia: opportunity and allocation analysis.
+- Enterprise: business revenue generation and operating execution.
 - Workshop: strategy and tooling implementation.
 - Sentinel: risk and anomaly monitoring.
 - Executive: final governance-gated capital decisions.
+
+## Enterprise Handoff Model
+
+Handoff separation:
+1. Enterprise reports revenue outcomes and treasury posture.
+2. Executive decides whether to request Cryptonia capital analysis.
+3. Cryptonia returns policy-constrained recommendation candidates.
+4. Executive remains the final allocation authority.
 
 ## Governance and Safety Constraints
 
