@@ -1,5 +1,34 @@
 # ANDIE Release Milestones
 
+## 🔧 v1.0-g3-local-a2a-router-conformance
+
+**Release Date:** May 30, 2026
+**Status:** ✅ Feature-Complete (G3.1 Local Router Conformance)
+**Git Tag:** `valhalla-g3-local-a2a-router`
+
+### 🎯 Strategic Significance
+
+This milestone transitions Local A2A from contract-only definition to tested contract conformance.
+
+### ✅ Conformance Outcomes
+
+- Frozen G3.0 contract enforced by router behavior and API validation.
+- Required message envelope now includes correlation linkage.
+- Local message state machine now uses `pending`, `responded`, `rejected`, and `timed_out`.
+- Governance and identity rejections are persisted to the A2A audit ledger.
+- Timeout and terminal-state behavior now return deterministic conflict outcomes.
+- Correlation chain continuity preserved in local collaborative workflows.
+
+### 🧪 Validation
+
+- `tests.test_a2a_local_protocol`: passing.
+- `tests.test_a2a_local_router_conformance`: passing.
+- `tests.test_executive_agenda_api`: passing.
+
+### 🚀 What This Unblocks
+
+Disciplined progression to inter-node A2A transport planning without changing message semantics.
+
 ## 📜 v0.9-g3-local-a2a-spec
 
 **Release Date:** May 30, 2026

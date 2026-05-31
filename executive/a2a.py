@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
@@ -10,6 +11,74 @@ from .models import A2AMessage, A2AMessageStatus, utc_now
 class LocalA2ARouter:
     def __init__(self, controller: ExecutiveController) -> None:
         self.controller = controller
+
+    def _now(self) -> str:
+        return utc_now()
+
+    def _normalize_timeout_seconds(self, timeout_seconds: int | None) -> int:
+        try:
+            value = int(timeout_seconds if timeout_seconds is not None else 300)
+        except Exception as exc:
+            raise ValueError('timeout_seconds_invalid') from exc
+        if value < 1 or value > 3600:
+            raise ValueError('timeout_seconds_out_of_range')
+        return value
+
+    def _timeout_at(self, created_at: str, timeout_seconds: int) -> str:
+        base = datetime.fromisoformat(str(created_at))
+        return (base + timedelta(seconds=int(timeout_seconds))).astimezone(timezone.utc).isoformat()
+
+    def _is_timed_out(self, message: A2AMessage) -> bool:
+        if message.status != A2AMessageStatus.PENDING:
+            return False
+        timeout_at = str(message.timeout_at or '').strip()
+        if not timeout_at:
+            return False
+        return datetime.now(timezone.utc) >= datetime.fromisoformat(timeout_at)
+
+    def _mark_timed_out(self, message: A2AMessage) -> A2AMessage:
+        if message.status != A2AMessageStatus.PENDING:
+            return message
+        message.status = A2AMessageStatus.TIMED_OUT
+        message.updated_at = self._now()
+        message.error_code = 'timeout'
+        message.error_message = 'response_deadline_exceeded'
+        self.controller.store.append_a2a_message(message)
+        return message
+
+    def _audit_rejection(
+        self,
+        *,
+        sender: str,
+        receiver: str,
+        message_type: str,
+        session_id: str,
+        correlation_id: str,
+        request: Dict[str, Any],
+        error_code: str,
+        error_message: str,
+        timeout_seconds: int = 300,
+    ) -> Dict[str, Any]:
+        created_at = self._now()
+        message = A2AMessage(
+            message_id=f'a2a_{uuid4().hex}',
+            correlation_id=(correlation_id or f'corr_{uuid4().hex}'),
+            session_id=(session_id or 'session_unscoped'),
+            sender=str(sender or '').strip().lower(),
+            receiver=str(receiver or '').strip().lower(),
+            created_at=created_at,
+            updated_at=created_at,
+            message_type=str(message_type or ''),
+            request=dict(request or {}),
+            response=None,
+            status=A2AMessageStatus.REJECTED,
+            timeout_seconds=self._normalize_timeout_seconds(timeout_seconds),
+            timeout_at=self._timeout_at(created_at, self._normalize_timeout_seconds(timeout_seconds)),
+            error_code=error_code,
+            error_message=error_message,
+        )
+        self.controller.store.append_a2a_message(message)
+        return message.to_dict()
 
     def _validate_message_type(self, message_type: str) -> None:
         lowered = str(message_type or '').strip().lower()
@@ -34,16 +103,89 @@ class LocalA2ARouter:
         message_type: str,
         payload: Dict[str, Any],
         session_id: str,
+        correlation_id: str,
+        timeout_seconds: int = 300,
+        policy_decision_id: Optional[str] = None,
+        intent_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         normalized_sender = str(sender or '').strip().lower()
         normalized_receiver = str(receiver or '').strip().lower()
         normalized_session_id = str(session_id or '').strip()
+        normalized_correlation_id = str(correlation_id or '').strip()
+        normalized_timeout_seconds = self._normalize_timeout_seconds(timeout_seconds)
+        normalized_request = dict(payload or {})
 
         if not normalized_session_id:
+            self._audit_rejection(
+                sender=normalized_sender,
+                receiver=normalized_receiver,
+                message_type=message_type,
+                session_id=normalized_session_id,
+                correlation_id=normalized_correlation_id,
+                request=normalized_request,
+                error_code='session_id_required',
+                error_message='session_id_required',
+                timeout_seconds=normalized_timeout_seconds,
+            )
             raise ValueError('session_id_required')
+        if not normalized_correlation_id:
+            self._audit_rejection(
+                sender=normalized_sender,
+                receiver=normalized_receiver,
+                message_type=message_type,
+                session_id=normalized_session_id,
+                correlation_id=normalized_correlation_id,
+                request=normalized_request,
+                error_code='correlation_id_required',
+                error_message='correlation_id_required',
+                timeout_seconds=normalized_timeout_seconds,
+            )
+            raise ValueError('correlation_id_required')
 
-        self._validate_institutions(normalized_sender, normalized_receiver)
-        self._validate_message_type(message_type)
+        try:
+            self._validate_institutions(normalized_sender, normalized_receiver)
+        except ValueError as exc:
+            self._audit_rejection(
+                sender=normalized_sender,
+                receiver=normalized_receiver,
+                message_type=message_type,
+                session_id=normalized_session_id,
+                correlation_id=normalized_correlation_id,
+                request=normalized_request,
+                error_code='identity_failure',
+                error_message=str(exc),
+                timeout_seconds=normalized_timeout_seconds,
+            )
+            raise
+
+        try:
+            self._validate_message_type(message_type)
+        except PermissionError as exc:
+            self._audit_rejection(
+                sender=normalized_sender,
+                receiver=normalized_receiver,
+                message_type=message_type,
+                session_id=normalized_session_id,
+                correlation_id=normalized_correlation_id,
+                request=normalized_request,
+                error_code='governance_rejection',
+                error_message=str(exc),
+                timeout_seconds=normalized_timeout_seconds,
+            )
+            raise
+        except ValueError as exc:
+            self._audit_rejection(
+                sender=normalized_sender,
+                receiver=normalized_receiver,
+                message_type=message_type,
+                session_id=normalized_session_id,
+                correlation_id=normalized_correlation_id,
+                request=normalized_request,
+                error_code='message_validation_failure',
+                error_message=str(exc),
+                timeout_seconds=normalized_timeout_seconds,
+            )
+            raise
 
         allowed, reason = self.controller.identity.check_action(
             action='a2a:send_message',
@@ -51,22 +193,41 @@ class LocalA2ARouter:
                 'sender': normalized_sender,
                 'receiver': normalized_receiver,
                 'message_type': str(message_type),
+                'correlation_id': normalized_correlation_id,
                 'session_id': normalized_session_id,
             },
         )
         if not allowed:
+            self._audit_rejection(
+                sender=normalized_sender,
+                receiver=normalized_receiver,
+                message_type=message_type,
+                session_id=normalized_session_id,
+                correlation_id=normalized_correlation_id,
+                request=normalized_request,
+                error_code='identity_failure',
+                error_message=str(reason),
+                timeout_seconds=normalized_timeout_seconds,
+            )
             raise PermissionError(reason)
 
+        created_at = self._now()
         message = A2AMessage(
             message_id=f'a2a_{uuid4().hex}',
+            correlation_id=normalized_correlation_id,
             session_id=normalized_session_id,
             sender=normalized_sender,
             receiver=normalized_receiver,
-            timestamp=utc_now(),
+            created_at=created_at,
+            updated_at=created_at,
             message_type=str(message_type),
-            request=dict(payload or {}),
-            response={},
-            status=A2AMessageStatus.DELIVERED,
+            request=normalized_request,
+            response=None,
+            status=A2AMessageStatus.PENDING,
+            timeout_seconds=normalized_timeout_seconds,
+            timeout_at=self._timeout_at(created_at, normalized_timeout_seconds),
+            policy_decision_id=(str(policy_decision_id).strip() if policy_decision_id is not None else None),
+            intent_id=(str(intent_id).strip() if intent_id is not None else None),
         )
         self.controller.store.append_a2a_message(message)
         return message.to_dict()
@@ -76,22 +237,45 @@ class LocalA2ARouter:
         if message is None:
             raise ValueError('a2a_message_not_found')
 
+        if message.status in {A2AMessageStatus.RESPONDED, A2AMessageStatus.REJECTED, A2AMessageStatus.TIMED_OUT}:
+            raise ValueError('a2a_message_terminal_state')
+
+        if self._is_timed_out(message):
+            self._mark_timed_out(message)
+            raise ValueError('a2a_message_timed_out')
+
         message.response = dict(response or {})
         message.status = A2AMessageStatus.RESPONDED
+        message.updated_at = self._now()
+        message.error_code = None
+        message.error_message = None
         self.controller.store.append_a2a_message(message)
         return message.to_dict()
 
     def get_message(self, message_id: str) -> Optional[Dict[str, Any]]:
         message = self.controller.store.get_a2a_message(message_id)
+        if message is not None and self._is_timed_out(message):
+            message = self._mark_timed_out(message)
         return message.to_dict() if message is not None else None
+
+    def expire_timed_out_messages(self, *, session_id: Optional[str] = None) -> int:
+        messages = self.controller.store.list_a2a_messages(session_id=session_id)
+        changed = 0
+        for item in messages:
+            if self._is_timed_out(item):
+                self._mark_timed_out(item)
+                changed += 1
+        return changed
 
     def list_session_messages(self, session_id: str, limit: int = 100) -> List[Dict[str, Any]]:
         normalized_limit = max(1, min(int(limit), 500))
+        self.expire_timed_out_messages(session_id=str(session_id))
         messages = self.controller.store.list_a2a_messages(session_id=str(session_id))
         return [item.to_dict() for item in messages[-normalized_limit:]]
 
     def inbox(self, receiver: str, *, session_id: Optional[str] = None, limit: int = 100) -> List[Dict[str, Any]]:
         normalized_limit = max(1, min(int(limit), 500))
+        self.expire_timed_out_messages(session_id=(str(session_id) if session_id is not None else None))
         messages = self.controller.store.list_a2a_messages(
             receiver=str(receiver or '').strip().lower(),
             session_id=(str(session_id) if session_id is not None else None),
@@ -113,6 +297,7 @@ class LocalA2ARouter:
             message_type='research_request',
             payload={'topic': normalized_topic},
             session_id=normalized_session_id,
+            correlation_id=f'corr_{uuid4().hex}',
         )
 
         request_response = self.respond_message(
@@ -134,6 +319,7 @@ class LocalA2ARouter:
                 'confidence': 'initial',
             },
             session_id=normalized_session_id,
+            correlation_id=request_message['correlation_id'],
         )
 
         result_response = self.respond_message(

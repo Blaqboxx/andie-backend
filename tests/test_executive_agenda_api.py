@@ -384,6 +384,7 @@ class ExecutiveAgendaApiTests(unittest.TestCase):
                 'receiver': 'workshop',
                 'message_type': 'research_request',
                 'session_id': session_id,
+                'correlation_id': 'corr_local_a2a_demo',
                 'payload': {'topic': 'energy_modeling'},
             },
         )
@@ -395,8 +396,10 @@ class ExecutiveAgendaApiTests(unittest.TestCase):
         self.assertEqual(sent_payload['receiver'], 'workshop')
         self.assertEqual(sent_payload['session_id'], session_id)
         self.assertEqual(sent_payload['message_type'], 'research_request')
+        self.assertEqual(sent_payload['correlation_id'], 'corr_local_a2a_demo')
         self.assertIn('timestamp', sent_payload)
         self.assertEqual(sent_payload['request']['topic'], 'energy_modeling')
+        self.assertEqual(sent_payload['status'], 'pending')
 
         fetched = self.client.get(f'/a2a/messages/{message_id}')
         self.assertEqual(fetched.status_code, 200)
@@ -426,6 +429,7 @@ class ExecutiveAgendaApiTests(unittest.TestCase):
                 'receiver': 'workshop',
                 'message_type': 'world_mutation',
                 'session_id': 'session_local_a2a_blocked',
+                'correlation_id': 'corr_blocked',
                 'payload': {'target': 'gpu_time'},
             },
         )
@@ -459,6 +463,59 @@ class ExecutiveAgendaApiTests(unittest.TestCase):
             self.assertIn('timestamp', item)
             self.assertIn('request', item)
             self.assertIn('response', item)
+
+    def test_a2a_send_requires_correlation_id(self) -> None:
+        sent = self.client.post(
+            '/a2a/messages',
+            json={
+                'sender': 'academy',
+                'receiver': 'workshop',
+                'message_type': 'research_request',
+                'session_id': 'session_missing_correlation',
+                'payload': {'topic': 'energy_modeling'},
+            },
+        )
+        self.assertEqual(sent.status_code, 400)
+        self.assertIn('correlation_id is required', sent.json()['detail'])
+
+    def test_a2a_timeout_and_terminal_state_surface_conflict(self) -> None:
+        sent = self.client.post(
+            '/a2a/messages',
+            json={
+                'sender': 'academy',
+                'receiver': 'workshop',
+                'message_type': 'research_request',
+                'session_id': 'session_timeout_conflict',
+                'correlation_id': 'corr_timeout_conflict',
+                'timeout_seconds': 1,
+                'payload': {'topic': 'energy_modeling'},
+            },
+        )
+        self.assertEqual(sent.status_code, 200)
+        message_id = sent.json()['message']['message_id']
+
+        message = self.client.get(f'/a2a/messages/{message_id}')
+        self.assertEqual(message.status_code, 200)
+        self.assertEqual(message.json()['message']['status'], 'pending')
+
+        store_message = self.controller.store.get_a2a_message(message_id)
+        self.assertIsNotNone(store_message)
+        store_message.timeout_at = '1970-01-01T00:00:00+00:00'
+        self.controller.store.append_a2a_message(store_message)
+
+        timed_out_response = self.client.post(
+            f'/a2a/messages/{message_id}/response',
+            json={'response': {'status': 'accepted'}},
+        )
+        self.assertEqual(timed_out_response.status_code, 409)
+        self.assertEqual(timed_out_response.json()['detail'], 'a2a_message_timed_out')
+
+        terminal_response = self.client.post(
+            f'/a2a/messages/{message_id}/response',
+            json={'response': {'status': 'accepted_again'}},
+        )
+        self.assertEqual(terminal_response.status_code, 409)
+        self.assertEqual(terminal_response.json()['detail'], 'a2a_message_terminal_state')
 
 
 if __name__ == '__main__':

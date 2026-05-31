@@ -23,15 +23,18 @@ class LocalA2AProtocolTests(unittest.TestCase):
             receiver='workshop',
             message_type='research_request',
             session_id='session_test_1',
+            correlation_id='corr_test_1',
             payload={'topic': 'materials'},
         )
         self.assertTrue(msg['message_id'].startswith('a2a_'))
         self.assertEqual(msg['sender'], 'academy')
         self.assertEqual(msg['receiver'], 'workshop')
         self.assertEqual(msg['session_id'], 'session_test_1')
-        self.assertIn('timestamp', msg)
+        self.assertEqual(msg['correlation_id'], 'corr_test_1')
+        self.assertIn('created_at', msg)
+        self.assertIn('updated_at', msg)
         self.assertEqual(msg['request']['topic'], 'materials')
-        self.assertEqual(msg['status'], 'delivered')
+        self.assertEqual(msg['status'], 'pending')
 
         replied = self.router.respond_message(msg['message_id'], {'status': 'accepted'})
         self.assertEqual(replied['status'], 'responded')
@@ -43,6 +46,7 @@ class LocalA2AProtocolTests(unittest.TestCase):
             receiver='workshop',
             message_type='research_request',
             session_id='session_alpha',
+            correlation_id='corr_alpha',
             payload={'item': 1},
         )
         self.router.send_message(
@@ -50,6 +54,7 @@ class LocalA2AProtocolTests(unittest.TestCase):
             receiver='workshop',
             message_type='research_request',
             session_id='session_beta',
+            correlation_id='corr_beta',
             payload={'item': 2},
         )
 
@@ -68,6 +73,7 @@ class LocalA2AProtocolTests(unittest.TestCase):
                 receiver='workshop',
                 message_type='world_mutation',
                 session_id='session_blocked',
+                correlation_id='corr_blocked',
                 payload={'target': 'gpu_time'},
             )
 

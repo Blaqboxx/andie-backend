@@ -106,6 +106,16 @@ Built on top of G3.0 protocol primitives to prove local collaboration before any
 - Workflow execution remains session-linked and fully auditable through the A2A ledger.
 - Collaboration uses existing send/respond protocol paths and does not add direct world mutation authority.
 
+## G3.1 Local A2A Router Conformance
+
+The local router now enforces conformance against the frozen G3.0 contract.
+
+- Required envelope fields enforced, including `correlation_id` and `session_id`.
+- Message lifecycle aligned to contract states: `pending`, `responded`, `rejected`, `timed_out`.
+- Governance and identity failures are persisted as auditable rejected messages.
+- Timeout transitions are deterministic and persisted with machine-readable error codes.
+- Replay and query surfaces preserve correlation chains and status transitions.
+
 ## A2A Placement
 
 Agent-to-Agent (A2A) collaboration is scheduled after G1 hardening and before broad distributed autonomy.

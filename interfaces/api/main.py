@@ -3285,7 +3285,7 @@ async def a2a_send_message(request: Request):
     if not isinstance(payload, dict):
         raise HTTPException(status_code=400, detail='payload must be an object')
 
-    required_fields = ['sender', 'receiver', 'message_type', 'session_id']
+    required_fields = ['sender', 'receiver', 'message_type', 'session_id', 'correlation_id']
     for field_name in required_fields:
         value = payload.get(field_name)
         if not isinstance(value, str) or not value.strip():
@@ -3297,6 +3297,12 @@ async def a2a_send_message(request: Request):
     if not isinstance(request_payload, dict):
         raise HTTPException(status_code=400, detail='payload field must be an object')
 
+    timeout_seconds = payload.get('timeout_seconds', 300)
+    try:
+        normalized_timeout_seconds = int(timeout_seconds)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail='timeout_seconds must be an integer') from exc
+
     try:
         message = router_instance.send_message(
             sender=str(payload['sender']).strip().lower(),
@@ -3304,6 +3310,10 @@ async def a2a_send_message(request: Request):
             message_type=str(payload['message_type']).strip(),
             payload=dict(request_payload),
             session_id=str(payload['session_id']).strip(),
+            correlation_id=str(payload['correlation_id']).strip(),
+            timeout_seconds=normalized_timeout_seconds,
+            policy_decision_id=(str(payload.get('policy_decision_id')).strip() if payload.get('policy_decision_id') is not None else None),
+            intent_id=(str(payload.get('intent_id')).strip() if payload.get('intent_id') is not None else None),
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -3332,9 +3342,12 @@ async def a2a_respond_message(message_id: str, request: Request):
     try:
         message = router_instance.respond_message(message_id, response_payload)
     except ValueError as exc:
-        if str(exc) == 'a2a_message_not_found':
+        error = str(exc)
+        if error == 'a2a_message_not_found':
             raise HTTPException(status_code=404, detail='a2a message not found') from exc
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        if error in {'a2a_message_terminal_state', 'a2a_message_timed_out'}:
+            raise HTTPException(status_code=409, detail=error) from exc
+        raise HTTPException(status_code=400, detail=error) from exc
 
     return {
         'status': 'ok',

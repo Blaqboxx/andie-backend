@@ -61,8 +61,10 @@ class IntentStatus(str, Enum):
 
 
 class A2AMessageStatus(str, Enum):
-    DELIVERED = 'delivered'
+    PENDING = 'pending'
     RESPONDED = 'responded'
+    REJECTED = 'rejected'
+    TIMED_OUT = 'timed_out'
 
 
 @dataclass
@@ -215,24 +217,60 @@ class Intent:
 @dataclass
 class A2AMessage:
     message_id: str
+    correlation_id: str
     session_id: str
     sender: str
     receiver: str
-    timestamp: str
+    created_at: str
+    updated_at: str
     message_type: str
     request: Dict[str, Any] = field(default_factory=dict)
-    response: Dict[str, Any] = field(default_factory=dict)
-    status: A2AMessageStatus = A2AMessageStatus.DELIVERED
+    response: Optional[Dict[str, Any]] = None
+    status: A2AMessageStatus = A2AMessageStatus.PENDING
+    timeout_seconds: int = 300
+    error_code: Optional[str] = None
+    error_message: Optional[str] = None
+    policy_decision_id: Optional[str] = None
+    intent_id: Optional[str] = None
+    timeout_at: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         data = asdict(self)
         data['status'] = self.status.value
+        # Preserve backward compatibility for existing API/test consumers.
+        data['timestamp'] = self.created_at
         return data
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'A2AMessage':
         payload = dict(data)
-        payload['status'] = A2AMessageStatus(payload.get('status', A2AMessageStatus.DELIVERED.value))
+        payload.setdefault('correlation_id', str(payload.get('message_id', '')))
+
+        created_at = payload.get('created_at') or payload.get('timestamp') or utc_now()
+        payload['created_at'] = str(created_at)
+        payload['updated_at'] = str(payload.get('updated_at') or created_at)
+
+        legacy_status = str(payload.get('status', A2AMessageStatus.PENDING.value)).strip().lower()
+        status_map = {
+            'delivered': A2AMessageStatus.PENDING.value,
+        }
+        normalized_status = status_map.get(legacy_status, legacy_status)
+        payload['status'] = A2AMessageStatus(normalized_status)
+
+        timeout_seconds = payload.get('timeout_seconds', 300)
+        try:
+            payload['timeout_seconds'] = max(1, int(timeout_seconds))
+        except Exception:
+            payload['timeout_seconds'] = 300
+
+        if 'response' in payload and payload.get('response') is not None:
+            payload['response'] = dict(payload.get('response') or {})
+        else:
+            payload['response'] = None
+
+        # Legacy serialized payloads may include this alias from to_dict.
+        payload.pop('timestamp', None)
+
         return cls(**payload)
 
 

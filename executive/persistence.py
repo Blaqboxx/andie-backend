@@ -400,5 +400,5 @@ class ExecutiveStore:
         if receiver is not None:
             items = [item for item in items if item.receiver == receiver]
 
-        items.sort(key=lambda item: item.timestamp)
+        items.sort(key=lambda item: str(getattr(item, 'created_at', '') or getattr(item, 'timestamp', '')))
         return items
