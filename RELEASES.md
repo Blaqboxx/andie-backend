@@ -1,5 +1,30 @@
 # ANDIE Release Milestones
 
+## 🧩 v1.7-g3-multi-node-institution-deployment-alpha
+
+**Release Date:** May 30, 2026
+**Status:** ✅ Implementation Alpha (G3.5 Deployment-Aware Routing)
+**Git Tag:** `valhalla-g3-multi-node-institution-deployment-alpha`
+
+### 🎯 Strategic Significance
+
+This milestone delivers the first G3.5 implementation step: deployment-aware routing observability without changing workflow, transport, governance, or identity semantics.
+
+### ✅ Alpha Outcomes
+
+- Added deployment topology inspection and institution route lookup on inter-node routing.
+- Added deployment metadata to message records (`sender_assigned_node`, `receiver_assigned_node`, `local_node_id`).
+- Added API endpoint `GET /a2a/deployment/topology` for local and inter-node modes.
+
+### 🧪 Validation
+
+- `tests.test_inter_node_a2a_transport`: passing.
+- `tests.test_executive_agenda_api`: passing.
+
+### 🚀 What This Unblocks
+
+G3.5 Beta proof-gate implementation for cross-node completion, replay continuity, three-node continuity, outage determinism, and replay equivalence under real deployment targeting.
+
 ## 🚀 v1.6-g3-multi-node-institution-deployment-spec
 
 **Release Date:** May 30, 2026

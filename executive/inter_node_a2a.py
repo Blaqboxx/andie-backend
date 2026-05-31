@@ -83,22 +83,52 @@ class InterNodeA2ARouter:
         normalized = str(institution_id or '').strip().lower()
         return self.institution_nodes.get(normalized, self.local_node_id)
 
+    def deployment_route_for(self, institution_id: str) -> Dict[str, Any]:
+        normalized = str(institution_id or '').strip().lower()
+        assigned_node = self._node_for_institution(normalized)
+        return {
+            'institution_id': normalized,
+            'assigned_node': assigned_node,
+            'is_local_execution': assigned_node == self.local_node_id,
+        }
+
+    def deployment_topology(self) -> Dict[str, Any]:
+        normalized_nodes = {str(k): str(v) for k, v in dict(self.institution_nodes or {}).items() if str(k).strip()}
+        known_nodes = sorted({self.local_node_id, *normalized_nodes.values()})
+        return {
+            'mode': 'inter_node',
+            'local_node_id': self.local_node_id,
+            'institution_nodes': normalized_nodes,
+            'known_nodes': known_nodes,
+        }
+
     def _with_transport_metadata(
         self,
         message: Dict[str, Any],
         *,
         source_node: str,
         target_node: str,
+        sender: Optional[str] = None,
+        receiver: Optional[str] = None,
         attempts: int = 1,
         retry_exhausted: bool = False,
     ) -> Dict[str, Any]:
         enriched = dict(message or {})
+        resolved_sender = str(sender or enriched.get('sender') or '').strip().lower()
+        resolved_receiver = str(receiver or enriched.get('receiver') or '').strip().lower()
         enriched['transport'] = {
             'mode': ('local' if source_node == target_node else 'inter_node'),
             'source_node': source_node,
             'target_node': target_node,
             'attempts': int(attempts),
             'retry_exhausted': bool(retry_exhausted),
+        }
+        enriched['deployment'] = {
+            'sender_institution': resolved_sender,
+            'receiver_institution': resolved_receiver,
+            'sender_assigned_node': self._node_for_institution(resolved_sender),
+            'receiver_assigned_node': self._node_for_institution(resolved_receiver),
+            'local_node_id': self.local_node_id,
         }
         return enriched
 
@@ -207,6 +237,8 @@ class InterNodeA2ARouter:
                     failed_message,
                     source_node=source_node,
                     target_node=target_node,
+                    sender=outbound['sender'],
+                    receiver=outbound['receiver'],
                     attempts=attempts,
                     retry_exhausted=True,
                 )
@@ -219,6 +251,8 @@ class InterNodeA2ARouter:
             message,
             source_node=source_node,
             target_node=target_node,
+            sender=outbound['sender'],
+            receiver=outbound['receiver'],
             attempts=attempts,
             retry_exhausted=False,
         )

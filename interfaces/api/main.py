@@ -3416,6 +3416,40 @@ async def a2a_inbox(receiver: str, request: Request, limit: int = 100, session_i
     }
 
 
+@router.get('/a2a/deployment/topology')
+async def a2a_deployment_topology(request: Request, institution_id: str | None = None):
+    router_instance = _get_a2a_router(request)
+
+    if hasattr(router_instance, 'deployment_topology'):
+        topology = router_instance.deployment_topology()
+        if institution_id is not None and hasattr(router_instance, 'deployment_route_for'):
+            topology['route'] = router_instance.deployment_route_for(institution_id)
+        return {
+            'status': 'ok',
+            'topology': topology,
+        }
+
+    normalized_institution = str(institution_id or '').strip().lower()
+    route = None
+    if normalized_institution:
+        route = {
+            'institution_id': normalized_institution,
+            'assigned_node': 'local',
+            'is_local_execution': True,
+        }
+
+    return {
+        'status': 'ok',
+        'topology': {
+            'mode': 'local',
+            'local_node_id': 'local',
+            'institution_nodes': {},
+            'known_nodes': ['local'],
+            'route': route,
+        },
+    }
+
+
 @router.post('/a2a/workflows/research-prototype')
 async def a2a_workflow_research_prototype(request: Request):
     router_instance = _get_a2a_router(request)

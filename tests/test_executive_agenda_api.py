@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -516,6 +518,123 @@ class ExecutiveAgendaApiTests(unittest.TestCase):
         )
         self.assertEqual(terminal_response.status_code, 409)
         self.assertEqual(terminal_response.json()['detail'], 'a2a_message_terminal_state')
+
+    def test_a2a_workshop_academy_exchange_supports_replay_and_failure_modes(self) -> None:
+        started = self.client.post(
+            '/a2a/workflows/workshop-academy-exchange',
+            json={
+                'session_id': 'session_g32_exchange',
+                'topic': 'team coordination',
+            },
+        )
+        self.assertEqual(started.status_code, 200)
+        workflow = started.json()['workflow']
+        self.assertEqual(workflow['status'], 'completed')
+        self.assertTrue(workflow['completed'])
+        self.assertEqual(len(workflow['steps']), 2)
+
+        replay = self.client.get(
+            f"/a2a/sessions/session_g32_exchange/workflows/{workflow['correlation_id']}/replay?limit=10"
+        )
+        self.assertEqual(replay.status_code, 200)
+        replay_payload = replay.json()['replay']
+        self.assertTrue(replay_payload['found'])
+        self.assertEqual(replay_payload['count'], 2)
+        self.assertEqual(replay_payload['items'][0]['sender'], 'workshop')
+        self.assertEqual(replay_payload['items'][1]['sender'], 'academy')
+
+        timed_out = self.client.post(
+            '/a2a/workflows/workshop-academy-exchange',
+            json={
+                'session_id': 'session_g32_timeout',
+                'topic': 'latency recovery',
+                'simulate_timeout': True,
+                'timeout_seconds': 1,
+            },
+        )
+        self.assertEqual(timed_out.status_code, 200)
+        timed_out_payload = timed_out.json()['workflow']
+        self.assertEqual(timed_out_payload['status'], 'timed_out')
+        self.assertFalse(timed_out_payload['completed'])
+
+        denied = self.client.post(
+            '/a2a/workflows/workshop-academy-exchange',
+            json={
+                'session_id': 'session_g32_denied',
+                'topic': 'mutation denied',
+                'request_type': 'world_mutation',
+            },
+        )
+        self.assertEqual(denied.status_code, 200)
+        denied_payload = denied.json()['workflow']
+        self.assertEqual(denied_payload['status'], 'rejected')
+        self.assertFalse(denied_payload['completed'])
+
+    def test_a2a_deployment_topology_endpoint_reports_local_mode_by_default(self) -> None:
+        response = self.client.get('/a2a/deployment/topology')
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()['topology']
+        self.assertEqual(payload['mode'], 'local')
+        self.assertEqual(payload['local_node_id'], 'local')
+        self.assertEqual(payload['known_nodes'], ['local'])
+
+    def test_a2a_deployment_topology_endpoint_reports_inter_node_routes(self) -> None:
+        previous_mode = os.environ.get('ANDIE_A2A_TRANSPORT_MODE')
+        previous_local_node = os.environ.get('ANDIE_A2A_LOCAL_NODE_ID')
+        previous_institution_nodes = os.environ.get('ANDIE_A2A_INSTITUTION_NODES')
+        previous_node_endpoints = os.environ.get('ANDIE_A2A_NODE_ENDPOINTS')
+
+        try:
+            if hasattr(app.state, 'a2a_router'):
+                delattr(app.state, 'a2a_router')
+
+            os.environ['ANDIE_A2A_TRANSPORT_MODE'] = 'inter_node'
+            os.environ['ANDIE_A2A_LOCAL_NODE_ID'] = 'blaqtower2'
+            os.environ['ANDIE_A2A_INSTITUTION_NODES'] = json.dumps(
+                {
+                    'workshop': 'blaqtower2',
+                    'academy': 'blaqtower1',
+                    'inference': 'blaqtower3',
+                }
+            )
+            os.environ['ANDIE_A2A_NODE_ENDPOINTS'] = json.dumps({
+                'blaqtower1': 'http://127.0.0.1:9991',
+                'blaqtower3': 'http://127.0.0.1:9993',
+            })
+
+            response = self.client.get('/a2a/deployment/topology?institution_id=academy')
+            self.assertEqual(response.status_code, 200)
+            topology = response.json()['topology']
+            self.assertEqual(topology['mode'], 'inter_node')
+            self.assertEqual(topology['local_node_id'], 'blaqtower2')
+            self.assertEqual(topology['institution_nodes']['academy'], 'blaqtower1')
+            self.assertEqual(topology['institution_nodes']['inference'], 'blaqtower3')
+            self.assertEqual(topology['route']['institution_id'], 'academy')
+            self.assertEqual(topology['route']['assigned_node'], 'blaqtower1')
+            self.assertFalse(topology['route']['is_local_execution'])
+        finally:
+            if hasattr(app.state, 'a2a_router'):
+                delattr(app.state, 'a2a_router')
+
+            if previous_mode is None:
+                os.environ.pop('ANDIE_A2A_TRANSPORT_MODE', None)
+            else:
+                os.environ['ANDIE_A2A_TRANSPORT_MODE'] = previous_mode
+
+            if previous_local_node is None:
+                os.environ.pop('ANDIE_A2A_LOCAL_NODE_ID', None)
+            else:
+                os.environ['ANDIE_A2A_LOCAL_NODE_ID'] = previous_local_node
+
+            if previous_institution_nodes is None:
+                os.environ.pop('ANDIE_A2A_INSTITUTION_NODES', None)
+            else:
+                os.environ['ANDIE_A2A_INSTITUTION_NODES'] = previous_institution_nodes
+
+            if previous_node_endpoints is None:
+                os.environ.pop('ANDIE_A2A_NODE_ENDPOINTS', None)
+            else:
+                os.environ['ANDIE_A2A_NODE_ENDPOINTS'] = previous_node_endpoints
 
 
 if __name__ == '__main__':

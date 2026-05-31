@@ -186,6 +186,15 @@ Deployment behavior contract is frozen in docs/architecture/g3-multi-node-instit
 - session_id and correlation_id continuity remain mandatory across execution paths.
 - governance, identity, audit, and replay guarantees remain unchanged.
 
+## G3.5 Multi-Node Institution Deployment (Alpha)
+
+First alpha implementation keeps deployment behavior intentionally narrow.
+
+- Inter-node routing now exposes explicit deployment topology and institution route lookup.
+- Message records include deployment metadata (`sender_assigned_node`, `receiver_assigned_node`, `local_node_id`).
+- Deployment observability is exposed at API endpoint `GET /a2a/deployment/topology`.
+- Workflow and transport semantics remain unchanged from G3.2 and G3.3.
+
 ## A2A Placement
 
 Agent-to-Agent (A2A) collaboration is scheduled after G1 hardening and before broad distributed autonomy.

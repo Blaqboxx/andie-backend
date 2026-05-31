@@ -138,6 +138,29 @@ class InterNodeTransportTests(unittest.TestCase):
         self.assertIn('transport', inter_replay[1])
         self.assertEqual(inter_replay[0]['transport']['target_node'], 'blaqtower1')
         self.assertEqual(inter_replay[1]['transport']['target_node'], 'blaqtower2')
+        self.assertIn('deployment', inter_replay[0])
+        self.assertIn('deployment', inter_replay[1])
+        self.assertEqual(inter_replay[0]['deployment']['sender_assigned_node'], 'blaqtower2')
+        self.assertEqual(inter_replay[0]['deployment']['receiver_assigned_node'], 'blaqtower1')
+        self.assertEqual(inter_replay[1]['deployment']['sender_assigned_node'], 'blaqtower1')
+        self.assertEqual(inter_replay[1]['deployment']['receiver_assigned_node'], 'blaqtower2')
+
+    def test_deployment_topology_and_route_lookup_are_exposed(self) -> None:
+        topology = self.inter_node_router.deployment_topology()
+        self.assertEqual(topology['mode'], 'inter_node')
+        self.assertEqual(topology['local_node_id'], 'blaqtower2')
+        self.assertEqual(topology['institution_nodes']['workshop'], 'blaqtower2')
+        self.assertEqual(topology['institution_nodes']['academy'], 'blaqtower1')
+        self.assertIn('blaqtower1', topology['known_nodes'])
+        self.assertIn('blaqtower2', topology['known_nodes'])
+
+        academy_route = self.inter_node_router.deployment_route_for('academy')
+        self.assertEqual(academy_route['assigned_node'], 'blaqtower1')
+        self.assertFalse(academy_route['is_local_execution'])
+
+        unknown_route = self.inter_node_router.deployment_route_for('unknown_institution')
+        self.assertEqual(unknown_route['assigned_node'], 'blaqtower2')
+        self.assertTrue(unknown_route['is_local_execution'])
 
     def test_retry_determinism_produces_single_remote_outcome(self) -> None:
         flaky_transport = _FakeTransportClient(
