@@ -1,5 +1,30 @@
 # ANDIE Release Milestones
 
+## 📡 v1.2-g3-inter-node-transport-spec
+
+**Release Date:** May 30, 2026
+**Status:** ✅ Contract Freeze (G3.3 Inter-Node Transport)
+**Git Tag:** `valhalla-g3-inter-node-transport-spec`
+
+### 🎯 Strategic Significance
+
+This milestone freezes inter-node transport constraints while preserving local workflow semantics proven in G3.2.
+
+### ✅ Contract Scope
+
+- Transport between verified nodes (`blaqtower2`, `blaqtower`, `blaqtower3`).
+- Envelope continuity for session and correlation tracing.
+- Deterministic retry/timeout/failure handling.
+- Transport-level audit requirements and replay compatibility.
+
+### 📄 Specification
+
+See docs/architecture/g3-inter-node-transport-spec.md.
+
+### 🚀 What This Unblocks
+
+Implementation of inter-node transport under a frozen contract without changing workflow semantics.
+
 ## 🎯 v1.1-g3-institution-workflow-exchange
 
 **Release Date:** May 30, 2026

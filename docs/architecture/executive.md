@@ -32,6 +32,7 @@ Current executive maturity is tracked as:
 - G3.0 Local A2A Protocol: complete.
 - G3.1 Local A2A Router Conformance: complete.
 - G3.2 Institution Workflow Exchange: complete.
+- G3.3 Inter-Node Transport Contract: frozen.
 
 ## G1.4 Operational Readiness
 
@@ -128,6 +129,16 @@ The local router now proves governed institution collaboration, not just message
 - Timeout workflows remain deterministic and replayable.
 - Governance-denied workflow attempts are written to the audit ledger.
 - Replay surfaces can return the complete workflow exchange for a session and correlation chain.
+
+## G3.3 Inter-Node Transport Contract (Frozen)
+
+Inter-node transport contract is frozen in docs/architecture/g3-inter-node-transport-spec.md.
+
+- G3.3 preserves G3.2 workflow semantics while moving delivery across verified nodes.
+- session_id and correlation_id continuity remain mandatory across hosts.
+- Transport retries, failures, and acknowledgements are auditable.
+- Governance and identity checks remain mandatory and unchanged.
+- Transport must not introduce new institution authority or direct mutation paths.
 
 ## A2A Placement
 
