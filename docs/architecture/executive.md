@@ -35,6 +35,7 @@ Current executive maturity is tracked as:
 - G3.3 Inter-Node Transport Contract: frozen.
 - G3.4 Multi-Node Institution Placement: frozen.
 - G3.5 Multi-Node Institution Deployment: frozen.
+- G3.5 Release Hardening: in progress.
 
 ## G1.4 Operational Readiness
 
@@ -206,6 +207,14 @@ The following deployment proof gates are now validated in test coverage:
 - Replay equivalence is preserved between single-node and multi-node execution except deployment metadata.
 
 These proofs confirm distribution does not change institution workflow behavior.
+
+## G3.5 Release Hardening (In Progress)
+
+Operational hardening guide is defined in docs/architecture/g3-multi-node-institution-deployment-hardening.md.
+
+- Hardening captures live node evidence instead of adding new product behavior.
+- Evidence harness validates topology mapping, route lookup, replay continuity, and outage determinism.
+- Hardening must demonstrate that live multi-node execution preserves frozen G3.5 invariants.
 
 ## A2A Placement
 

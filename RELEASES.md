@@ -1,5 +1,34 @@
 # ANDIE Release Milestones
 
+## 🧱 v1.9-g3-multi-node-institution-deployment-release-hardening
+
+**Release Date:** May 30, 2026
+**Status:** 🚧 In Progress (G3.5 Release Hardening)
+**Git Tag:** pending
+
+### 🎯 Strategic Significance
+
+This milestone starts live operational verification to prove that real multi-node behavior matches frozen G3.5 contract behavior.
+
+### ✅ Hardening Artifacts
+
+- Runbook: docs/architecture/g3-multi-node-institution-deployment-hardening.md.
+- Evidence harness: scripts/g35_release_hardening.py.
+
+### ✅ Hardening Focus
+
+- Node outage behavior.
+- Recovery behavior.
+- Cross-node latency visibility.
+- Replay integrity.
+- Session continuity.
+- Audit completeness.
+- Governance-preserving execution under failure.
+
+### 🚀 Exit Condition
+
+Promote to final G3.5 release tag only after live evidence artifacts pass hardening gates.
+
 ## ✅ v1.8-g3-multi-node-institution-deployment-beta-proofs
 
 **Release Date:** May 30, 2026
