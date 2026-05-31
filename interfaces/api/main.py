@@ -2952,12 +2952,37 @@ def _get_a2a_router(request: Request):
         return router_instance
 
     controller = _get_executive_controller(request)
+    transport_mode = str(os.environ.get('ANDIE_A2A_TRANSPORT_MODE', 'local')).strip().lower()
     try:
         from andie_backend.executive.a2a import LocalA2ARouter
+        from andie_backend.executive.inter_node_a2a import InterNodeA2ARouter, HttpA2ATransportClient
     except ModuleNotFoundError:
         from executive.a2a import LocalA2ARouter
+        from executive.inter_node_a2a import InterNodeA2ARouter, HttpA2ATransportClient
 
-    router_instance = LocalA2ARouter(controller)
+    local_router = LocalA2ARouter(controller)
+    if transport_mode != 'inter_node':
+        router_instance = local_router
+        request.app.state.a2a_router = router_instance
+        return router_instance
+
+    try:
+        institution_nodes = json.loads(str(os.environ.get('ANDIE_A2A_INSTITUTION_NODES', '{}')))
+    except Exception:
+        institution_nodes = {}
+    try:
+        node_endpoints = json.loads(str(os.environ.get('ANDIE_A2A_NODE_ENDPOINTS', '{}')))
+    except Exception:
+        node_endpoints = {}
+
+    local_node_id = str(os.environ.get('ANDIE_A2A_LOCAL_NODE_ID', 'blaqtower2')).strip()
+    router_instance = InterNodeA2ARouter(
+        local_router=local_router,
+        local_node_id=local_node_id,
+        institution_nodes=(institution_nodes if isinstance(institution_nodes, dict) else {}),
+        transport_client=HttpA2ATransportClient(node_endpoints=(node_endpoints if isinstance(node_endpoints, dict) else {})),
+    )
+
     request.app.state.a2a_router = router_instance
     return router_instance
 
@@ -3418,6 +3443,59 @@ async def a2a_workflow_research_prototype(request: Request):
     return {
         'status': 'ok',
         'workflow': workflow,
+    }
+
+
+@router.post('/a2a/workflows/workshop-academy-exchange')
+async def a2a_workflow_workshop_academy_exchange(request: Request):
+    router_instance = _get_a2a_router(request)
+    payload = await request.json()
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail='payload must be an object')
+
+    session_id = payload.get('session_id')
+    topic = payload.get('topic')
+    if not isinstance(session_id, str) or not session_id.strip():
+        raise HTTPException(status_code=400, detail='session_id is required')
+    if not isinstance(topic, str) or not topic.strip():
+        raise HTTPException(status_code=400, detail='topic is required')
+
+    request_type = str(payload.get('request_type') or 'research_request').strip()
+    response_type = str(payload.get('response_type') or 'research_result').strip()
+    try:
+        timeout_seconds = int(payload.get('timeout_seconds', 300))
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail='timeout_seconds must be an integer') from exc
+    simulate_timeout = bool(payload.get('simulate_timeout', False))
+
+    workflow = router_instance.run_workshop_academy_workflow(
+        session_id=session_id.strip(),
+        topic=topic.strip(),
+        request_type=request_type,
+        response_type=response_type,
+        timeout_seconds=timeout_seconds,
+        simulate_timeout=simulate_timeout,
+    )
+    return {
+        'status': 'ok',
+        'workflow': workflow,
+    }
+
+
+@router.get('/a2a/sessions/{session_id}/workflows/{correlation_id}/replay')
+async def a2a_workflow_replay(session_id: str, correlation_id: str, request: Request, limit: int = 100):
+    router_instance = _get_a2a_router(request)
+    normalized_limit = max(1, min(int(limit), 500))
+    replay = router_instance.replay_workflow_exchange(
+        session_id=session_id,
+        correlation_id=correlation_id,
+        limit=normalized_limit,
+    )
+    if not replay.get('found'):
+        raise HTTPException(status_code=404, detail='a2a workflow not found')
+    return {
+        'status': 'ok',
+        'replay': replay,
     }
 
 

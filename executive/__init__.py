@@ -1,6 +1,7 @@
 from .controller import ExecutiveController
 from .bounded_scheduler import BoundedScheduler, SchedulerState
 from .a2a import LocalA2ARouter
+from .inter_node_a2a import InterNodeA2ARouter, HttpA2ATransportClient
 from .agenda_policy import DEFAULT_AGENDA_POLICY, load_agenda_policy, normalize_agenda_policy
 from .operational_slo import DEFAULT_OPERATIONAL_SLOS, load_operational_slos, normalize_operational_slos
 from .identity import (
@@ -89,6 +90,8 @@ __all__ = [
     'ReflectionRecord',
     'Resource',
     'LocalA2ARouter',
+    'InterNodeA2ARouter',
+    'HttpA2ATransportClient',
     'StaticIdentityProvider',
     'Task',
     'TaskStatus',

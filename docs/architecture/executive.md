@@ -140,6 +140,22 @@ Inter-node transport contract is frozen in docs/architecture/g3-inter-node-trans
 - Governance and identity checks remain mandatory and unchanged.
 - Transport must not introduce new institution authority or direct mutation paths.
 
+## G3.3 Inter-Node Transport (Alpha)
+
+First implementation keeps the adapter intentionally narrow:
+
+- `LocalA2ARouter` remains the local semantic authority.
+- `InterNodeA2ARouter` preserves the same workflow interface and delegates cross-node delivery via HTTP transport.
+- Workflow semantics (`session_id`, `correlation_id`, status transitions, replay shape) remain unchanged.
+- Replay includes node transport metadata while preserving workflow event order and meaning.
+
+Alpha implementation is controlled by runtime config:
+
+- `ANDIE_A2A_TRANSPORT_MODE=local|inter_node`
+- `ANDIE_A2A_LOCAL_NODE_ID`
+- `ANDIE_A2A_INSTITUTION_NODES` (JSON map)
+- `ANDIE_A2A_NODE_ENDPOINTS` (JSON map)
+
 ## A2A Placement
 
 Agent-to-Agent (A2A) collaboration is scheduled after G1 hardening and before broad distributed autonomy.

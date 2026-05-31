@@ -1,5 +1,33 @@
 # ANDIE Release Milestones
 
+## 🌐 v1.3-g3-inter-node-transport-alpha
+
+**Release Date:** May 30, 2026
+**Status:** ✅ Implementation Alpha (G3.3 Inter-Node Transport)
+**Git Tag:** `valhalla-g3-inter-node-transport-alpha`
+
+### 🎯 Strategic Significance
+
+This milestone implements the first inter-node transport adapter while preserving G3.2 workflow semantics.
+
+### ✅ Alpha Outcomes
+
+- Added `InterNodeA2ARouter` with the same workflow-facing interface as local routing.
+- Added HTTP transport client for cross-node message carriage.
+- Preserved workflow replay semantics while adding transport node metadata.
+- Kept governance, identity, timeout, and status semantics unchanged.
+
+### 🧪 Validation
+
+- `tests.test_a2a_local_protocol`: passing.
+- `tests.test_a2a_local_router_conformance`: passing.
+- `tests.test_inter_node_a2a_transport`: passing.
+- `tests.test_executive_agenda_api`: passing.
+
+### 🚀 What This Unblocks
+
+Controlled progression to real Blaqtower node-to-node workflow execution without redesigning workflow semantics.
+
 ## 📡 v1.2-g3-inter-node-transport-spec
 
 **Release Date:** May 30, 2026
