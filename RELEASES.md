@@ -1,5 +1,29 @@
 # ANDIE Release Milestones
 
+## 🗺️ v1.5-g3-multi-node-institution-placement-spec
+
+**Release Date:** May 30, 2026
+**Status:** ✅ Contract Freeze (G3.4 Multi-Node Placement)
+**Git Tag:** `valhalla-g3-multi-node-institution-placement-spec`
+
+### 🎯 Strategic Significance
+
+This milestone freezes the contract for intentional institution placement across verified nodes while preserving G3 semantics.
+
+### ✅ Contract Scope
+
+- Placement of Academy, Workshop, Executive, Governance, Identity, Scheduler, Mission Control, and Inference responsibilities across verified nodes.
+- Placement metadata for audit and replay.
+- Failure-impact visibility without workflow-semantic changes.
+
+### 📄 Specification
+
+See docs/architecture/g3-multi-node-institution-placement-spec.md.
+
+### 🚀 What This Unblocks
+
+Conformance work for explicit node placement and operator-facing failure impact summaries, without altering transport or workflow behavior.
+
 ## 🧪 v1.4-g3-inter-node-transport-beta-proofs
 
 **Release Date:** May 30, 2026

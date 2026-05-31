@@ -33,6 +33,7 @@ Current executive maturity is tracked as:
 - G3.1 Local A2A Router Conformance: complete.
 - G3.2 Institution Workflow Exchange: complete.
 - G3.3 Inter-Node Transport Contract: frozen.
+- G3.4 Multi-Node Institution Placement: frozen.
 
 ## G1.4 Operational Readiness
 
@@ -165,6 +166,15 @@ The following reliability and equivalence proofs are now validated in test cover
 - Replay equivalence: local and inter-node replays preserve identical workflow semantics except transport metadata.
 
 These proofs keep G3.3 focused on distributed systems concerns without changing institution workflow meaning.
+
+## G3.4 Multi-Node Institution Placement (Frozen)
+
+Placement contract is frozen in docs/architecture/g3-multi-node-institution-placement-spec.md.
+
+- Placement maps verified institutions to verified nodes.
+- Placement metadata is auditable and replayable.
+- Failure impact becomes visible at the placement layer without changing workflow semantics.
+- G3.4 remains distinct from transport and A2A workflow contracts.
 
 ## A2A Placement
 
