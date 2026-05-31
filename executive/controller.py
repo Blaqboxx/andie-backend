@@ -143,6 +143,14 @@ class ExecutiveController:
                 escalation_rules=['final_authority'],
                 can_veto=True,
             ),
+            'inference': InstitutionProfile(
+                institution_id='inference',
+                authority_level=2,
+                proposal_types=['research_note', 'inference_result'],
+                resource_limits={'max_quantity_delta': 25.0},
+                review_requirements=['mission_control_review'],
+                escalation_rules=['escalate_to_mission_control'],
+            ),
         }
         for institution_id, profile in defaults.items():
             if self.store.get_institution_profile(institution_id) is None:

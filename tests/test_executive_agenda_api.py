@@ -570,6 +570,32 @@ class ExecutiveAgendaApiTests(unittest.TestCase):
         self.assertEqual(denied_payload['status'], 'rejected')
         self.assertFalse(denied_payload['completed'])
 
+    def test_a2a_workshop_academy_inference_exchange_supports_replay(self) -> None:
+        started = self.client.post(
+            '/a2a/workflows/workshop-academy-inference-exchange',
+            json={
+                'session_id': 'session_g35_three_node_local',
+                'topic': 'end to end continuity',
+            },
+        )
+        self.assertEqual(started.status_code, 200)
+        workflow = started.json()['workflow']
+        self.assertEqual(workflow['status'], 'completed')
+        self.assertTrue(workflow['completed'])
+        self.assertEqual(len(workflow['steps']), 2)
+        self.assertEqual(workflow['steps'][0]['stage'], 'workshop_to_academy')
+        self.assertEqual(workflow['steps'][1]['stage'], 'academy_to_inference')
+
+        replay = self.client.get(
+            f"/a2a/sessions/session_g35_three_node_local/workflows/{workflow['correlation_id']}/replay?limit=10"
+        )
+        self.assertEqual(replay.status_code, 200)
+        replay_payload = replay.json()['replay']
+        self.assertTrue(replay_payload['found'])
+        self.assertEqual(replay_payload['count'], 2)
+        self.assertEqual(replay_payload['items'][0]['sender'], 'workshop')
+        self.assertEqual(replay_payload['items'][1]['receiver'], 'inference')
+
     def test_a2a_deployment_topology_endpoint_reports_local_mode_by_default(self) -> None:
         response = self.client.get('/a2a/deployment/topology')
         self.assertEqual(response.status_code, 200)

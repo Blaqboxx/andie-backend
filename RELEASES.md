@@ -1,5 +1,34 @@
 # ANDIE Release Milestones
 
+## ✅ v1.8-g3-multi-node-institution-deployment-beta-proofs
+
+**Release Date:** May 30, 2026
+**Status:** ✅ Reliability and Equivalence Proofs (G3.5 Beta)
+**Git Tag:** `valhalla-g3-multi-node-institution-deployment-beta-proofs`
+
+### 🎯 Strategic Significance
+
+This milestone validates that multi-node deployment preserves institutional behavior and replay semantics under governed execution.
+
+### ✅ Beta Proof Gates
+
+- Cross-node Workshop -> Academy completion succeeds under governance and identity checks.
+- Workshop -> Academy -> Workshop replay continuity preserves `session_id`, `correlation_id`, and outcome semantics.
+- Workshop -> Academy -> Inference continuity preserves audit continuity across Blaqtower2 -> Blaqtower1 -> Blaqtower3.
+- Academy unavailability produces deterministic `timed_out`, audited, replayable outcomes.
+- Replay equivalence holds between single-node and multi-node execution except deployment metadata.
+
+### 🧪 Validation
+
+- `tests.test_inter_node_a2a_transport`: passing.
+- `tests.test_executive_agenda_api`: passing.
+- `tests.test_a2a_local_router_conformance`: passing.
+- `tests.test_a2a_local_protocol`: passing.
+
+### 🚀 What This Unblocks
+
+G3.5 release hardening and live multi-node deployment verification against the frozen contract.
+
 ## 🧩 v1.7-g3-multi-node-institution-deployment-alpha
 
 **Release Date:** May 30, 2026

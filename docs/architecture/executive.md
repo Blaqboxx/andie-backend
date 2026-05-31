@@ -195,6 +195,18 @@ First alpha implementation keeps deployment behavior intentionally narrow.
 - Deployment observability is exposed at API endpoint `GET /a2a/deployment/topology`.
 - Workflow and transport semantics remain unchanged from G3.2 and G3.3.
 
+## G3.5 Multi-Node Institution Deployment (Beta Proof Gates)
+
+The following deployment proof gates are now validated in test coverage:
+
+- Cross-node Workshop -> Academy completion remains deterministic and governed.
+- Workshop -> Academy -> Workshop replay continuity preserves session and correlation linkage.
+- Workshop -> Academy -> Inference three-node continuity preserves audit chain and deployment metadata.
+- Node failure at Academy produces deterministic `timed_out`, audited, replayable outcomes.
+- Replay equivalence is preserved between single-node and multi-node execution except deployment metadata.
+
+These proofs confirm distribution does not change institution workflow behavior.
+
 ## A2A Placement
 
 Agent-to-Agent (A2A) collaboration is scheduled after G1 hardening and before broad distributed autonomy.

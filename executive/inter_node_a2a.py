@@ -440,3 +440,92 @@ class InterNodeA2ARouter:
             'message_count': replay['count'],
             'replay': replay,
         }
+
+    def run_workshop_academy_inference_workflow(
+        self,
+        *,
+        session_id: str,
+        topic: str,
+        timeout_seconds: int = 300,
+    ) -> Dict[str, Any]:
+        correlation_id = f'corr_{uuid4().hex}'
+        normalized_session_id = str(session_id or '').strip()
+        normalized_topic = str(topic or '').strip()
+
+        if not normalized_session_id:
+            raise ValueError('session_id_required')
+        if not normalized_topic:
+            raise ValueError('topic_required')
+
+        request_message = self.send_message(
+            sender='workshop',
+            receiver='academy',
+            message_type='research_request',
+            payload={
+                'topic': normalized_topic,
+                'workflow': 'workshop_academy_inference_exchange',
+                'request_type': 'research_request',
+            },
+            session_id=normalized_session_id,
+            correlation_id=correlation_id,
+            timeout_seconds=timeout_seconds,
+            intent_id='workflow:institution_exchange',
+        )
+
+        inference_message = self.send_message(
+            sender='academy',
+            receiver='inference',
+            message_type='inference_request',
+            payload={
+                'topic': normalized_topic,
+                'workflow': 'workshop_academy_inference_exchange',
+                'request_type': 'inference_request',
+            },
+            session_id=normalized_session_id,
+            correlation_id=correlation_id,
+            timeout_seconds=timeout_seconds,
+            intent_id='workflow:institution_exchange',
+        )
+
+        request_ack = self.respond_message(
+            request_message['message_id'],
+            {
+                'status': 'accepted',
+                'next_action': 'inference_request',
+            },
+        )
+        inference_ack = self.respond_message(
+            inference_message['message_id'],
+            {
+                'status': 'received',
+                'next_action': 'workflow_complete',
+            },
+        )
+
+        replay = self.replay_workflow_exchange(session_id=normalized_session_id, correlation_id=correlation_id)
+        return {
+            'session_id': normalized_session_id,
+            'correlation_id': correlation_id,
+            'workflow_type': 'workshop_academy_inference_exchange',
+            'status': 'completed',
+            'failure_stage': None,
+            'completed': True,
+            'steps': [
+                {
+                    'stage': 'workshop_to_academy',
+                    'message_id': request_message['message_id'],
+                    'message_type': request_message['message_type'],
+                    'status': request_ack['status'],
+                },
+                {
+                    'stage': 'academy_to_inference',
+                    'message_id': inference_message['message_id'],
+                    'message_type': inference_message['message_type'],
+                    'status': inference_ack['status'],
+                },
+            ],
+            'request_ack': request_ack,
+            'inference_ack': inference_ack,
+            'message_count': replay['count'],
+            'replay': replay,
+        }

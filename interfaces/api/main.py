@@ -3516,6 +3516,36 @@ async def a2a_workflow_workshop_academy_exchange(request: Request):
     }
 
 
+@router.post('/a2a/workflows/workshop-academy-inference-exchange')
+async def a2a_workflow_workshop_academy_inference_exchange(request: Request):
+    router_instance = _get_a2a_router(request)
+    payload = await request.json()
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail='payload must be an object')
+
+    session_id = payload.get('session_id')
+    topic = payload.get('topic')
+    if not isinstance(session_id, str) or not session_id.strip():
+        raise HTTPException(status_code=400, detail='session_id is required')
+    if not isinstance(topic, str) or not topic.strip():
+        raise HTTPException(status_code=400, detail='topic is required')
+
+    try:
+        timeout_seconds = int(payload.get('timeout_seconds', 300))
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail='timeout_seconds must be an integer') from exc
+
+    workflow = router_instance.run_workshop_academy_inference_workflow(
+        session_id=session_id.strip(),
+        topic=topic.strip(),
+        timeout_seconds=timeout_seconds,
+    )
+    return {
+        'status': 'ok',
+        'workflow': workflow,
+    }
+
+
 @router.get('/a2a/sessions/{session_id}/workflows/{correlation_id}/replay')
 async def a2a_workflow_replay(session_id: str, correlation_id: str, request: Request, limit: int = 100):
     router_instance = _get_a2a_router(request)

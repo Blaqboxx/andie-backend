@@ -57,6 +57,7 @@ class InterNodeTransportTests(unittest.TestCase):
 
         node1_store = Path(self.tmpdir.name) / 'node1_state.json'
         node2_store = Path(self.tmpdir.name) / 'node2_state.json'
+        node3_store = Path(self.tmpdir.name) / 'node3_state.json'
         local_store = Path(self.tmpdir.name) / 'local_state.json'
 
         self.node1_controller = ExecutiveController(
@@ -65,24 +66,29 @@ class InterNodeTransportTests(unittest.TestCase):
         self.node2_controller = ExecutiveController(
             config=ExecutiveConfig(store_path=str(node2_store), simulate_execution=True)
         )
+        self.node3_controller = ExecutiveController(
+            config=ExecutiveConfig(store_path=str(node3_store), simulate_execution=True)
+        )
         self.local_controller = ExecutiveController(
             config=ExecutiveConfig(store_path=str(local_store), simulate_execution=True)
         )
 
         self.node1_local_router = LocalA2ARouter(self.node1_controller)
         self.node2_local_router = LocalA2ARouter(self.node2_controller)
+        self.node3_local_router = LocalA2ARouter(self.node3_controller)
         self.baseline_local_router = LocalA2ARouter(self.local_controller)
 
         fake_transport = _FakeTransportClient(
             {
                 'blaqtower1': self.node1_local_router,
                 'blaqtower2': self.node2_local_router,
+                'blaqtower3': self.node3_local_router,
             }
         )
         self.inter_node_router = InterNodeA2ARouter(
             local_router=self.node2_local_router,
             local_node_id='blaqtower2',
-            institution_nodes={'workshop': 'blaqtower2', 'academy': 'blaqtower1'},
+            institution_nodes={'workshop': 'blaqtower2', 'academy': 'blaqtower1', 'inference': 'blaqtower3'},
             transport_client=fake_transport,
         )
 
@@ -151,8 +157,10 @@ class InterNodeTransportTests(unittest.TestCase):
         self.assertEqual(topology['local_node_id'], 'blaqtower2')
         self.assertEqual(topology['institution_nodes']['workshop'], 'blaqtower2')
         self.assertEqual(topology['institution_nodes']['academy'], 'blaqtower1')
+        self.assertEqual(topology['institution_nodes']['inference'], 'blaqtower3')
         self.assertIn('blaqtower1', topology['known_nodes'])
         self.assertIn('blaqtower2', topology['known_nodes'])
+        self.assertIn('blaqtower3', topology['known_nodes'])
 
         academy_route = self.inter_node_router.deployment_route_for('academy')
         self.assertEqual(academy_route['assigned_node'], 'blaqtower1')
@@ -161,6 +169,32 @@ class InterNodeTransportTests(unittest.TestCase):
         unknown_route = self.inter_node_router.deployment_route_for('unknown_institution')
         self.assertEqual(unknown_route['assigned_node'], 'blaqtower2')
         self.assertTrue(unknown_route['is_local_execution'])
+
+    def test_three_node_workflow_preserves_audit_continuity(self) -> None:
+        workflow = self.inter_node_router.run_workshop_academy_inference_workflow(
+            session_id='session_three_node_continuity',
+            topic='distributed continuity',
+        )
+
+        self.assertTrue(workflow['completed'])
+        self.assertEqual(workflow['status'], 'completed')
+        self.assertEqual(workflow['message_count'], 2)
+        self.assertEqual(len(workflow['steps']), 2)
+
+        replay = workflow['replay']
+        self.assertTrue(replay['found'])
+        self.assertEqual(replay['count'], 2)
+        self.assertEqual(replay['items'][0]['sender'], 'workshop')
+        self.assertEqual(replay['items'][0]['receiver'], 'academy')
+        self.assertEqual(replay['items'][1]['sender'], 'academy')
+        self.assertEqual(replay['items'][1]['receiver'], 'inference')
+        self.assertEqual(replay['items'][0]['correlation_id'], replay['items'][1]['correlation_id'])
+        self.assertEqual(replay['items'][0]['session_id'], 'session_three_node_continuity')
+        self.assertEqual(replay['items'][1]['session_id'], 'session_three_node_continuity')
+        self.assertEqual(replay['items'][0]['transport']['target_node'], 'blaqtower1')
+        self.assertEqual(replay['items'][1]['transport']['target_node'], 'blaqtower3')
+        self.assertEqual(replay['items'][0]['deployment']['receiver_assigned_node'], 'blaqtower1')
+        self.assertEqual(replay['items'][1]['deployment']['receiver_assigned_node'], 'blaqtower3')
 
     def test_retry_determinism_produces_single_remote_outcome(self) -> None:
         flaky_transport = _FakeTransportClient(

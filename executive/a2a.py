@@ -342,3 +342,257 @@ class LocalA2ARouter:
             'message_count': len(session_messages),
             'completed': True,
         }
+
+    def replay_workflow_exchange(self, *, session_id: str, correlation_id: str, limit: int = 100) -> Dict[str, Any]:
+        normalized_session_id = str(session_id or '').strip()
+        normalized_correlation_id = str(correlation_id or '').strip()
+        normalized_limit = max(1, min(int(limit), 500))
+        messages = [
+            item
+            for item in self.controller.store.list_a2a_messages(session_id=normalized_session_id)
+            if item.correlation_id == normalized_correlation_id
+        ]
+        selected = messages[-normalized_limit:]
+        return {
+            'found': bool(selected),
+            'session_id': normalized_session_id,
+            'correlation_id': normalized_correlation_id,
+            'count': len(selected),
+            'items': [item.to_dict() for item in selected],
+        }
+
+    def run_workshop_academy_workflow(
+        self,
+        *,
+        session_id: str,
+        topic: str,
+        request_type: str = 'research_request',
+        response_type: str = 'research_result',
+        timeout_seconds: int = 300,
+        simulate_timeout: bool = False,
+    ) -> Dict[str, Any]:
+        normalized_session_id = str(session_id or '').strip()
+        normalized_topic = str(topic or '').strip()
+        normalized_request_type = str(request_type or '').strip()
+        normalized_response_type = str(response_type or '').strip()
+        normalized_correlation_id = f'corr_{uuid4().hex}'
+        normalized_timeout_seconds = self._normalize_timeout_seconds(timeout_seconds)
+
+        if not normalized_session_id:
+            raise ValueError('session_id_required')
+        if not normalized_topic:
+            raise ValueError('topic_required')
+
+        request_payload = {
+            'topic': normalized_topic,
+            'workflow': 'workshop_academy_exchange',
+            'request_type': normalized_request_type,
+        }
+        try:
+            request_message = self.send_message(
+                sender='workshop',
+                receiver='academy',
+                message_type=normalized_request_type,
+                payload=request_payload,
+                session_id=normalized_session_id,
+                correlation_id=normalized_correlation_id,
+                timeout_seconds=normalized_timeout_seconds,
+                intent_id='workflow:institution_exchange',
+            )
+        except (PermissionError, ValueError) as exc:
+            replay = self.replay_workflow_exchange(session_id=normalized_session_id, correlation_id=normalized_correlation_id)
+            return {
+                'session_id': normalized_session_id,
+                'correlation_id': normalized_correlation_id,
+                'workflow_type': 'workshop_academy_exchange',
+                'request_type': normalized_request_type,
+                'response_type': normalized_response_type,
+                'status': 'rejected',
+                'failure_stage': 'request',
+                'error': str(exc),
+                'completed': False,
+                'steps': [],
+                'message_count': replay['count'],
+                'replay': replay,
+            }
+
+        steps = [
+            {
+                'stage': 'request',
+                'message_id': request_message['message_id'],
+                'message_type': request_message['message_type'],
+                'status': request_message['status'],
+            },
+        ]
+
+        if simulate_timeout:
+            request_record = self.controller.store.get_a2a_message(request_message['message_id'])
+            if request_record is not None:
+                request_record.timeout_at = '1970-01-01T00:00:00+00:00'
+                self.controller.store.append_a2a_message(request_record)
+            self.expire_timed_out_messages(session_id=normalized_session_id)
+            timed_out_message = self.get_message(request_message['message_id']) or request_message
+            steps[0]['status'] = timed_out_message['status']
+            replay = self.replay_workflow_exchange(session_id=normalized_session_id, correlation_id=normalized_correlation_id)
+            return {
+                'session_id': normalized_session_id,
+                'correlation_id': normalized_correlation_id,
+                'workflow_type': 'workshop_academy_exchange',
+                'request_type': normalized_request_type,
+                'response_type': normalized_response_type,
+                'status': 'timed_out',
+                'failure_stage': 'request',
+                'completed': False,
+                'steps': steps,
+                'message_count': replay['count'],
+                'replay': replay,
+            }
+
+        response_payload = {
+            'topic': normalized_topic,
+            'workflow': 'workshop_academy_exchange',
+            'response_type': normalized_response_type,
+            'finding': f'governed_result_for_{normalized_topic.replace(" ", "_").lower()}',
+            'next_action': 'workshop_review',
+        }
+        response_message = self.send_message(
+            sender='academy',
+            receiver='workshop',
+            message_type=normalized_response_type,
+            payload=response_payload,
+            session_id=normalized_session_id,
+            correlation_id=normalized_correlation_id,
+            timeout_seconds=normalized_timeout_seconds,
+            intent_id='workflow:institution_exchange',
+        )
+
+        request_ack = self.respond_message(
+            request_message['message_id'],
+            {
+                'status': 'accepted',
+                'next_action': normalized_response_type,
+            },
+        )
+        response_ack = self.respond_message(
+            response_message['message_id'],
+            {
+                'status': 'received',
+                'next_action': 'workflow_complete',
+            },
+        )
+
+        steps.append(
+            {
+                'stage': 'response',
+                'message_id': response_message['message_id'],
+                'message_type': response_message['message_type'],
+                'status': response_ack['status'],
+            }
+        )
+
+        replay = self.replay_workflow_exchange(session_id=normalized_session_id, correlation_id=normalized_correlation_id)
+        return {
+            'session_id': normalized_session_id,
+            'correlation_id': normalized_correlation_id,
+            'workflow_type': 'workshop_academy_exchange',
+            'request_type': normalized_request_type,
+            'response_type': normalized_response_type,
+            'status': 'completed',
+            'failure_stage': None,
+            'completed': True,
+            'steps': steps,
+            'request_ack': request_ack,
+            'response_ack': response_ack,
+            'message_count': replay['count'],
+            'replay': replay,
+        }
+
+    def run_workshop_academy_inference_workflow(
+        self,
+        *,
+        session_id: str,
+        topic: str,
+        timeout_seconds: int = 300,
+    ) -> Dict[str, Any]:
+        normalized_session_id = str(session_id or '').strip()
+        normalized_topic = str(topic or '').strip()
+        normalized_correlation_id = f'corr_{uuid4().hex}'
+        normalized_timeout_seconds = self._normalize_timeout_seconds(timeout_seconds)
+
+        if not normalized_session_id:
+            raise ValueError('session_id_required')
+        if not normalized_topic:
+            raise ValueError('topic_required')
+
+        request_message = self.send_message(
+            sender='workshop',
+            receiver='academy',
+            message_type='research_request',
+            payload={
+                'topic': normalized_topic,
+                'workflow': 'workshop_academy_inference_exchange',
+                'request_type': 'research_request',
+            },
+            session_id=normalized_session_id,
+            correlation_id=normalized_correlation_id,
+            timeout_seconds=normalized_timeout_seconds,
+            intent_id='workflow:institution_exchange',
+        )
+
+        inference_message = self.send_message(
+            sender='academy',
+            receiver='inference',
+            message_type='inference_request',
+            payload={
+                'topic': normalized_topic,
+                'workflow': 'workshop_academy_inference_exchange',
+                'request_type': 'inference_request',
+            },
+            session_id=normalized_session_id,
+            correlation_id=normalized_correlation_id,
+            timeout_seconds=normalized_timeout_seconds,
+            intent_id='workflow:institution_exchange',
+        )
+
+        request_ack = self.respond_message(
+            request_message['message_id'],
+            {
+                'status': 'accepted',
+                'next_action': 'inference_request',
+            },
+        )
+        inference_ack = self.respond_message(
+            inference_message['message_id'],
+            {
+                'status': 'received',
+                'next_action': 'workflow_complete',
+            },
+        )
+
+        replay = self.replay_workflow_exchange(session_id=normalized_session_id, correlation_id=normalized_correlation_id)
+        return {
+            'session_id': normalized_session_id,
+            'correlation_id': normalized_correlation_id,
+            'workflow_type': 'workshop_academy_inference_exchange',
+            'status': 'completed',
+            'failure_stage': None,
+            'completed': True,
+            'steps': [
+                {
+                    'stage': 'workshop_to_academy',
+                    'message_id': request_message['message_id'],
+                    'message_type': request_message['message_type'],
+                    'status': request_ack['status'],
+                },
+                {
+                    'stage': 'academy_to_inference',
+                    'message_id': inference_message['message_id'],
+                    'message_type': inference_message['message_type'],
+                    'status': inference_ack['status'],
+                },
+            ],
+            'request_ack': request_ack,
+            'inference_ack': inference_ack,
+            'message_count': replay['count'],
+            'replay': replay,
+        }
