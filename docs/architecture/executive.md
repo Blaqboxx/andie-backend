@@ -34,6 +34,7 @@ Current executive maturity is tracked as:
 - G3.2 Institution Workflow Exchange: complete.
 - G3.3 Inter-Node Transport Contract: frozen.
 - G3.4 Multi-Node Institution Placement: frozen.
+- G3.5 Multi-Node Institution Deployment: frozen.
 
 ## G1.4 Operational Readiness
 
@@ -175,6 +176,15 @@ Placement contract is frozen in docs/architecture/g3-multi-node-institution-plac
 - Placement metadata is auditable and replayable.
 - Failure impact becomes visible at the placement layer without changing workflow semantics.
 - G3.4 remains distinct from transport and A2A workflow contracts.
+
+## G3.5 Multi-Node Institution Deployment (Frozen)
+
+Deployment behavior contract is frozen in docs/architecture/g3-multi-node-institution-deployment-spec.md.
+
+- G3.5 validates execution from assigned nodes while preserving existing semantics.
+- G3.5 introduces deployment proof gates, not new workflow or transport contracts.
+- session_id and correlation_id continuity remain mandatory across execution paths.
+- governance, identity, audit, and replay guarantees remain unchanged.
 
 ## A2A Placement
 

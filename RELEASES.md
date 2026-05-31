@@ -1,5 +1,29 @@
 # ANDIE Release Milestones
 
+## 🚀 v1.6-g3-multi-node-institution-deployment-spec
+
+**Release Date:** May 30, 2026
+**Status:** ✅ Contract Freeze (G3.5 Multi-Node Deployment)
+**Git Tag:** `valhalla-g3-multi-node-institution-deployment-spec`
+
+### 🎯 Strategic Significance
+
+This milestone freezes deployment behavior for running institutions from assigned nodes while preserving all previously frozen system guarantees.
+
+### ✅ Contract Scope
+
+- Deployment from canonical topology: Academy on Blaqtower1, Executive on Blaqtower2, Inference on Blaqtower3.
+- Invariant preservation for session and correlation continuity, governance and identity checks, audit trail, and replay integrity.
+- Deployment proof gates for cross-node completion, replay continuity, outage determinism, and replay equivalence.
+
+### 📄 Specification
+
+See docs/architecture/g3-multi-node-institution-deployment-spec.md.
+
+### 🚀 What This Unblocks
+
+Implementation and verification of real multi-node institution execution without changing workflow, transport, governance, identity, or placement semantics.
+
 ## 🗺️ v1.5-g3-multi-node-institution-placement-spec
 
 **Release Date:** May 30, 2026
