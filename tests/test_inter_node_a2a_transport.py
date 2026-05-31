@@ -9,11 +9,22 @@ from executive.models import ExecutiveConfig
 
 
 class _FakeTransportClient:
-    def __init__(self, routers):
+    def __init__(self, routers, fail_send_attempts=None, always_fail_nodes=None):
         self.routers = dict(routers)
+        self.fail_send_attempts = {str(k): int(v) for k, v in dict(fail_send_attempts or {}).items()}
+        self.always_fail_nodes = {str(item) for item in list(always_fail_nodes or [])}
+        self.send_attempt_counts = {}
 
     def send_message(self, *, node_id, payload):
-        router = self.routers[str(node_id)]
+        normalized_node_id = str(node_id)
+        self.send_attempt_counts[normalized_node_id] = self.send_attempt_counts.get(normalized_node_id, 0) + 1
+        if normalized_node_id in self.always_fail_nodes:
+            raise ValueError(f'transport_send_failed:{normalized_node_id}:503')
+        if self.fail_send_attempts.get(normalized_node_id, 0) > 0:
+            self.fail_send_attempts[normalized_node_id] -= 1
+            raise ValueError(f'transport_send_failed:{normalized_node_id}:503')
+
+        router = self.routers[normalized_node_id]
         return router.send_message(
             sender=payload['sender'],
             receiver=payload['receiver'],
@@ -75,6 +86,22 @@ class InterNodeTransportTests(unittest.TestCase):
             transport_client=fake_transport,
         )
 
+    @staticmethod
+    def _semantic_projection(items):
+        projected = []
+        for item in items:
+            projected.append(
+                {
+                    'sender': item['sender'],
+                    'receiver': item['receiver'],
+                    'message_type': item['message_type'],
+                    'status': item['status'],
+                    'request': dict(item.get('request') or {}),
+                    'response': dict(item.get('response') or {}),
+                }
+            )
+        return projected
+
     def test_inter_node_workflow_matches_local_semantics(self) -> None:
         local = self.baseline_local_router.run_workshop_academy_workflow(
             session_id='session_local_equivalence',
@@ -102,6 +129,7 @@ class InterNodeTransportTests(unittest.TestCase):
         self.assertEqual([item['receiver'] for item in local_replay], [item['receiver'] for item in inter_replay])
         self.assertEqual([item['message_type'] for item in local_replay], [item['message_type'] for item in inter_replay])
         self.assertEqual([item['status'] for item in local_replay], [item['status'] for item in inter_replay])
+        self.assertEqual(self._semantic_projection(local_replay), self._semantic_projection(inter_replay))
         self.assertEqual([item['session_id'] for item in inter_replay], ['session_inter_equivalence', 'session_inter_equivalence'])
         self.assertEqual(inter_replay[0]['correlation_id'], inter_replay[1]['correlation_id'])
 
@@ -110,6 +138,64 @@ class InterNodeTransportTests(unittest.TestCase):
         self.assertIn('transport', inter_replay[1])
         self.assertEqual(inter_replay[0]['transport']['target_node'], 'blaqtower1')
         self.assertEqual(inter_replay[1]['transport']['target_node'], 'blaqtower2')
+
+    def test_retry_determinism_produces_single_remote_outcome(self) -> None:
+        flaky_transport = _FakeTransportClient(
+            {
+                'blaqtower1': self.node1_local_router,
+                'blaqtower2': self.node2_local_router,
+            },
+            fail_send_attempts={'blaqtower1': 1},
+        )
+        router = InterNodeA2ARouter(
+            local_router=self.node2_local_router,
+            local_node_id='blaqtower2',
+            institution_nodes={'workshop': 'blaqtower2', 'academy': 'blaqtower1'},
+            transport_client=flaky_transport,
+            transport_retry_limit=2,
+        )
+
+        workflow = router.run_workshop_academy_workflow(
+            session_id='session_retry_determinism',
+            topic='retry behavior',
+        )
+        self.assertTrue(workflow['completed'])
+        self.assertEqual(workflow['status'], 'completed')
+        self.assertEqual(flaky_transport.send_attempt_counts.get('blaqtower1'), 2)
+
+        remote_messages = self.node1_local_router.list_session_messages('session_retry_determinism', limit=20)
+        self.assertEqual(len(remote_messages), 1)
+        self.assertEqual(remote_messages[0]['receiver'], 'academy')
+
+    def test_node_outage_returns_deterministic_timeout_and_audit(self) -> None:
+        down_transport = _FakeTransportClient(
+            {
+                'blaqtower1': self.node1_local_router,
+                'blaqtower2': self.node2_local_router,
+            },
+            always_fail_nodes={'blaqtower1'},
+        )
+        router = InterNodeA2ARouter(
+            local_router=self.node2_local_router,
+            local_node_id='blaqtower2',
+            institution_nodes={'workshop': 'blaqtower2', 'academy': 'blaqtower1'},
+            transport_client=down_transport,
+            transport_retry_limit=2,
+        )
+
+        workflow = router.run_workshop_academy_workflow(
+            session_id='session_outage_timeout',
+            topic='academy down test',
+        )
+        self.assertFalse(workflow['completed'])
+        self.assertEqual(workflow['status'], 'timed_out')
+        self.assertEqual(workflow['failure_stage'], 'request')
+
+        replay = workflow['replay']
+        self.assertTrue(replay['found'])
+        self.assertEqual(replay['count'], 1)
+        self.assertEqual(replay['items'][0]['status'], 'timed_out')
+        self.assertEqual(replay['items'][0]['error_code'], 'retry_exhausted')
 
 
 if __name__ == '__main__':

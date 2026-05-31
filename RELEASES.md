@@ -1,5 +1,32 @@
 # ANDIE Release Milestones
 
+## 🧪 v1.4-g3-inter-node-transport-beta-proofs
+
+**Release Date:** May 30, 2026
+**Status:** ✅ Reliability and Equivalence Proofs (G3.3 Beta)
+**Git Tag:** `valhalla-g3-inter-node-transport-beta-proofs`
+
+### 🎯 Strategic Significance
+
+This milestone validates inter-node transport behavior as distributed infrastructure, not workflow business logic.
+
+### ✅ Beta Proof Gates
+
+- Retry determinism: transient delivery failures retry to one semantic workflow outcome.
+- Node outage recovery: unreachable remote institutions produce deterministic timed-out workflow state with persisted audit evidence.
+- Replay equivalence: local and inter-node workflow replays remain semantically equivalent except for transport metadata.
+
+### 🧪 Validation
+
+- `tests.test_inter_node_a2a_transport`: passing.
+- `tests.test_a2a_local_router_conformance`: passing.
+- `tests.test_executive_agenda_api`: passing.
+- `tests.test_a2a_local_protocol`: passing.
+
+### 🚀 What This Unblocks
+
+Progression toward real Blaqtower1/Blaqtower2/Blaqtower3 transport execution with explicit reliability and replay guarantees.
+
 ## 🌐 v1.3-g3-inter-node-transport-alpha
 
 **Release Date:** May 30, 2026

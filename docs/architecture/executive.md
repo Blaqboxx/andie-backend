@@ -156,6 +156,16 @@ Alpha implementation is controlled by runtime config:
 - `ANDIE_A2A_INSTITUTION_NODES` (JSON map)
 - `ANDIE_A2A_NODE_ENDPOINTS` (JSON map)
 
+## G3.3 Inter-Node Transport (Beta Proof Gates)
+
+The following reliability and equivalence proofs are now validated in test coverage:
+
+- Retry determinism: transient transport failure retries lead to one semantic workflow outcome.
+- Node outage recovery: unreachable remote institution produces deterministic timed-out workflow status with audit evidence.
+- Replay equivalence: local and inter-node replays preserve identical workflow semantics except transport metadata.
+
+These proofs keep G3.3 focused on distributed systems concerns without changing institution workflow meaning.
+
 ## A2A Placement
 
 Agent-to-Agent (A2A) collaboration is scheduled after G1 hardening and before broad distributed autonomy.

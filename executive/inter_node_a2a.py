@@ -6,6 +6,7 @@ from uuid import uuid4
 import httpx
 
 from .a2a import LocalA2ARouter
+from .models import A2AMessage, A2AMessageStatus, utc_now
 
 
 class HttpA2ATransportClient:
@@ -69,25 +70,72 @@ class InterNodeA2ARouter:
         local_node_id: str,
         institution_nodes: Dict[str, str],
         transport_client: HttpA2ATransportClient,
+        transport_retry_limit: int = 2,
     ) -> None:
         self.local_router = local_router
         self.local_node_id = str(local_node_id or 'local')
         self.institution_nodes = {str(k).strip().lower(): str(v).strip() for k, v in dict(institution_nodes or {}).items()}
         self.transport_client = transport_client
+        self.transport_retry_limit = max(0, int(transport_retry_limit))
         self._message_node_index: Dict[str, str] = {}
 
     def _node_for_institution(self, institution_id: str) -> str:
         normalized = str(institution_id or '').strip().lower()
         return self.institution_nodes.get(normalized, self.local_node_id)
 
-    def _with_transport_metadata(self, message: Dict[str, Any], *, source_node: str, target_node: str) -> Dict[str, Any]:
+    def _with_transport_metadata(
+        self,
+        message: Dict[str, Any],
+        *,
+        source_node: str,
+        target_node: str,
+        attempts: int = 1,
+        retry_exhausted: bool = False,
+    ) -> Dict[str, Any]:
         enriched = dict(message or {})
         enriched['transport'] = {
             'mode': ('local' if source_node == target_node else 'inter_node'),
             'source_node': source_node,
             'target_node': target_node,
+            'attempts': int(attempts),
+            'retry_exhausted': bool(retry_exhausted),
         }
         return enriched
+
+    def _record_transport_failure(
+        self,
+        *,
+        sender: str,
+        receiver: str,
+        message_type: str,
+        session_id: str,
+        correlation_id: str,
+        payload: Dict[str, Any],
+        timeout_seconds: int,
+        error_code: str,
+        error_message: str,
+    ) -> Dict[str, Any]:
+        created_at = utc_now()
+        failed = A2AMessage(
+            message_id=f'a2a_{uuid4().hex}',
+            correlation_id=str(correlation_id or f'corr_{uuid4().hex}'),
+            session_id=str(session_id or 'session_unscoped'),
+            sender=str(sender or '').strip().lower(),
+            receiver=str(receiver or '').strip().lower(),
+            created_at=created_at,
+            updated_at=created_at,
+            message_type=str(message_type or ''),
+            request=dict(payload or {}),
+            response=None,
+            status=A2AMessageStatus.TIMED_OUT,
+            timeout_seconds=max(1, int(timeout_seconds or 300)),
+            timeout_at=created_at,
+            error_code=str(error_code or 'retry_exhausted'),
+            error_message=str(error_message or 'transport_retry_exhausted'),
+        )
+        self.local_router.controller.store.append_a2a_message(failed)
+        self._message_node_index[failed.message_id] = self.local_node_id
+        return failed.to_dict()
 
     def send_message(
         self,
@@ -128,13 +176,52 @@ class InterNodeA2ARouter:
                 policy_decision_id=policy_decision_id,
                 intent_id=intent_id,
             )
+            attempts = 1
         else:
-            message = self.transport_client.send_message(node_id=target_node, payload=outbound)
+            attempts = 0
+            max_attempts = 1 + self.transport_retry_limit
+            last_error: Optional[Exception] = None
+            message = None
+            for _ in range(max_attempts):
+                attempts += 1
+                try:
+                    message = self.transport_client.send_message(node_id=target_node, payload=outbound)
+                    break
+                except ValueError as exc:
+                    last_error = exc
+                    continue
+
+            if message is None:
+                failed_message = self._record_transport_failure(
+                    sender=outbound['sender'],
+                    receiver=outbound['receiver'],
+                    message_type=outbound['message_type'],
+                    session_id=outbound['session_id'],
+                    correlation_id=outbound['correlation_id'],
+                    payload=outbound['payload'],
+                    timeout_seconds=outbound['timeout_seconds'],
+                    error_code='retry_exhausted',
+                    error_message=str(last_error) if last_error is not None else 'transport_retry_exhausted',
+                )
+                self._with_transport_metadata(
+                    failed_message,
+                    source_node=source_node,
+                    target_node=target_node,
+                    attempts=attempts,
+                    retry_exhausted=True,
+                )
+                raise ValueError('transport_retry_exhausted')
 
         message_id = str(message.get('message_id', '')).strip()
         if message_id:
             self._message_node_index[message_id] = target_node
-        return self._with_transport_metadata(message, source_node=source_node, target_node=target_node)
+        return self._with_transport_metadata(
+            message,
+            source_node=source_node,
+            target_node=target_node,
+            attempts=attempts,
+            retry_exhausted=False,
+        )
 
     def respond_message(self, message_id: str, response: Dict[str, Any]) -> Dict[str, Any]:
         node_id = self._message_node_index.get(str(message_id), self.local_node_id)
@@ -235,33 +322,55 @@ class InterNodeA2ARouter:
             )
 
         correlation_id = f'corr_{uuid4().hex}'
-        request_message = self.send_message(
-            sender='workshop',
-            receiver='academy',
-            message_type=request_type,
-            payload={
-                'topic': str(topic or '').strip(),
-                'workflow': 'workshop_academy_exchange',
-                'request_type': str(request_type or '').strip(),
-            },
-            session_id=str(session_id or '').strip(),
-            correlation_id=correlation_id,
-            timeout_seconds=timeout_seconds,
-            intent_id='workflow:institution_exchange',
-        )
+        normalized_session_id = str(session_id or '').strip()
+        normalized_topic = str(topic or '').strip()
+        normalized_request_type = str(request_type or '').strip()
+        normalized_response_type = str(response_type or '').strip()
+
+        try:
+            request_message = self.send_message(
+                sender='workshop',
+                receiver='academy',
+                message_type=normalized_request_type,
+                payload={
+                    'topic': normalized_topic,
+                    'workflow': 'workshop_academy_exchange',
+                    'request_type': normalized_request_type,
+                },
+                session_id=normalized_session_id,
+                correlation_id=correlation_id,
+                timeout_seconds=timeout_seconds,
+                intent_id='workflow:institution_exchange',
+            )
+        except ValueError as exc:
+            replay = self.replay_workflow_exchange(session_id=normalized_session_id, correlation_id=correlation_id)
+            return {
+                'session_id': normalized_session_id,
+                'correlation_id': correlation_id,
+                'workflow_type': 'workshop_academy_exchange',
+                'request_type': normalized_request_type,
+                'response_type': normalized_response_type,
+                'status': 'timed_out',
+                'failure_stage': 'request',
+                'completed': False,
+                'steps': [],
+                'message_count': replay['count'],
+                'replay': replay,
+                'error': str(exc),
+            }
 
         response_message = self.send_message(
             sender='academy',
             receiver='workshop',
-            message_type=response_type,
+            message_type=normalized_response_type,
             payload={
-                'topic': str(topic or '').strip(),
+                'topic': normalized_topic,
                 'workflow': 'workshop_academy_exchange',
-                'response_type': str(response_type or '').strip(),
-                'finding': f'governed_result_for_{str(topic or "").strip().replace(" ", "_").lower()}',
+                'response_type': normalized_response_type,
+                'finding': f'governed_result_for_{normalized_topic.replace(" ", "_").lower()}',
                 'next_action': 'workshop_review',
             },
-            session_id=str(session_id or '').strip(),
+            session_id=normalized_session_id,
             correlation_id=correlation_id,
             timeout_seconds=timeout_seconds,
             intent_id='workflow:institution_exchange',
@@ -270,13 +379,13 @@ class InterNodeA2ARouter:
         self.respond_message(request_message['message_id'], {'status': 'accepted', 'next_action': response_type})
         self.respond_message(response_message['message_id'], {'status': 'received', 'next_action': 'workflow_complete'})
 
-        replay = self.replay_workflow_exchange(session_id=str(session_id or '').strip(), correlation_id=correlation_id)
+        replay = self.replay_workflow_exchange(session_id=normalized_session_id, correlation_id=correlation_id)
         return {
-            'session_id': str(session_id or '').strip(),
+            'session_id': normalized_session_id,
             'correlation_id': correlation_id,
             'workflow_type': 'workshop_academy_exchange',
-            'request_type': str(request_type or '').strip(),
-            'response_type': str(response_type or '').strip(),
+            'request_type': normalized_request_type,
+            'response_type': normalized_response_type,
             'status': 'completed',
             'failure_stage': None,
             'completed': True,
