@@ -232,6 +232,14 @@ Architecture draft is defined in docs/architecture/enterprise-business-operation
 - Enterprise is intentionally separated from Cryptonia financial allocation scope.
 - Executive remains the authority coordinating Enterprise revenue outcomes and Cryptonia capital recommendations.
 
+## F3 Extension: Personal Intelligence Institution (Draft)
+
+Architecture draft is defined in docs/architecture/personal-intelligence-institution.md.
+
+- Personal Intelligence is focused on operator pattern reflection, blind-spot discovery, and evidence-backed calibration.
+- Institution outputs are advisory telemetry, not binding control authority.
+- Executive and Identity remain governing boundaries for access and action.
+
 ## A2A Placement
 
 Agent-to-Agent (A2A) collaboration is scheduled after G1 hardening and before broad distributed autonomy.

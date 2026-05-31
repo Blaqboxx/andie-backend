@@ -1,5 +1,29 @@
 # ANDIE Release Milestones
 
+## 🧠 v1.11-personal-intelligence-institution-draft
+
+**Release Date:** May 30, 2026
+**Status:** ✅ Architecture Draft (F3 Extension)
+**Git Tag:** pending
+
+### 🎯 Strategic Significance
+
+This milestone defines a Personal Intelligence institution for reflective operator telemetry, pattern insight, and blind-spot discovery without reducing operator agency.
+
+### ✅ Draft Outcomes
+
+- Added Personal Intelligence institution draft focused on evidence-backed pattern reflection.
+- Defined advisory-only boundaries with explicit non-control safeguards.
+- Added governance requirements for replay-linked evidence and uncertainty disclosure.
+
+### 📄 Specification
+
+- docs/architecture/personal-intelligence-institution.md
+
+### 🚀 What This Unblocks
+
+Narrow contract freeze for reflective telemetry schema before implementation.
+
 ## 🏢 v1.10-enterprise-business-operations-institution-draft
 
 **Release Date:** May 30, 2026
