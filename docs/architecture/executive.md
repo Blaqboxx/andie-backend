@@ -216,6 +216,14 @@ Operational hardening guide is defined in docs/architecture/g3-multi-node-instit
 - Evidence harness validates topology mapping, route lookup, replay continuity, and outage determinism.
 - Hardening must demonstrate that live multi-node execution preserves frozen G3.5 invariants.
 
+## F3 Extension: Cryptonia Financial Operations Institution (Draft)
+
+Architecture draft is defined in docs/architecture/cryptonia-financial-operations-institution.md.
+
+- Cryptonia is reframed as a Financial Operations Institution, not a crypto-only subsystem.
+- Institution scope expands to multi-asset opportunity evaluation under existing governance and identity constraints.
+- This draft introduces no runtime authority changes and no bypass of Executive decision gates.
+
 ## A2A Placement
 
 Agent-to-Agent (A2A) collaboration is scheduled after G1 hardening and before broad distributed autonomy.
