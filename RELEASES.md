@@ -35,6 +35,10 @@ This milestone starts live operational verification to prove that real multi-nod
 - Coordinator is now reachable at `http://127.0.0.1:8000` with inter-node topology and route lookup checks passing.
 - Workflow endpoints now return deterministic `timed_out` behavior when remote nodes are unavailable (no 500 contract-breaks).
 - Outage simulation gate passes with audited and replayable timeout evidence.
+- Live node probe evidence confirms current remote runtime state:
+    - `Blaqtower` is running Cryptonia services and not exposing ANDIE API ports `8000` or `8010`.
+    - `Blaqtower3` exposes Ollama on `11434` and not ANDIE API ports `8000` or `8010`.
+- Current blocker is now precise: remote node runtime deployment does not yet match G3.5 node API expectations.
 
 Hardening remains in-progress until these operational prerequisites are restored.
 

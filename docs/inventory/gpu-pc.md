@@ -69,3 +69,12 @@ Verified from remote node inspection over SSH.
 
 - Treat all service placement here as best-known, not authoritative.
 - Verified through `jamai-jamison@blaqtower3` over SSH from `Blaqtower2`.
+
+## 2026-05-30 Runtime Probe Delta
+
+- Host responded to interactive terminal probe from operator session.
+- Open ports observed during probe: `22`, `11434`.
+- No running containers observed during probe.
+- Ollama runtime remains present on port `11434`.
+- No ANDIE API responded on `127.0.0.1:8000` or `127.0.0.1:8010` during probe.
+- Current hardening interpretation: Blaqtower3 is serving inference runtime capacity, but is not yet exposing the required ANDIE A2A node API.

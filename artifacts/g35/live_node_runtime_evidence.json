@@ -1,0 +1,70 @@
+{
+  "captured_at": "2026-05-31T04:00:00Z",
+  "coordinator_node": "Blaqtower2",
+  "nodes": {
+    "blaqtower": {
+      "andie_api_ports_present": [],
+      "hostname": "Blaqtower",
+      "notes": "No local /healthz response on 8000 or 8010 from user-verified terminal output.",
+      "observed_ports": [
+        22,
+        6379,
+        7100,
+        7101,
+        7200,
+        11434,
+        19999
+      ],
+      "observed_services": [
+        "cryptonia-sentinel",
+        "cryptonia-paper-broker",
+        "cryptonia-dashboard",
+        "cryptonia-event-bus",
+        "cryptonia-strategy-brain-1"
+      ]
+    },
+    "blaqtower2": {
+      "andie_api_ports_present": [
+        8010
+      ],
+      "hostname": "Blaqtower2",
+      "notes": "Hardening coordinator also started locally on 127.0.0.1:8000 for validation.",
+      "observed_ports": [
+        8010,
+        8011,
+        8012,
+        5173,
+        6333,
+        6379,
+        9000,
+        9443,
+        11434
+      ],
+      "observed_services": [
+        "andie-backend",
+        "andie-ui",
+        "andie-vision",
+        "andie-asr",
+        "redis",
+        "qdrant",
+        "portainer"
+      ]
+    },
+    "blaqtower3": {
+      "andie_api_ports_present": [],
+      "hostname": "Blaqtower3",
+      "notes": "Ollama runtime present on 11434; no local /healthz response on 8000 or 8010 from user-verified terminal output.",
+      "observed_ports": [
+        22,
+        11434
+      ],
+      "observed_services": []
+    }
+  },
+  "summary": {
+    "academy_andie_api_live": false,
+    "coordinator_andie_api_live": true,
+    "hardening_blocker": "Remote node ANDIE APIs are not deployed yet.",
+    "inference_andie_api_live": false
+  }
+}

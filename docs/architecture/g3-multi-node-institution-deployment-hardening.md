@@ -121,6 +121,10 @@ Until these blockers are cleared, only preflight and dry-run evidence should be 
 - Topology and route lookup checks pass for workshop, academy, and inference placement.
 - When academy/inference node APIs are unavailable, workflow probes return deterministic `timed_out` outcomes with replay evidence instead of transport exception 500s.
 - Final hardening pass is still blocked on live Blaqtower1/Blaqtower3 API and SSH availability.
+- Live runtime probe evidence now shows:
+  - Blaqtower is running Cryptonia services on ports `7100`, `7101`, and `7200`, not an ANDIE A2A API.
+  - Blaqtower3 exposes Ollama on `11434`, but no ANDIE A2A API on `8000` or `8010`.
+  - Coordinator-side topology is correct, but remote node runtime deployment still does not match the frozen G3.5 execution contract.
 
 ## Next Step
 

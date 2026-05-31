@@ -71,3 +71,18 @@ Verified from remote node inspection over SSH.
 
 - Treat all service placement here as best-known, not authoritative.
 - Tailnet endpoint used for verification: `blaqtower`.
+
+## 2026-05-30 Runtime Probe Delta
+
+- Host responded to interactive terminal probe from operator session.
+- Open ports observed during probe: `22`, `6379`, `7100`, `7101`, `7200`, `11434`, `19999`.
+- Active containers observed during probe:
+	- `cryptonia-strategy-brain-1`
+	- `cryptonia-event-bus`
+	- `cryptonia-market-ingestion`
+	- `cryptonia-paper-broker`
+	- `cryptonia-sentinel`
+	- `cryptonia-dashboard`
+- `cryptonia-momentum-agent` observed in restart loop.
+- No ANDIE API responded on `127.0.0.1:8000` or `127.0.0.1:8010` during probe.
+- Current hardening interpretation: Blaqtower is reachable as a host, but is not yet exposing the required ANDIE A2A node API.
